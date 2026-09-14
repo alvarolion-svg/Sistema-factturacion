@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import axios from 'axios';
 import './App.css';
 import { ClientesPage } from './components/ClientesPage';
@@ -10,6 +10,10 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [currentPage, setCurrentPage] = useState('dashboard');
+
+  useEffect(() => {
+    console.log('currentPage changed to:', currentPage);
+  }, [currentPage]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
