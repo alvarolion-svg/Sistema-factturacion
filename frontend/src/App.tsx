@@ -77,6 +77,7 @@ function App() {
                 href="#"
                 onClick={(e) => {
                   e.preventDefault();
+                  console.log('Clientes clicked, setting currentPage to clientes');
                   setCurrentPage('clientes');
                 }}
                 className={currentPage === 'clientes' ? 'active' : ''}
