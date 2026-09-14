@@ -27,6 +27,12 @@ export class TopviewService {
       especificaciones?: string;
     }>;
     emails_contacto?: Array<{ email: string; nombre: string; cargo?: string; principal: boolean }>;
+    intermediarios?: Array<{
+      intermediario_id: string;
+      porcentaje_comision: number;
+      tipo_calculo?: 'base' | 'cascada';
+      factura_formal?: boolean;
+    }>;
     notas?: string;
   }): Promise<OrdenPublicidad> {
     return new Promise((resolve, reject) => {
@@ -73,6 +79,40 @@ export class TopviewService {
         ],
         async (err) => {
           if (err) return reject(err);
+
+          // Si hay intermediarios en formato nuevo, insertarlos en ordenes_intermediarios
+          if (datos.intermediarios && datos.intermediarios.length > 0) {
+            let montoActual = montoFinal;
+
+            datos.intermediarios.forEach((inter, index) => {
+              const nivel = index + 1;
+              const tipoCalculo = inter.tipo_calculo || 'cascada';
+              let montoComision: number;
+
+              if (tipoCalculo === 'base') {
+                // Aplica sobre el monto final para facturar
+                montoComision = montoFinal * (inter.porcentaje_comision / 100);
+              } else {
+                // Aplica en cascada sobre lo que queda
+                montoComision = montoActual * (inter.porcentaje_comision / 100);
+                montoActual -= montoComision;
+              }
+
+              const intermedId = uuid();
+              db.run(
+                `
+                INSERT INTO ordenes_intermediarios (
+                  id, orden_id, intermediario_id, numero_nivel, porcentaje_comision,
+                  monto_comision, tipo_calculo, factura_formal
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+              `,
+                [intermedId, ordenId, inter.intermediario_id, nivel, inter.porcentaje_comision, montoComision, tipoCalculo, inter.factura_formal ? 1 : 0],
+                (err) => {
+                  if (err) return reject(err);
+                }
+              );
+            });
+          }
 
           // Insertar detalles de productos
           let detallesInsertados = 0;

@@ -417,6 +417,30 @@ db.serialize(() => {
   db.run(`CREATE INDEX IF NOT EXISTS idx_ordenes_publicidad_estado ON ordenes_publicidad(estado)`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_ordenes_publicidad_cliente ON ordenes_publicidad(cliente_id)`);
 
+  // Intermediarios por Orden (flexible, N intermediarios)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS ordenes_intermediarios (
+      id TEXT PRIMARY KEY,
+      orden_id TEXT NOT NULL,
+      intermediario_id TEXT NOT NULL,
+      numero_nivel INTEGER DEFAULT 1,
+      porcentaje_comision REAL DEFAULT 0,
+      monto_comision REAL DEFAULT 0,
+      tipo_calculo TEXT DEFAULT 'cascada',
+      factura_formal BOOLEAN DEFAULT 0,
+      numero_factura TEXT,
+      fecha_factura DATE,
+      url_documento TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (orden_id) REFERENCES ordenes_publicidad(id),
+      FOREIGN KEY (intermediario_id) REFERENCES intermediarios(id)
+    )
+  `);
+
+  db.run(`CREATE INDEX IF NOT EXISTS idx_ordenes_intermediarios_orden ON ordenes_intermediarios(orden_id)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_ordenes_intermediarios_nivel ON ordenes_intermediarios(numero_nivel)`);
+
   // Detalles de Órdenes de Publicidad
   db.run(`
     CREATE TABLE IF NOT EXISTS ordenes_publicidad_detalles (
