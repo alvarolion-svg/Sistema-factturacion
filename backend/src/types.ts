@@ -135,6 +135,74 @@ export interface AuditoriaRecord {
   created_at: string;
 }
 
+// ==================== USUARIOS Y AUTENTICACIÓN ====================
+
+export interface Rol {
+  id: string;
+  nombre: string;
+  descripcion?: string;
+  nivel: number;
+  habilitado: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Permiso {
+  id: string;
+  codigo: string;
+  descripcion?: string;
+  seccion: string;
+  accion: string;
+  created_at: string;
+}
+
+export interface Usuario {
+  id: string;
+  nombre: string;
+  email: string;
+  password?: string;
+  rol_id: string;
+  departamento?: string;
+  telefono?: string;
+  activo: boolean;
+  ultimo_login?: string;
+  created_at: string;
+  updated_at: string;
+  rol?: Rol;
+  permisos?: Permiso[];
+}
+
+export interface Sesion {
+  id: string;
+  usuario_id: string;
+  token: string;
+  ip?: string;
+  user_agent?: string;
+  fecha_inicio: string;
+  fecha_expiracion: string;
+  activa: boolean;
+}
+
+export interface LoginRequest {
+  email: string;
+  password: string;
+}
+
+export interface LoginResponse {
+  token: string;
+  usuario: Usuario;
+  sesion: Sesion;
+}
+
+export interface JWTPayload {
+  usuario_id: string;
+  email: string;
+  rol_id: string;
+  permisos: string[];
+  iat: number;
+  exp: number;
+}
+
 // ==================== RESPUESTAS ====================
 
 export interface ApiResponse<T> {

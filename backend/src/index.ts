@@ -1,4 +1,4 @@
-import express from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
@@ -6,6 +6,9 @@ import db from './database';
 import { VentasService } from './services/ventas';
 import { TesoreriaService } from './services/tesoreria';
 import { AuditoriaService } from './services/auditoria';
+import { AutenticacionService } from './services/autenticacion';
+import { ReportesService } from './services/reportes';
+import { autenticacion, requierePermiso, RequestConUsuario } from './middleware';
 import { v4 as uuid } from 'uuid';
 
 dotenv.config();
@@ -31,16 +34,144 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'Sistema de Facturación - Backend Running' });
 });
 
+// ==================== RUTAS DE AUTENTICACIÓN ====================
+
+app.post('/api/auth/login', async (req: Request, res: Response) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email y contraseña requeridos' });
+    }
+
+    const resultado = await AutenticacionService.login(email, password, req.ip);
+    res.json(resultado);
+  } catch (err: any) {
+    res.status(401).json({ error: err.message });
+  }
+});
+
+app.post('/api/auth/logout', autenticacion, async (req: RequestConUsuario, res: Response) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    if (token) {
+      await AutenticacionService.logout(token);
+    }
+    res.json({ message: 'Logout exitoso' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/auth/me', autenticacion, (req: RequestConUsuario, res: Response) => {
+  res.json(req.usuario);
+});
+
+// ==================== RUTAS DE USUARIOS ====================
+
+app.get('/api/usuarios', autenticacion, requierePermiso('usuarios_gestionar'), async (req, res) => {
+  try {
+    const usuarios = await AutenticacionService.listarUsuarios();
+    res.json(usuarios);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/usuarios', autenticacion, requierePermiso('usuarios_gestionar'), async (req, res) => {
+  try {
+    const usuario = await AutenticacionService.crearUsuario(req.body);
+    res.json(usuario);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/usuarios/:id/rol', autenticacion, requierePermiso('usuarios_gestionar'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const { nuevo_rol_id } = req.body;
+    const usuario = await AutenticacionService.cambiarRol(req.params.id, nuevo_rol_id);
+    AuditoriaService.registrarOperacion('usuarios', 'UPDATE', req.params.id, null, { rol_id: nuevo_rol_id }, req.usuario?.id, req.ip);
+    res.json(usuario);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ==================== RUTAS DE REPORTES ====================
+
+app.get('/api/reportes/ventas', autenticacion, async (req: RequestConUsuario, res: Response) => {
+  try {
+    const reporte = await ReportesService.reporteVentas(req.usuario.id, req.permisos || [], req.query);
+    res.json(reporte);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/reportes/compras', autenticacion, async (req: RequestConUsuario, res: Response) => {
+  try {
+    const reporte = await ReportesService.reporteCompras(req.usuario.id, req.permisos || [], req.query);
+    res.json(reporte);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/reportes/financieros', autenticacion, async (req: RequestConUsuario, res: Response) => {
+  try {
+    const reporte = await ReportesService.reporteFinanciero(req.usuario.id, req.permisos || [], req.query);
+    res.json(reporte);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/reportes/impositiva', autenticacion, async (req: RequestConUsuario, res: Response) => {
+  try {
+    const reporte = await ReportesService.reporteImpositiva(req.usuario.id, req.permisos || [], req.query);
+    res.json(reporte);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/reportes/clientes', autenticacion, async (req: RequestConUsuario, res: Response) => {
+  try {
+    const reporte = await ReportesService.reporteClientes(req.usuario.id, req.permisos || []);
+    res.json(reporte);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/reportes/proveedores', autenticacion, async (req: RequestConUsuario, res: Response) => {
+  try {
+    const reporte = await ReportesService.reporteProveedores(req.usuario.id, req.permisos || []);
+    res.json(reporte);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/reportes/auditoria', autenticacion, async (req: RequestConUsuario, res: Response) => {
+  try {
+    const reporte = await ReportesService.reporteAuditoria(req.usuario.id, req.permisos || [], req.query);
+    res.json(reporte);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ==================== RUTAS DE PRODUCTOS ====================
 
-app.get('/api/productos', (req, res) => {
+app.get('/api/productos', autenticacion, requierePermiso('productos_ver'), (req: RequestConUsuario, res: Response) => {
   db.all('SELECT * FROM productos WHERE habilitado = 1', (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
     res.json(rows);
   });
 });
 
-app.post('/api/productos', (req, res) => {
+app.post('/api/productos', autenticacion, requierePermiso('productos_crear'), (req: RequestConUsuario, res: Response) => {
   const { codigo, nombre, descripcion, precio_venta, costo, stock } = req.body;
   const id = uuid();
 
@@ -52,7 +183,7 @@ app.post('/api/productos', (req, res) => {
     [id, codigo, nombre, descripcion, precio_venta, costo, stock],
     (err) => {
       if (err) return res.status(500).json({ error: err.message });
-      AuditoriaService.registrarOperacion('productos', 'INSERT', id, null, req.body);
+      AuditoriaService.registrarOperacion('productos', 'INSERT', id, null, req.body, req.usuario?.id, req.ip);
       res.json({ id, codigo, nombre, descripcion, precio_venta, costo, stock });
     }
   );
@@ -60,14 +191,14 @@ app.post('/api/productos', (req, res) => {
 
 // ==================== RUTAS DE CLIENTES ====================
 
-app.get('/api/clientes', (req, res) => {
+app.get('/api/clientes', autenticacion, requierePermiso('clientes_ver'), (req: RequestConUsuario, res: Response) => {
   db.all('SELECT * FROM clientes WHERE habilitado = 1', (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
     res.json(rows);
   });
 });
 
-app.post('/api/clientes', (req, res) => {
+app.post('/api/clientes', autenticacion, requierePermiso('clientes_crear'), (req: RequestConUsuario, res: Response) => {
   const { razon_social, cuit, email, telefono, direccion, ciudad, condicion_iva } = req.body;
   const id = uuid();
 
@@ -79,7 +210,7 @@ app.post('/api/clientes', (req, res) => {
     [id, razon_social, cuit, email, telefono, direccion, ciudad, condicion_iva],
     (err) => {
       if (err) return res.status(500).json({ error: err.message });
-      AuditoriaService.registrarOperacion('clientes', 'INSERT', id, null, req.body);
+      AuditoriaService.registrarOperacion('clientes', 'INSERT', id, null, req.body, req.usuario?.id, req.ip);
       res.json({ id, razon_social, cuit, email, telefono, direccion, ciudad, condicion_iva });
     }
   );
@@ -87,7 +218,7 @@ app.post('/api/clientes', (req, res) => {
 
 // ==================== RUTAS DE FACTURAS ====================
 
-app.post('/api/facturas', async (req, res) => {
+app.post('/api/facturas', autenticacion, requierePermiso('facturas_crear'), async (req: RequestConUsuario, res: Response) => {
   try {
     const { cliente_id, fecha, tipo_comprobante, detalles, validar_arca } = req.body;
     const factura = await VentasService.crearFactura(
@@ -97,13 +228,14 @@ app.post('/api/facturas', async (req, res) => {
       detalles,
       validar_arca || false
     );
+    AuditoriaService.registrarOperacion('facturas', 'INSERT', factura.id, null, factura, req.usuario?.id, req.ip);
     res.json(factura);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.get('/api/facturas/:id', (req, res) => {
+app.get('/api/facturas/:id', autenticacion, requierePermiso('facturas_ver'), (req: RequestConUsuario, res: Response) => {
   db.get('SELECT * FROM facturas WHERE id = ?', [req.params.id], (err, factura) => {
     if (err) return res.status(500).json({ error: err.message });
 
@@ -123,12 +255,20 @@ app.get('/api/facturas/:id', (req, res) => {
   });
 });
 
+app.get('/api/facturas', autenticacion, requierePermiso('facturas_ver'), (req: RequestConUsuario, res: Response) => {
+  db.all('SELECT * FROM facturas ORDER BY fecha DESC', (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
 // ==================== RUTAS DE COBROS ====================
 
-app.post('/api/cobros', async (req, res) => {
+app.post('/api/cobros', autenticacion, requierePermiso('cobros_registrar'), async (req: RequestConUsuario, res: Response) => {
   try {
     const { factura_id, monto, cuenta_banco_id } = req.body;
     const result = await VentasService.registrarCobro(factura_id, monto, cuenta_banco_id);
+    AuditoriaService.registrarOperacion('cobros', 'INSERT', factura_id, null, { monto, cuenta_banco_id }, req.usuario?.id, req.ip);
     res.json(result);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -137,10 +277,11 @@ app.post('/api/cobros', async (req, res) => {
 
 // ==================== RUTAS DE NOTAS DE CRÉDITO ====================
 
-app.post('/api/notas-credito', async (req, res) => {
+app.post('/api/notas-credito', autenticacion, requierePermiso('notas_credito_crear'), async (req: RequestConUsuario, res: Response) => {
   try {
     const { factura_id, motivo } = req.body;
     const nc = await VentasService.crearNotaCredito(factura_id, motivo);
+    AuditoriaService.registrarOperacion('notas_credito', 'INSERT', nc.id, null, nc, req.usuario?.id, req.ip);
     res.json(nc);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -149,7 +290,7 @@ app.post('/api/notas-credito', async (req, res) => {
 
 // ==================== RUTAS DE TESORERÍA ====================
 
-app.get('/api/tesoreria/estado', async (req, res) => {
+app.get('/api/tesoreria/estado', autenticacion, requierePermiso('tesoreria_ver'), async (req: RequestConUsuario, res: Response) => {
   try {
     const estado = await TesoreriaService.obtenerEstadoTesoreria();
     res.json(estado);
@@ -158,7 +299,7 @@ app.get('/api/tesoreria/estado', async (req, res) => {
   }
 });
 
-app.post('/api/cuentas', (req, res) => {
+app.post('/api/cuentas', autenticacion, requierePermiso('cuentas_crear'), (req: RequestConUsuario, res: Response) => {
   const { nombre, tipo, moneda } = req.body;
   const id = uuid();
 
@@ -170,6 +311,7 @@ app.post('/api/cuentas', (req, res) => {
     [id, nombre, tipo, moneda],
     (err) => {
       if (err) return res.status(500).json({ error: err.message });
+      AuditoriaService.registrarOperacion('cuentas', 'INSERT', id, null, { nombre, tipo, moneda }, req.usuario?.id, req.ip);
       res.json({ id, nombre, tipo, moneda, saldo: 0 });
     }
   );
@@ -177,7 +319,7 @@ app.post('/api/cuentas', (req, res) => {
 
 // ==================== RUTAS DE AUDITORÍA ====================
 
-app.get('/api/auditoria/:tabla/:id', async (req, res) => {
+app.get('/api/auditoria/:tabla/:id', autenticacion, requierePermiso('auditoria_ver'), async (req: RequestConUsuario, res: Response) => {
   try {
     const { tabla, id } = req.params;
     const historial = await AuditoriaService.obtenerHistorial(tabla, id);
