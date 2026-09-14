@@ -12,6 +12,17 @@ function App() {
   const [currentPage, setCurrentPage] = useState('dashboard');
 
   useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash.slice(1) || 'dashboard';
+      setCurrentPage(hash);
+    };
+
+    handleHashChange();
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
+
+  useEffect(() => {
     console.log('currentPage changed to:', currentPage);
   }, [currentPage]);
 
