@@ -1,31 +1,131 @@
 import { useState } from 'react';
+import axios from 'axios';
 import './App.css';
 
 function App() {
-  const [count, setCount] = useState(0);
+  const [usuario, setUsuario] = useState<any>(null);
+  const [email, setEmail] = useState('admin@system.local');
+  const [password, setPassword] = useState('admin123');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+
+    try {
+      const response = await axios.post('/api/auth/login', { email, password });
+      setUsuario(response.data.usuario);
+      localStorage.setItem('token', response.data.token);
+      localStorage.setItem('usuario', JSON.stringify(response.data.usuario));
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Error en el login');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLogout = () => {
+    setUsuario(null);
+    localStorage.removeItem('token');
+    localStorage.removeItem('usuario');
+  };
+
+  if (usuario) {
+    return (
+      <div className="container">
+        <header className="header">
+          <h1>💼 Sistema de Facturación</h1>
+          <p>Gestión de facturas, clientes y reportes</p>
+          <button
+            onClick={handleLogout}
+            style={{
+              position: 'absolute',
+              right: '2rem',
+              top: '2rem',
+              background: 'rgba(255,255,255,0.2)',
+              color: 'white',
+              border: 'none',
+              padding: '0.5rem 1rem',
+              borderRadius: '4px',
+              cursor: 'pointer'
+            }}
+          >
+            Logout
+          </button>
+        </header>
+
+        <nav className="navbar">
+          <ul>
+            <li><a href="#clientes">Clientes</a></li>
+            <li><a href="#facturas">Facturas</a></li>
+            <li><a href="#reportes">Reportes</a></li>
+          </ul>
+        </nav>
+
+        <main className="main">
+          <section className="hero">
+            <h2>Bienvenido, {usuario.nombre}</h2>
+            <p>Rol: {usuario.rol}</p>
+            <p>Email: {usuario.email}</p>
+          </section>
+        </main>
+
+        <footer className="footer">
+          <p>&copy; 2024 Sistema de Facturación. Todos los derechos reservados.</p>
+        </footer>
+      </div>
+    );
+  }
 
   return (
-    <div className="container">
+    <div className="container login-container">
       <header className="header">
         <h1>💼 Sistema de Facturación</h1>
         <p>Gestión de facturas, clientes y reportes</p>
       </header>
 
-      <nav className="navbar">
-        <ul>
-          <li><a href="#clientes">Clientes</a></li>
-          <li><a href="#facturas">Facturas</a></li>
-          <li><a href="#reportes">Reportes</a></li>
-        </ul>
-      </nav>
-
       <main className="main">
-        <section className="hero">
-          <h2>Bienvenido</h2>
-          <p>Selecciona una opción en el menú para comenzar.</p>
-          <button onClick={() => setCount(count + 1)}>
-            Contador: {count}
-          </button>
+        <section className="login-form">
+          <h2>Iniciar Sesión</h2>
+          {error && <div className="error-message">{error}</div>}
+
+          <form onSubmit={handleLogin}>
+            <div className="form-group">
+              <label htmlFor="email">Email:</label>
+              <input
+                id="email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="admin@system.local"
+                disabled={loading}
+              />
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="password">Contraseña:</label>
+              <input
+                id="password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="admin123"
+                disabled={loading}
+              />
+            </div>
+
+            <button type="submit" disabled={loading}>
+              {loading ? 'Autenticando...' : 'Iniciar Sesión'}
+            </button>
+          </form>
+
+          <div className="credentials-info">
+            <p><strong>Credenciales de prueba:</strong></p>
+            <p>Email: admin@system.local</p>
+            <p>Contraseña: admin123</p>
+          </div>
         </section>
       </main>
 
