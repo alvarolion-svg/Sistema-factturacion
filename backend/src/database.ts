@@ -385,6 +385,38 @@ db.serialize(() => {
     )
   `);
 
+  // Agencias de Publicidad
+  db.run(`
+    CREATE TABLE IF NOT EXISTS agencias (
+      id TEXT PRIMARY KEY,
+      nombre TEXT UNIQUE NOT NULL,
+      descripcion TEXT,
+      contacto TEXT,
+      email TEXT,
+      telefono TEXT,
+      habilitado BOOLEAN DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  // Intermediarios (Columna Gris)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS intermediarios (
+      id TEXT PRIMARY KEY,
+      nombre TEXT UNIQUE NOT NULL,
+      tipo TEXT NOT NULL,
+      descripcion TEXT,
+      contacto TEXT,
+      email TEXT,
+      telefono TEXT,
+      factura_formal BOOLEAN DEFAULT 0,
+      habilitado BOOLEAN DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
   // Órdenes de Publicidad
   db.run(`
     CREATE TABLE IF NOT EXISTS ordenes_publicidad (
@@ -394,6 +426,7 @@ db.serialize(() => {
       razon_social TEXT NOT NULL,
       nombre_anunciante TEXT NOT NULL,
       cliente_id TEXT,
+      agencia_id TEXT,
       periodo_desde DATE NOT NULL,
       periodo_hasta DATE NOT NULL,
       fecha_facturacion DATE,
@@ -408,9 +441,11 @@ db.serialize(() => {
       monto_final REAL DEFAULT 0,
       estado TEXT DEFAULT 'Activa',
       notas TEXT,
+      facturado BOOLEAN DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (cliente_id) REFERENCES clientes(id)
+      FOREIGN KEY (cliente_id) REFERENCES clientes(id),
+      FOREIGN KEY (agencia_id) REFERENCES agencias(id)
     )
   `);
 
@@ -692,12 +727,32 @@ db.serialize(() => {
       ('9', 'Varios', 'Otros', 'Otros productos y servicios')
   `);
 
+  // Insertar agencias de publicidad
+  db.run(`
+    INSERT OR IGNORE INTO agencias (id, nombre, descripcion, contacto)
+    VALUES
+      ('ag1', 'TOPVIEW Argentina', 'Agencia principal TOPVIEW', 'Juan García'),
+      ('ag2', 'TOPVIEW Rosario', 'Sucursal Rosario', 'María López'),
+      ('ag3', 'TOPVIEW Córdoba', 'Sucursal Córdoba', 'Carlos Rodríguez')
+  `);
+
+  // Insertar intermediarios (Columna Gris)
+  db.run(`
+    INSERT OR IGNORE INTO intermediarios (id, nombre, tipo, descripcion, factura_formal)
+    VALUES
+      ('int1', 'LATAMNetwork', 'Red LATAM', 'Red latinoamericana de publicidad', 1),
+      ('int2', 'Pupy', 'Plataforma Digital', 'Plataforma de publicidad digital', 1),
+      ('int3', 'Representante Regional', 'Persona Física', 'Representante de zona', 0)
+  `);
+
   console.log('✓ Base de datos iniciada correctamente');
   console.log('✓ Roles creados (Admin, Gerente, Contador, Vendedor, Comprador, Operario)');
   console.log('✓ Permisos asignados por rol');
   console.log('✓ Usuario admin@system.local creado (password: admin123)');
   console.log('✓ Tipos de anunciantes TOPVIEW creados');
   console.log('✓ Productos TOPVIEW creados');
+  console.log('✓ Agencias de publicidad creadas');
+  console.log('✓ Intermediarios (Columna Gris) creados');
 });
 
 export default db;

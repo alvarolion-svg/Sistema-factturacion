@@ -403,6 +403,34 @@ app.post('/api/ordenes-publicidad/:id/facturas', autenticacion, requierePermiso(
   }
 });
 
+app.get('/api/topview/agencias', autenticacion, async (req: RequestConUsuario, res: Response) => {
+  try {
+    const agencias = await new Promise((resolve, reject) => {
+      db.all('SELECT * FROM agencias WHERE habilitado = 1', (err, rows) => {
+        if (err) reject(err);
+        else resolve(rows);
+      });
+    });
+    res.json(agencias);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/topview/intermediarios', autenticacion, async (req: RequestConUsuario, res: Response) => {
+  try {
+    const intermediarios = await new Promise((resolve, reject) => {
+      db.all('SELECT * FROM intermediarios WHERE habilitado = 1', (err, rows) => {
+        if (err) reject(err);
+        else resolve(rows);
+      });
+    });
+    res.json(intermediarios);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/reportes/topview', autenticacion, requierePermiso('topview_ver'), async (req: RequestConUsuario, res: Response) => {
   try {
     const reporte = await TopviewService.reporteOrdenes();

@@ -12,6 +12,7 @@ export class TopviewService {
     razon_social: string;
     nombre_anunciante: string;
     cliente_id?: string;
+    agencia_id?: string;
     periodo_desde: string;
     periodo_hasta: string;
     fecha_facturacion: string;
@@ -50,11 +51,11 @@ export class TopviewService {
         `
         INSERT INTO ordenes_publicidad (
           id, numero_orden, tipo_anunciante, razon_social, nombre_anunciante,
-          cliente_id, periodo_desde, periodo_hasta, fecha_facturacion, email_contacto,
+          cliente_id, agencia_id, periodo_desde, periodo_hasta, fecha_facturacion, email_contacto,
           costo_produccion, monto_neto, descuento_porcentaje, descuento_monto,
           monto_neto_aplicado, descuento_facturas_porcentaje, descuento_facturas_monto,
           monto_final, notas
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
         [
           ordenId,
@@ -63,6 +64,7 @@ export class TopviewService {
           datos.razon_social,
           datos.nombre_anunciante,
           datos.cliente_id || null,
+          datos.agencia_id || null,
           datos.periodo_desde,
           datos.periodo_hasta,
           datos.fecha_facturacion,
