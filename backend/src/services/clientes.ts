@@ -127,7 +127,10 @@ export const clientesService = {
           if (err) {
             reject(err);
           } else {
-            clientesService.obtenerPorId(id).then(resolve).catch(reject);
+            clientesService.obtenerPorId(id).then(cliente => {
+              if (cliente) resolve(cliente);
+              else reject(new Error('Cliente no encontrado después de actualizar'));
+            }).catch(reject);
           }
         }
       );
