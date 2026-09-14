@@ -9,6 +9,7 @@ import { AuditoriaService } from './services/auditoria';
 import { AutenticacionService } from './services/autenticacion';
 import { ReportesService } from './services/reportes';
 import { TopviewService } from './services/topview';
+import { clientesService } from './services/clientes';
 import { autenticacion, requierePermiso, RequestConUsuario } from './middleware';
 import { v4 as uuid } from 'uuid';
 
@@ -192,29 +193,70 @@ app.post('/api/productos', autenticacion, requierePermiso('productos_crear'), (r
 
 // ==================== RUTAS DE CLIENTES ====================
 
-app.get('/api/clientes', autenticacion, requierePermiso('clientes_ver'), (req: RequestConUsuario, res: Response) => {
-  db.all('SELECT * FROM clientes WHERE habilitado = 1', (err, rows) => {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json(rows);
-  });
+app.get('/api/clientes', autenticacion, requierePermiso('clientes_ver'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const clientes = await clientesService.listar();
+    res.json(clientes);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-app.post('/api/clientes', autenticacion, requierePermiso('clientes_crear'), (req: RequestConUsuario, res: Response) => {
-  const { razon_social, cuit, email, telefono, direccion, ciudad, condicion_iva } = req.body;
-  const id = uuid();
-
-  db.run(
-    `
-    INSERT INTO clientes (id, razon_social, cuit, email, telefono, direccion, ciudad, condicion_iva)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `,
-    [id, razon_social, cuit, email, telefono, direccion, ciudad, condicion_iva],
-    (err) => {
-      if (err) return res.status(500).json({ error: err.message });
-      AuditoriaService.registrarOperacion('clientes', 'INSERT', id, null, req.body, req.usuario?.id, req.ip);
-      res.json({ id, razon_social, cuit, email, telefono, direccion, ciudad, condicion_iva });
+app.get('/api/clientes/buscar', autenticacion, requierePermiso('clientes_ver'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const { termino } = req.query;
+    if (!termino) {
+      return res.status(400).json({ error: 'Término de búsqueda requerido' });
     }
-  );
+    const clientes = await clientesService.buscar(String(termino));
+    res.json(clientes);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/clientes/:id', autenticacion, requierePermiso('clientes_ver'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const cliente = await clientesService.obtenerPorId(req.params.id);
+    if (!cliente) {
+      return res.status(404).json({ error: 'Cliente no encontrado' });
+    }
+    res.json(cliente);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/clientes', autenticacion, requierePermiso('clientes_crear'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const cliente = await clientesService.crear(req.body);
+    AuditoriaService.registrarOperacion('clientes', 'INSERT', cliente.id, null, req.body, req.usuario?.id, req.ip);
+    res.json(cliente);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/clientes/:id', autenticacion, requierePermiso('clientes_editar'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const clienteAnterior = await clientesService.obtenerPorId(req.params.id);
+    const clienteActualizado = await clientesService.actualizar(req.params.id, req.body);
+    AuditoriaService.registrarOperacion('clientes', 'UPDATE', req.params.id, clienteAnterior, req.body, req.usuario?.id, req.ip);
+    res.json(clienteActualizado);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/clientes/:id', autenticacion, requierePermiso('clientes_eliminar'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const cliente = await clientesService.obtenerPorId(req.params.id);
+    await clientesService.eliminar(req.params.id);
+    AuditoriaService.registrarOperacion('clientes', 'DELETE', req.params.id, cliente, null, req.usuario?.id, req.ip);
+    res.json({ message: 'Cliente eliminado correctamente' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ==================== RUTAS DE FACTURAS ====================

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import axios from 'axios';
 import './App.css';
+import { ClientesPage } from './components/ClientesPage';
 
 function App() {
   const [usuario, setUsuario] = useState<any>(null);
@@ -8,6 +9,7 @@ function App() {
   const [password, setPassword] = useState('admin123');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [currentPage, setCurrentPage] = useState('dashboard');
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -58,18 +60,81 @@ function App() {
 
         <nav className="navbar">
           <ul>
-            <li><a href="#clientes">Clientes</a></li>
-            <li><a href="#facturas">Facturas</a></li>
-            <li><a href="#reportes">Reportes</a></li>
+            <li>
+              <a
+                href="#"
+                onClick={(e) => {
+                  e.preventDefault();
+                  setCurrentPage('dashboard');
+                }}
+                className={currentPage === 'dashboard' ? 'active' : ''}
+              >
+                Dashboard
+              </a>
+            </li>
+            <li>
+              <a
+                href="#"
+                onClick={(e) => {
+                  e.preventDefault();
+                  setCurrentPage('clientes');
+                }}
+                className={currentPage === 'clientes' ? 'active' : ''}
+              >
+                Clientes
+              </a>
+            </li>
+            <li>
+              <a
+                href="#"
+                onClick={(e) => {
+                  e.preventDefault();
+                  setCurrentPage('facturas');
+                }}
+                className={currentPage === 'facturas' ? 'active' : ''}
+              >
+                Facturas
+              </a>
+            </li>
+            <li>
+              <a
+                href="#"
+                onClick={(e) => {
+                  e.preventDefault();
+                  setCurrentPage('reportes');
+                }}
+                className={currentPage === 'reportes' ? 'active' : ''}
+              >
+                Reportes
+              </a>
+            </li>
           </ul>
         </nav>
 
         <main className="main">
-          <section className="hero">
-            <h2>Bienvenido, {usuario.nombre || 'Usuario'}</h2>
-            <p>Rol: Socio</p>
-            <p>Email: {usuario.email}</p>
-          </section>
+          {currentPage === 'dashboard' && (
+            <section className="hero">
+              <h2>Bienvenido, {usuario.nombre || 'Usuario'}</h2>
+              <p>Rol: Administrador</p>
+              <p>Email: {usuario.email}</p>
+            </section>
+          )}
+
+          {currentPage === 'clientes' && <ClientesPage />}
+
+          {currentPage === 'facturas' && (
+            <section className="content-section">
+              <h2>Facturas</h2>
+              <p>Sección de facturas (En desarrollo)</p>
+            </section>
+          )}
+
+          {currentPage === 'reportes' && (
+            <section className="content-section">
+              <h2>Reportes</h2>
+              <p>Sección de reportes (En desarrollo)</p>
+            </section>
+          )}
         </main>
 
         <footer className="footer">
