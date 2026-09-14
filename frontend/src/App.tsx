@@ -91,6 +91,7 @@ function App() {
             <li>
               <button
                 onClick={() => {
+                  alert('¡Clientes button clicked!');
                   console.log('Clientes button clicked - about to set currentPage');
                   setCurrentPage('clientes');
                 }}
