@@ -699,7 +699,7 @@ db.serialize(() => {
   // Insertar usuario administrador por defecto (password: admin123)
   db.run(`
     INSERT OR IGNORE INTO usuarios (id, nombre, email, password, rol_id, departamento)
-    VALUES ('admin1', 'Administrador', 'admin@system.local', '$2a$10$YWRtaW4xMjMuaGFzaGVk', '1', 'Administración')
+    VALUES ('admin1', 'Administrador', 'admin@system.local', 'YWRtaW4xMjM=', '1', 'Administración')
   `);
 
   // Insertar tipos de anunciantes para TOPVIEW
