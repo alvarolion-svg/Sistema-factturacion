@@ -1,7 +1,7 @@
 {
   "name": "sistema-facturacion-backend",
   "version": "0.1.0",
-  "description": "API REST para sistema de facturación",
+  "description": "API REST para sistema de facturación con SQLite",
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
@@ -15,7 +15,7 @@
     "express": "^4.18.2",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
-    "pg": "^8.11.2",
+    "sqlite3": "^5.1.6",
     "uuid": "^9.0.0"
   },
   "devDependencies": {

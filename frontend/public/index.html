@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sistema de Facturación - ERP</title>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="logo">
+        <h1>📊 SysFactura</h1>
+      </div>
+
+      <nav class="menu">
+        <button class="menu-item active" data-section="dashboard">
+          <span class="icon">📈</span> Dashboard
+        </button>
+        <button class="menu-item" data-section="ventas">
+          <span class="icon">💰</span> Ventas
+        </button>
+        <button class="menu-item" data-section="compras">
+          <span class="icon">🛒</span> Compras
+        </button>
+        <button class="menu-item" data-section="maestros">
+          <span class="icon">📋</span> Base de Datos
+        </button>
+        <button class="menu-item" data-section="impositiva">
+          <span class="icon">📊</span> Impositiva
+        </button>
+        <button class="menu-item" data-section="tesoreria">
+          <span class="icon">🏦</span> Tesorería
+        </button>
+        <button class="menu-item" data-section="auditoria">
+          <span class="icon">🔍</span> Auditoría
+        </button>
+      </nav>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <header class="header">
+        <h2 id="section-title">Dashboard</h2>
+        <div class="user-info">
+          <span>Admin</span>
+          <button class="btn-logout">Logout</button>
+        </div>
+      </header>
+
+      <div class="content">
+        <!-- Dashboard Section -->
+        <section id="dashboard" class="section active">
+          <div class="dashboard-grid">
+            <div class="metric-card">
+              <h3>Ventas Totales</h3>
+              <p class="metric-value" id="ventas-total">$0</p>
+              <small>Este mes</small>
+            </div>
+            <div class="metric-card">
+              <h3>Cuentas por Cobrar</h3>
+              <p class="metric-value" id="cc-clientes">$0</p>
+              <small>Pendiente de cobro</small>
+            </div>
+            <div class="metric-card">
+              <h3>Cuentas por Pagar</h3>
+              <p class="metric-value" id="cc-proveedores">$0</p>
+              <small>Pendiente de pago</small>
+            </div>
+            <div class="metric-card">
+              <h3>Tesorería</h3>
+              <p class="metric-value" id="tesoreria-total">$0</p>
+              <small>Disponible en caja</small>
+            </div>
+          </div>
+        </section>
+
+        <!-- Ventas Section -->
+        <section id="ventas" class="section">
+          <div class="section-tabs">
+            <button class="tab-btn active" data-tab="facturas">Facturas</button>
+            <button class="tab-btn" data-tab="presupuestos">Presupuestos</button>
+            <button class="tab-btn" data-tab="notas-credito">Notas de Crédito</button>
+          </div>
+
+          <div class="tab-content">
+            <div id="facturas" class="tab-pane active">
+              <div class="toolbar">
+                <button class="btn btn-primary" id="btn-nueva-factura">+ Nueva Factura</button>
+                <input type="text" placeholder="Buscar factura..." class="search-input">
+              </div>
+              <table class="table" id="tabla-facturas">
+                <thead>
+                  <tr>
+                    <th>Número</th>
+                    <th>Cliente</th>
+                    <th>Fecha</th>
+                    <th>Total</th>
+                    <th>Saldo</th>
+                    <th>Estado</th>
+                    <th>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+
+            <div id="presupuestos" class="tab-pane">
+              <div class="toolbar">
+                <button class="btn btn-primary">+ Nuevo Presupuesto</button>
+              </div>
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Número</th>
+                    <th>Cliente</th>
+                    <th>Fecha</th>
+                    <th>Total</th>
+                    <th>Estado</th>
+                    <th>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+
+            <div id="notas-credito" class="tab-pane">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Número</th>
+                    <th>Factura</th>
+                    <th>Cliente</th>
+                    <th>Fecha</th>
+                    <th>Total</th>
+                    <th>Motivo</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- Compras Section -->
+        <section id="compras" class="section">
+          <h3>Compras y Gastos</h3>
+          <p>Sección de compras y gastos en desarrollo...</p>
+        </section>
+
+        <!-- Maestros Section -->
+        <section id="maestros" class="section">
+          <div class="section-tabs">
+            <button class="tab-btn active" data-tab="productos">Productos</button>
+            <button class="tab-btn" data-tab="clientes">Clientes</button>
+            <button class="tab-btn" data-tab="proveedores">Proveedores</button>
+          </div>
+
+          <div class="tab-content">
+            <div id="productos" class="tab-pane active">
+              <div class="toolbar">
+                <button class="btn btn-primary" id="btn-nuevo-producto">+ Nuevo Producto</button>
+              </div>
+              <table class="table" id="tabla-productos">
+                <thead>
+                  <tr>
+                    <th>Código</th>
+                    <th>Nombre</th>
+                    <th>Precio Venta</th>
+                    <th>Stock</th>
+                    <th>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+
+            <div id="clientes" class="tab-pane">
+              <div class="toolbar">
+                <button class="btn btn-primary" id="btn-nuevo-cliente">+ Nuevo Cliente</button>
+              </div>
+              <table class="table" id="tabla-clientes">
+                <thead>
+                  <tr>
+                    <th>Razón Social</th>
+                    <th>CUIT</th>
+                    <th>Email</th>
+                    <th>Teléfono</th>
+                    <th>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+
+            <div id="proveedores" class="tab-pane">
+              <div class="toolbar">
+                <button class="btn btn-primary">+ Nuevo Proveedor</button>
+              </div>
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Razón Social</th>
+                    <th>CUIT</th>
+                    <th>Email</th>
+                    <th>Teléfono</th>
+                    <th>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- Impositiva Section -->
+        <section id="impositiva" class="section">
+          <h3>Situación Impositiva</h3>
+          <div class="impositiva-grid">
+            <div class="info-card">
+              <h4>IVA CF (Compras)</h4>
+              <p id="iva-cf">$0</p>
+            </div>
+            <div class="info-card">
+              <h4>IVA DF (Ventas)</h4>
+              <p id="iva-df">$0</p>
+            </div>
+            <div class="info-card">
+              <h4>IIBB</h4>
+              <p id="iibb">$0</p>
+            </div>
+            <div class="info-card">
+              <h4>Percepciones</h4>
+              <p id="percepciones">$0</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- Tesorería Section -->
+        <section id="tesoreria" class="section">
+          <h3>Tesorería</h3>
+          <div class="tesoreria-grid">
+            <div class="tesoreria-card">
+              <h4>Cajas</h4>
+              <div id="cajas-container"></div>
+            </div>
+            <div class="tesoreria-card">
+              <h4>Bancos</h4>
+              <div id="bancos-container"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Auditoría Section -->
+        <section id="auditoria" class="section">
+          <h3>Registro de Auditoría</h3>
+          <div class="toolbar">
+            <input type="text" placeholder="Buscar en auditoría..." class="search-input">
+          </div>
+          <table class="table" id="tabla-auditoria">
+            <thead>
+              <tr>
+                <th>Fecha</th>
+                <th>Tabla</th>
+                <th>Operación</th>
+                <th>ID</th>
+                <th>Detalles</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <!-- Modal -->
+  <div id="modal" class="modal">
+    <div class="modal-content">
+      <span class="close">&times;</span>
+      <div id="modal-body"></div>
+    </div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>
