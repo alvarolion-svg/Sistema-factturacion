@@ -33,3 +33,7 @@ pnpm-debug.log*
 
 # OS
 Thumbs.db
+
+# Database
+*.db
+backend/facturacion.db
