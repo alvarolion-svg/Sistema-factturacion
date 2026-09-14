@@ -8,6 +8,7 @@ import { TesoreriaService } from './services/tesoreria';
 import { AuditoriaService } from './services/auditoria';
 import { AutenticacionService } from './services/autenticacion';
 import { ReportesService } from './services/reportes';
+import { TopviewService } from './services/topview';
 import { autenticacion, requierePermiso, RequestConUsuario } from './middleware';
 import { v4 as uuid } from 'uuid';
 
@@ -324,6 +325,88 @@ app.get('/api/auditoria/:tabla/:id', autenticacion, requierePermiso('auditoria_v
     const { tabla, id } = req.params;
     const historial = await AuditoriaService.obtenerHistorial(tabla, id);
     res.json(historial);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ==================== RUTAS DE TOPVIEW - ÓRDENES DE PUBLICIDAD ====================
+
+app.post('/api/ordenes-publicidad', autenticacion, requierePermiso('topview_crear'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const orden = await TopviewService.crearOrden(req.body);
+    AuditoriaService.registrarOperacion('ordenes_publicidad', 'INSERT', orden.id, null, orden, req.usuario?.id, req.ip);
+    res.json(orden);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/ordenes-publicidad/:id', autenticacion, requierePermiso('topview_ver'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const orden = await TopviewService.obtenerOrden(req.params.id);
+    res.json(orden);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/ordenes-publicidad', autenticacion, requierePermiso('topview_ver'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const filtros = {
+      tipo_anunciante: req.query.tipo_anunciante as string,
+      estado: req.query.estado as string,
+      fecha_desde: req.query.fecha_desde as string,
+      fecha_hasta: req.query.fecha_hasta as string,
+    };
+    const ordenes = await TopviewService.listarOrdenes(filtros);
+    res.json(ordenes);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/ordenes-publicidad/:id/estado', autenticacion, requierePermiso('topview_editar'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const { nuevoEstado } = req.body;
+    await TopviewService.actualizarEstado(req.params.id, nuevoEstado);
+    AuditoriaService.registrarOperacion('ordenes_publicidad', 'UPDATE', req.params.id, null, { estado: nuevoEstado }, req.usuario?.id, req.ip);
+    res.json({ message: 'Estado actualizado' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/ordenes-publicidad/:id/documentos', autenticacion, requierePermiso('topview_editar'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const { nombreArchivo, tipoArchivo, urlDrive, descripcion } = req.body;
+    const documento = await TopviewService.adjuntarDocumento(
+      req.params.id,
+      nombreArchivo,
+      tipoArchivo,
+      urlDrive,
+      descripcion
+    );
+    res.json(documento);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/ordenes-publicidad/:id/facturas', autenticacion, requierePermiso('topview_editar'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const facturas = await TopviewService.generarFacturasReplicadas(req.params.id);
+    AuditoriaService.registrarOperacion('facturas', 'INSERT', req.params.id, null, { facturas_generadas: facturas.length }, req.usuario?.id, req.ip);
+    res.json({ message: `${facturas.length} facturas generadas`, facturas });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/reportes/topview', autenticacion, requierePermiso('topview_ver'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const reporte = await TopviewService.reporteOrdenes();
+    res.json(reporte);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

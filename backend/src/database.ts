@@ -360,6 +360,124 @@ db.serialize(() => {
   db.run(`CREATE INDEX IF NOT EXISTS idx_auditoria_tabla ON auditoria(tabla, registro_id)`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_auditoria_usuario ON auditoria(usuario_id)`);
 
+  // ==================== TOPVIEW - ÓRDENES DE PUBLICIDAD ====================
+
+  // Tipos de anunciantes
+  db.run(`
+    CREATE TABLE IF NOT EXISTS tipos_anunciantes (
+      id TEXT PRIMARY KEY,
+      nombre TEXT UNIQUE NOT NULL,
+      descripcion TEXT,
+      habilitado BOOLEAN DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  // Productos de TOPVIEW
+  db.run(`
+    CREATE TABLE IF NOT EXISTS tipos_productos_topview (
+      id TEXT PRIMARY KEY,
+      nombre TEXT UNIQUE NOT NULL,
+      descripcion TEXT,
+      categoria TEXT,
+      habilitado BOOLEAN DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  // Órdenes de Publicidad
+  db.run(`
+    CREATE TABLE IF NOT EXISTS ordenes_publicidad (
+      id TEXT PRIMARY KEY,
+      numero_orden TEXT UNIQUE NOT NULL,
+      tipo_anunciante TEXT NOT NULL,
+      razon_social TEXT NOT NULL,
+      nombre_anunciante TEXT NOT NULL,
+      cliente_id TEXT,
+      periodo_desde DATE NOT NULL,
+      periodo_hasta DATE NOT NULL,
+      fecha_facturacion DATE,
+      email_contacto TEXT,
+      costo_produccion REAL DEFAULT 0,
+      monto_neto REAL DEFAULT 0,
+      descuento_porcentaje REAL DEFAULT 0,
+      descuento_monto REAL DEFAULT 0,
+      monto_neto_aplicado REAL DEFAULT 0,
+      descuento_facturas_porcentaje REAL DEFAULT 0,
+      descuento_facturas_monto REAL DEFAULT 0,
+      monto_final REAL DEFAULT 0,
+      estado TEXT DEFAULT 'Activa',
+      notas TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (cliente_id) REFERENCES clientes(id)
+    )
+  `);
+
+  db.run(`CREATE INDEX IF NOT EXISTS idx_ordenes_publicidad_estado ON ordenes_publicidad(estado)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_ordenes_publicidad_cliente ON ordenes_publicidad(cliente_id)`);
+
+  // Detalles de Órdenes de Publicidad
+  db.run(`
+    CREATE TABLE IF NOT EXISTS ordenes_publicidad_detalles (
+      id TEXT PRIMARY KEY,
+      orden_id TEXT NOT NULL,
+      tipo_producto TEXT NOT NULL,
+      cantidad INTEGER NOT NULL,
+      ubicacion TEXT,
+      especificaciones TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (orden_id) REFERENCES ordenes_publicidad(id)
+    )
+  `);
+
+  // Documentos Adjuntos
+  db.run(`
+    CREATE TABLE IF NOT EXISTS documentos_adjuntos (
+      id TEXT PRIMARY KEY,
+      orden_id TEXT NOT NULL,
+      nombre_archivo TEXT NOT NULL,
+      tipo_archivo TEXT,
+      url_drive TEXT,
+      descripcion TEXT,
+      fecha_carga DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (orden_id) REFERENCES ordenes_publicidad(id)
+    )
+  `);
+
+  // Replicación de Facturación
+  db.run(`
+    CREATE TABLE IF NOT EXISTS replicaciones_facturacion (
+      id TEXT PRIMARY KEY,
+      orden_id TEXT NOT NULL,
+      numero_mes INTEGER,
+      ano INTEGER,
+      factura_id TEXT,
+      fecha_generacion DATETIME,
+      estado TEXT DEFAULT 'Pendiente',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (orden_id) REFERENCES ordenes_publicidad(id),
+      FOREIGN KEY (factura_id) REFERENCES facturas(id)
+    )
+  `);
+
+  db.run(`CREATE INDEX IF NOT EXISTS idx_replicaciones_orden ON replicaciones_facturacion(orden_id)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_replicaciones_mes_ano ON replicaciones_facturacion(numero_mes, ano)`);
+
+  // Contactos por Email
+  db.run(`
+    CREATE TABLE IF NOT EXISTS contactos_email (
+      id TEXT PRIMARY KEY,
+      orden_id TEXT NOT NULL,
+      email TEXT NOT NULL,
+      nombre_contacto TEXT,
+      cargo TEXT,
+      principal BOOLEAN DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (orden_id) REFERENCES ordenes_publicidad(id)
+    )
+  `);
+
   // ==================== SITUACIÓN IMPOSITIVA ====================
 
   // IVA (CF y DF)
@@ -460,7 +578,12 @@ db.serialize(() => {
 
       -- Auditoría
       ('p30', 'auditoria_ver', 'Ver auditoría', 'auditoria', 'ver'),
-      ('p31', 'usuarios_gestionar', 'Gestionar usuarios', 'usuarios', 'gestionar')
+      ('p31', 'usuarios_gestionar', 'Gestionar usuarios', 'usuarios', 'gestionar'),
+
+      -- TOPVIEW
+      ('p32', 'topview_crear', 'Crear órdenes de publicidad', 'topview', 'crear'),
+      ('p33', 'topview_editar', 'Editar órdenes de publicidad', 'topview', 'editar'),
+      ('p34', 'topview_ver', 'Ver órdenes de publicidad', 'topview', 'ver')
   `);
 
   // Asignar permisos a roles
@@ -520,10 +643,37 @@ db.serialize(() => {
     VALUES ('admin1', 'Administrador', 'admin@system.local', '$2a$10$YWRtaW4xMjMuaGFzaGVk', '1', 'Administración')
   `);
 
+  // Insertar tipos de anunciantes para TOPVIEW
+  db.run(`
+    INSERT OR IGNORE INTO tipos_anunciantes (id, nombre, descripcion)
+    VALUES
+      ('1', 'Pequeños Anunciantes', 'Pequeñas empresas y emprendimientos'),
+      ('2', 'Pautas Estado', 'Organismos del estado'),
+      ('3', 'Pautas Anuales', 'Contratos anuales'),
+      ('4', 'Pautas Mensuales', 'Contratos mensuales')
+  `);
+
+  // Insertar productos de TOPVIEW
+  db.run(`
+    INSERT OR IGNORE INTO tipos_productos_topview (id, nombre, categoria, descripcion)
+    VALUES
+      ('1', 'PPLs', 'Publicidad Exterior', 'Pósters en puntos estratégicos'),
+      ('2', 'Cajas Backlight', 'Iluminación', 'Cajas iluminadas backlight'),
+      ('3', 'Gigantografías', 'Impresión', 'Impresión de gran formato'),
+      ('4', 'Pantallas LEDs Verticales', 'Digital', 'Pantallas LED de gran tamaño verticales'),
+      ('5', 'Video Wall', 'Digital', 'Pared de video de múltiples pantallas'),
+      ('6', 'Pantallas Gran Formato', 'Digital', 'Pantallas LED de formato grande'),
+      ('7', 'Ploteos', 'Impresión', 'Adhesivos impresos (ploteos)'),
+      ('8', 'Stands', 'Instalación', 'Estructuras para ferias y eventos'),
+      ('9', 'Varios', 'Otros', 'Otros productos y servicios')
+  `);
+
   console.log('✓ Base de datos iniciada correctamente');
   console.log('✓ Roles creados (Admin, Gerente, Contador, Vendedor, Comprador, Operario)');
   console.log('✓ Permisos asignados por rol');
   console.log('✓ Usuario admin@system.local creado (password: admin123)');
+  console.log('✓ Tipos de anunciantes TOPVIEW creados');
+  console.log('✓ Productos TOPVIEW creados');
 });
 
 export default db;

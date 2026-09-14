@@ -203,6 +203,91 @@ export interface JWTPayload {
   exp: number;
 }
 
+// ==================== TOPVIEW - ÓRDENES DE PUBLICIDAD ====================
+
+export interface TipoAnunciante {
+  id: string;
+  nombre: string;
+  descripcion?: string;
+  habilitado: boolean;
+  created_at: string;
+}
+
+export interface TipoProductoTopview {
+  id: string;
+  nombre: string;
+  categoria: string;
+  descripcion?: string;
+  habilitado: boolean;
+  created_at: string;
+}
+
+export interface OrdenPublicidad {
+  id: string;
+  numero_orden: string;
+  tipo_anunciante: string;
+  razon_social: string;
+  nombre_anunciante: string;
+  cliente_id?: string;
+  periodo_desde: string;
+  periodo_hasta: string;
+  fecha_facturacion?: string;
+  email_contacto?: string;
+  costo_produccion: number;
+  monto_neto: number;
+  descuento_porcentaje: number;
+  descuento_monto: number;
+  monto_neto_aplicado: number;
+  descuento_facturas_porcentaje: number;
+  descuento_facturas_monto: number;
+  monto_final: number;
+  estado: 'Activa' | 'Pausada' | 'Cancelada' | 'Finalizada';
+  notas?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OrdenPublicidadDetalle {
+  id: string;
+  orden_id: string;
+  tipo_producto: string;
+  cantidad: number;
+  ubicacion?: string;
+  especificaciones?: string;
+  created_at: string;
+}
+
+export interface DocumentoAdjunto {
+  id: string;
+  orden_id: string;
+  nombre_archivo: string;
+  tipo_archivo?: string;
+  url_drive?: string;
+  descripcion?: string;
+  fecha_carga: string;
+}
+
+export interface ReplicacionFacturacion {
+  id: string;
+  orden_id: string;
+  numero_mes: number;
+  ano: number;
+  factura_id?: string;
+  fecha_generacion?: string;
+  estado: 'Pendiente' | 'Generada' | 'Facturada';
+  created_at: string;
+}
+
+export interface ContactoEmail {
+  id: string;
+  orden_id: string;
+  email: string;
+  nombre_contacto?: string;
+  cargo?: string;
+  principal: boolean;
+  created_at: string;
+}
+
 // ==================== RESPUESTAS ====================
 
 export interface ApiResponse<T> {
