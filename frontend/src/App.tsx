@@ -66,8 +66,8 @@ function App() {
 
         <main className="main">
           <section className="hero">
-            <h2>Bienvenido, {usuario.nombre}</h2>
-            <p>Rol: {usuario.rol}</p>
+            <h2>Bienvenido, {usuario.nombre || 'Usuario'}</h2>
+            <p>Rol: {typeof usuario.rol === 'string' ? usuario.rol : usuario.rol?.nombre || 'Socio'}</p>
             <p>Email: {usuario.email}</p>
           </section>
         </main>
