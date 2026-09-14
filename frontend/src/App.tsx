@@ -65,53 +65,100 @@ function App() {
         <nav className="navbar">
           <ul>
             <li>
-              <a
-                href="#"
-                onClick={(e) => {
-                  e.preventDefault();
+              <button
+                onClick={() => {
+                  console.log('Dashboard button clicked');
                   setCurrentPage('dashboard');
                 }}
-                className={currentPage === 'dashboard' ? 'active' : ''}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  display: 'block',
+                  width: '100%',
+                  padding: '1rem',
+                  textDecoration: 'none',
+                  color: '#333',
+                  fontWeight: 500,
+                  textAlign: 'center',
+                  cursor: 'pointer',
+                  fontSize: '1rem',
+                  fontFamily: 'inherit'
+                }}
               >
                 Dashboard
-              </a>
+              </button>
             </li>
             <li>
-              <a
-                href="#"
-                onClick={(e) => {
-                  e.preventDefault();
-                  console.log('Clientes clicked, setting currentPage to clientes');
+              <button
+                onClick={() => {
+                  console.log('Clientes button clicked - about to set currentPage');
                   setCurrentPage('clientes');
                 }}
-                className={currentPage === 'clientes' ? 'active' : ''}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  display: 'block',
+                  width: '100%',
+                  padding: '1rem',
+                  textDecoration: 'none',
+                  color: '#333',
+                  fontWeight: 500,
+                  textAlign: 'center',
+                  cursor: 'pointer',
+                  fontSize: '1rem',
+                  fontFamily: 'inherit'
+                }}
               >
                 Clientes
-              </a>
+              </button>
             </li>
             <li>
-              <a
-                href="#"
-                onClick={(e) => {
-                  e.preventDefault();
+              <button
+                onClick={() => {
+                  console.log('Facturas button clicked');
                   setCurrentPage('facturas');
                 }}
-                className={currentPage === 'facturas' ? 'active' : ''}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  display: 'block',
+                  width: '100%',
+                  padding: '1rem',
+                  textDecoration: 'none',
+                  color: '#333',
+                  fontWeight: 500,
+                  textAlign: 'center',
+                  cursor: 'pointer',
+                  fontSize: '1rem',
+                  fontFamily: 'inherit'
+                }}
               >
                 Facturas
-              </a>
+              </button>
             </li>
             <li>
-              <a
-                href="#"
-                onClick={(e) => {
-                  e.preventDefault();
+              <button
+                onClick={() => {
+                  console.log('Reportes button clicked');
                   setCurrentPage('reportes');
                 }}
-                className={currentPage === 'reportes' ? 'active' : ''}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  display: 'block',
+                  width: '100%',
+                  padding: '1rem',
+                  textDecoration: 'none',
+                  color: '#333',
+                  fontWeight: 500,
+                  textAlign: 'center',
+                  cursor: 'pointer',
+                  fontSize: '1rem',
+                  fontFamily: 'inherit'
+                }}
               >
                 Reportes
-              </a>
+              </button>
             </li>
           </ul>
         </nav>
