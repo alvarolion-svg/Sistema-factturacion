@@ -18,7 +18,7 @@ export class AuditoriaService {
       `
       INSERT INTO auditoria (
         id, tabla, tipo_operacion, registro_id,
-        datos_anteriores, datos_nuevos, usuario, ip
+        datos_anteriores, datos_nuevos, usuario_id, ip
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `,
       [

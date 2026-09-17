@@ -23,6 +23,7 @@ db.serialize(() => {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
+  db.run(`ALTER TABLE productos ADD COLUMN tipo TEXT DEFAULT 'fisico'`, () => {});
 
   // Proveedores
   db.run(`
@@ -46,15 +47,78 @@ db.serialize(() => {
     CREATE TABLE IF NOT EXISTS clientes (
       id TEXT PRIMARY KEY,
       razon_social TEXT NOT NULL,
+      nombre_fantasia TEXT,
       cuit TEXT UNIQUE,
+      dni TEXT,
       email TEXT,
       telefono TEXT,
       direccion TEXT,
       ciudad TEXT,
+      codigo_postal TEXT,
+      provincia TEXT,
+      pais TEXT,
+      direccion_fiscal TEXT,
+      ciudad_fiscal TEXT,
+      codigo_postal_fiscal TEXT,
+      provincia_fiscal TEXT,
+      pais_fiscal TEXT,
       condicion_iva TEXT DEFAULT 'Responsable Inscripto',
+      condicion_pago TEXT,
+      limite_credito REAL DEFAULT 0,
+      porcentaje_iva REAL DEFAULT 0,
+      retencion_ganancias REAL DEFAULT 0,
+      numero_plan_cuenta TEXT,
+      numero_cuenta_bancaria TEXT,
+      cbu TEXT,
+      banco TEXT,
+      descripcion_banco TEXT,
       habilitado BOOLEAN DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  // Agrega las columnas a bases ya existentes (creadas antes de este cambio).
+  // "duplicate column name" es esperable en cada reinicio una vez agregadas: se ignora.
+  const columnasNuevasClientes = [
+    'nombre_fantasia TEXT',
+    'dni TEXT',
+    'codigo_postal TEXT',
+    'provincia TEXT',
+    'pais TEXT',
+    'direccion_fiscal TEXT',
+    'ciudad_fiscal TEXT',
+    'codigo_postal_fiscal TEXT',
+    'provincia_fiscal TEXT',
+    'pais_fiscal TEXT',
+    'condicion_pago TEXT',
+    'limite_credito REAL DEFAULT 0',
+    'porcentaje_iva REAL DEFAULT 0',
+    'retencion_ganancias REAL DEFAULT 0',
+    'numero_plan_cuenta TEXT',
+    'numero_cuenta_bancaria TEXT',
+    'cbu TEXT',
+    'banco TEXT',
+    'descripcion_banco TEXT',
+  ];
+  columnasNuevasClientes.forEach((definicion) => {
+    db.run(`ALTER TABLE clientes ADD COLUMN ${definicion}`, () => {});
+  });
+
+  // Contactos de un cliente (hasta N, sin límite fijo)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS contactos_cliente (
+      id TEXT PRIMARY KEY,
+      cliente_id TEXT NOT NULL,
+      nombre TEXT,
+      apellido TEXT,
+      email TEXT,
+      rol TEXT,
+      telefono TEXT,
+      interno TEXT,
+      skype TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (cliente_id) REFERENCES clientes(id)
     )
   `);
 
@@ -129,11 +193,13 @@ db.serialize(() => {
       cantidad REAL NOT NULL,
       precio_unitario REAL NOT NULL,
       subtotal REAL NOT NULL,
+      descripcion TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (factura_id) REFERENCES facturas(id),
       FOREIGN KEY (producto_id) REFERENCES productos(id)
     )
   `);
+  db.run(`ALTER TABLE facturas_detalles ADD COLUMN descripcion TEXT`, () => {});
 
   // Notas de Crédito
   db.run(`
@@ -190,9 +256,49 @@ db.serialize(() => {
       iva REAL,
       total REAL NOT NULL,
       descripcion TEXT,
+      orden_id TEXT,
+      numero_mes INTEGER,
+      ano INTEGER,
+      origen TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (proveedor_id) REFERENCES proveedores(id)
+      FOREIGN KEY (proveedor_id) REFERENCES proveedores(id),
+      FOREIGN KEY (orden_id) REFERENCES ordenes_publicidad(id)
+    )
+  `);
+  // Vincula el gasto con la orden/mes que lo generó (evita duplicar el mismo
+  // gasto si se re-genera la factura de ese mes) y qué lo originó: la agencia
+  // (% factura a esperar) o un comisionista con factura.
+  db.run(`ALTER TABLE gastos ADD COLUMN orden_id TEXT`, () => {});
+  db.run(`ALTER TABLE gastos ADD COLUMN numero_mes INTEGER`, () => {});
+  db.run(`ALTER TABLE gastos ADD COLUMN ano INTEGER`, () => {});
+  db.run(`ALTER TABLE gastos ADD COLUMN origen TEXT`, () => {});
+
+  // Comisiones en efectivo: circuito paralelo a gastos para comisionistas SIN
+  // factura formal. No es fiscal (no genera IVA ni es deducible), así que no
+  // vive en gastos — es un simple "cuánto le debo en mano y ya se lo pagué o
+  // no". Una fila por comisionista/orden/mes (misma granularidad que gastos,
+  // se regenera un renglón por cada factura mensual de la orden). factura_id
+  // referencia la factura AL CLIENTE de ese mismo período, para poder mostrar
+  // si ya se cobró antes de decidir pagar la comisión — el pago no depende de
+  // nuestra voluntad sino de haber cobrado esa factura primero.
+  db.run(`
+    CREATE TABLE IF NOT EXISTS comisiones_efectivo (
+      id TEXT PRIMARY KEY,
+      orden_id TEXT NOT NULL,
+      intermediario_id TEXT NOT NULL,
+      factura_id TEXT,
+      numero_mes INTEGER NOT NULL,
+      ano INTEGER NOT NULL,
+      monto REAL NOT NULL,
+      pagado BOOLEAN DEFAULT 0,
+      fecha_pago DATE,
+      descripcion TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (orden_id) REFERENCES ordenes_publicidad(id),
+      FOREIGN KEY (intermediario_id) REFERENCES intermediarios(id),
+      FOREIGN KEY (factura_id) REFERENCES facturas(id)
     )
   `);
 
@@ -394,11 +500,23 @@ db.serialize(() => {
       contacto TEXT,
       email TEXT,
       telefono TEXT,
+      proveedor_id TEXT,
+      cliente_id TEXT,
       habilitado BOOLEAN DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (proveedor_id) REFERENCES proveedores(id),
+      FOREIGN KEY (cliente_id) REFERENCES clientes(id)
     )
   `);
+  // Muchas agencias "atienden las dos ventanillas": son cliente (les
+  // facturamos la pauta) Y a la vez cobran su comisión como proveedor. Este
+  // vínculo directo a clientes es lo que permite mostrar el tag "Agencia" en
+  // la ficha del cliente, más allá de si además tiene un proveedor cargado.
+  db.run(`ALTER TABLE agencias ADD COLUMN cliente_id TEXT`, () => {});
+  // Proveedor a quien se le espera la factura de servicio (si esta agencia
+  // cobra parte de su remuneración así — ver condiciones_agencia).
+  db.run(`ALTER TABLE agencias ADD COLUMN proveedor_id TEXT`, () => {});
 
   // Intermediarios (Columna Gris)
   db.run(`
@@ -411,17 +529,66 @@ db.serialize(() => {
       email TEXT,
       telefono TEXT,
       factura_formal BOOLEAN DEFAULT 0,
+      proveedor_id TEXT,
       habilitado BOOLEAN DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (proveedor_id) REFERENCES proveedores(id)
     )
   `);
+  // Proveedor a quien se le espera la factura (comisionista "con factura").
+  db.run(`ALTER TABLE intermediarios ADD COLUMN proveedor_id TEXT`, () => {});
+
+  // Condiciones de descuento por agencia: cómo se remunera a cada agencia
+  // (% que se cubre con Nota de Crédito, % que se cubre esperando recibir su
+  // factura de servicio). Una misma agencia puede tener más de una condición
+  // guardada (ej. distinta modalidad de compra) — se elige al cargar la orden,
+  // y sirve solo como sugerencia: se puede modificar para un caso puntual.
+  db.run(`
+    CREATE TABLE IF NOT EXISTS condiciones_agencia (
+      id TEXT PRIMARY KEY,
+      agencia_id TEXT NOT NULL,
+      nombre TEXT NOT NULL,
+      porcentaje_nc REAL DEFAULT 0,
+      nc_en_cascada BOOLEAN DEFAULT 0,
+      porcentaje_factura REAL DEFAULT 0,
+      factura_en_cascada BOOLEAN DEFAULT 0,
+      habilitado BOOLEAN DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (agencia_id) REFERENCES agencias(id)
+    )
+  `);
+  db.run(`ALTER TABLE condiciones_agencia ADD COLUMN nc_en_cascada BOOLEAN DEFAULT 0`, () => {});
+
+  // Mismo concepto para comisionistas: % y forma de cálculo habituales de cada
+  // uno, sugeridos al agregarlo a una orden pero editables por orden.
+  db.run(`
+    CREATE TABLE IF NOT EXISTS condiciones_intermediario (
+      id TEXT PRIMARY KEY,
+      intermediario_id TEXT NOT NULL,
+      nombre TEXT NOT NULL,
+      porcentaje_comision REAL DEFAULT 0,
+      tipo_calculo TEXT DEFAULT 'cascada',
+      factura_formal BOOLEAN DEFAULT 0,
+      habilitado BOOLEAN DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (intermediario_id) REFERENCES intermediarios(id)
+    )
+  `);
+  // La clasificación Tipo 1 (factura)/Tipo 2 (efectivo) ya no es un atributo
+  // fijo del comisionista — una misma persona puede tener negocios de ambos
+  // tipos. Ahora vive en cada condición (el "negocio" puntual), junto con el
+  // % y la forma de cálculo, y de ahí se copia a la orden al elegirla.
+  db.run(`ALTER TABLE condiciones_intermediario ADD COLUMN factura_formal BOOLEAN DEFAULT 0`, () => {});
 
   // Órdenes de Publicidad
   db.run(`
     CREATE TABLE IF NOT EXISTS ordenes_publicidad (
       id TEXT PRIMARY KEY,
       numero_orden TEXT UNIQUE NOT NULL,
+      numero_orden_agencia TEXT,
       tipo_anunciante TEXT NOT NULL,
       razon_social TEXT NOT NULL,
       nombre_anunciante TEXT NOT NULL,
@@ -439,9 +606,15 @@ db.serialize(() => {
       descuento_facturas_porcentaje REAL DEFAULT 0,
       descuento_facturas_monto REAL DEFAULT 0,
       monto_final REAL DEFAULT 0,
-      estado TEXT DEFAULT 'Activa',
+      estado TEXT DEFAULT 'Cargada',
       notas TEXT,
       facturado BOOLEAN DEFAULT 0,
+      leyenda_factura TEXT,
+      incluir_numero_orden_agencia BOOLEAN DEFAULT 1,
+      descuento_en_cascada BOOLEAN DEFAULT 0,
+      descuento_facturas_en_cascada BOOLEAN DEFAULT 0,
+      mes_ingreso INTEGER,
+      ano_ingreso INTEGER,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (cliente_id) REFERENCES clientes(id),
@@ -449,8 +622,38 @@ db.serialize(() => {
     )
   `);
 
+  // Agrega la columna a bases ya existentes (creadas antes de este cambio).
+  // "duplicate column name" es esperable en cada reinicio una vez agregada: se ignora.
+  db.run(`ALTER TABLE ordenes_publicidad ADD COLUMN numero_orden_agencia TEXT`, () => {});
+  db.run(`ALTER TABLE ordenes_publicidad ADD COLUMN leyenda_factura TEXT`, () => {});
+  db.run(`ALTER TABLE ordenes_publicidad ADD COLUMN incluir_numero_orden_agencia BOOLEAN DEFAULT 1`, () => {});
+  // Descuento NC (comercial) y FC (facturas) pueden ser cada uno directo sobre el bruto
+  // o en cascada sobre el remanente del anterior, según lo que se haya negociado con
+  // cada agencia/cliente — por eso es elegible por orden, no fijo.
+  db.run(`ALTER TABLE ordenes_publicidad ADD COLUMN descuento_en_cascada BOOLEAN DEFAULT 0`, () => {});
+  db.run(`ALTER TABLE ordenes_publicidad ADD COLUMN descuento_facturas_en_cascada BOOLEAN DEFAULT 0`, () => {});
+  // Mes/año de ingreso: a qué mes se asigna la venta a efectos comerciales/reporte,
+  // independiente del período de vigencia real (evita distorsiones cuando una campaña
+  // cruza el fin de mes, ej. una pauta del 31/10 al 30/11 se puede igual asignar a Octubre).
+  db.run(`ALTER TABLE ordenes_publicidad ADD COLUMN mes_ingreso INTEGER`, () => {});
+  db.run(`ALTER TABLE ordenes_publicidad ADD COLUMN ano_ingreso INTEGER`, () => {});
+
   db.run(`CREATE INDEX IF NOT EXISTS idx_ordenes_publicidad_estado ON ordenes_publicidad(estado)`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_ordenes_publicidad_cliente ON ordenes_publicidad(cliente_id)`);
+
+  // Arreglos No Registrables (acuerdos informales que afectan el precio de una orden)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS arreglos_no_registrables (
+      id TEXT PRIMARY KEY,
+      orden_id TEXT NOT NULL,
+      tipo TEXT,
+      descripcion TEXT,
+      monto REAL DEFAULT 0,
+      tercero_nombre TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (orden_id) REFERENCES ordenes_publicidad(id)
+    )
+  `);
 
   // Intermediarios por Orden (flexible, N intermediarios)
   db.run(`
@@ -482,13 +685,20 @@ db.serialize(() => {
       id TEXT PRIMARY KEY,
       orden_id TEXT NOT NULL,
       tipo_producto TEXT NOT NULL,
+      producto_id TEXT,
       cantidad INTEGER NOT NULL,
       ubicacion TEXT,
       especificaciones TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (orden_id) REFERENCES ordenes_publicidad(id)
+      FOREIGN KEY (orden_id) REFERENCES ordenes_publicidad(id),
+      FOREIGN KEY (producto_id) REFERENCES productos(id)
     )
   `);
+  // El soporte pasa a ser un producto real del catálogo general (con su
+  // propio ABM en Productos) en vez de un texto libre. tipo_producto queda
+  // como copia de solo lectura del nombre, para no romper las pantallas que
+  // ya lo muestran directo sin hacer join.
+  db.run(`ALTER TABLE ordenes_publicidad_detalles ADD COLUMN producto_id TEXT`, () => {});
 
   // Documentos Adjuntos
   db.run(`
@@ -498,11 +708,16 @@ db.serialize(() => {
       nombre_archivo TEXT NOT NULL,
       tipo_archivo TEXT,
       url_drive TEXT,
+      ruta_archivo TEXT,
       descripcion TEXT,
       fecha_carga DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (orden_id) REFERENCES ordenes_publicidad(id)
     )
   `);
+
+  // Agrega la columna a bases ya existentes (creadas antes de este cambio).
+  // "duplicate column name" es esperable en cada reinicio una vez agregada: se ignora.
+  db.run(`ALTER TABLE documentos_adjuntos ADD COLUMN ruta_archivo TEXT`, () => {});
 
   // Replicación de Facturación
   db.run(`
@@ -522,6 +737,130 @@ db.serialize(() => {
 
   db.run(`CREATE INDEX IF NOT EXISTS idx_replicaciones_orden ON replicaciones_facturacion(orden_id)`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_replicaciones_mes_ano ON replicaciones_facturacion(numero_mes, ano)`);
+
+  // Órdenes de Producción: documento propio, independiente de las órdenes de
+  // exhibición — su propia numeración, sus propias líneas con precio (cantidad
+  // x tarifa = importe) y su propia factura. No es un agregado de una orden de
+  // exhibición: aparece siempre que hay producción, venga sola o junto con una
+  // orden de exhibición que el usuario separa manualmente al cargarla.
+  db.run(`
+    CREATE TABLE IF NOT EXISTS ordenes_produccion (
+      id TEXT PRIMARY KEY,
+      numero_orden TEXT UNIQUE NOT NULL,
+      numero_orden_cliente TEXT,
+      agencia_id TEXT,
+      cliente_id TEXT NOT NULL,
+      proveedor_id TEXT,
+      medio TEXT,
+      marca TEXT,
+      campana TEXT,
+      periodo_desde DATE,
+      periodo_hasta DATE,
+      fecha DATE NOT NULL,
+      pauta_numero TEXT,
+      observaciones TEXT,
+      email_envio_facturas TEXT,
+      contacto TEXT,
+      materiales TEXT,
+      subtotal REAL DEFAULT 0,
+      iva REAL DEFAULT 0,
+      total REAL DEFAULT 0,
+      estado TEXT DEFAULT 'Cargada',
+      numero_factura_colppy TEXT,
+      numero_nc_colppy TEXT,
+      habilitado BOOLEAN DEFAULT 1,
+      factura_id TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (agencia_id) REFERENCES agencias(id),
+      FOREIGN KEY (cliente_id) REFERENCES clientes(id),
+      FOREIGN KEY (proveedor_id) REFERENCES proveedores(id),
+      FOREIGN KEY (factura_id) REFERENCES facturas(id)
+    )
+  `);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_ordenes_produccion_cliente ON ordenes_produccion(cliente_id)`);
+  // N° de orden del cliente/agencia (ej. "8002" en el PDF) — lo que se
+  // muestra y se busca en la lista, igual que numero_orden_agencia en
+  // ordenes_publicidad. numero_orden sigue siendo el ID interno (OPR-...).
+  db.run(`ALTER TABLE ordenes_produccion ADD COLUMN numero_orden_cliente TEXT`, () => {});
+  // Mismo tracker manual Cargada/Revisada/Facturada que ordenes_publicidad
+  // (contra Colppy) — "Facturada" acá también se autocompleta cuando se
+  // genera la factura real in-app (generarFactura), ver produccionTopview.ts.
+  db.run(`UPDATE ordenes_produccion SET estado = 'Cargada' WHERE estado = 'Activa'`, () => {});
+  // Mismos campos de referencia libre hacia Colppy que ordenes_publicidad.
+  db.run(`ALTER TABLE ordenes_produccion ADD COLUMN numero_factura_colppy TEXT`, () => {});
+  db.run(`ALTER TABLE ordenes_produccion ADD COLUMN numero_nc_colppy TEXT`, () => {});
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS ordenes_produccion_detalles (
+      id TEXT PRIMARY KEY,
+      orden_produccion_id TEXT NOT NULL,
+      descripcion_ubicacion TEXT NOT NULL,
+      producto_id TEXT,
+      caras_elementos INTEGER DEFAULT 1,
+      medida TEXT,
+      tarifa REAL DEFAULT 0,
+      descuento_porcentaje REAL DEFAULT 0,
+      importe_neto REAL DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (orden_produccion_id) REFERENCES ordenes_produccion(id),
+      FOREIGN KEY (producto_id) REFERENCES productos(id)
+    )
+  `);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_ordenes_produccion_detalles_orden ON ordenes_produccion_detalles(orden_produccion_id)`);
+
+  // Locaciones: dónde está instalado cada soporte (Nordelta CC, Ven Street
+  // Center, etc.) — antes era texto libre en cada línea de orden. Ahora es
+  // una entidad real con su propio concesionario (a quien le pagamos por el
+  // espacio) y su inventario, para poder armar liquidaciones y reportes de
+  // demanda/ocupación sin cargar nada dos veces.
+  db.run(`
+    CREATE TABLE IF NOT EXISTS locaciones (
+      id TEXT PRIMARY KEY,
+      nombre TEXT UNIQUE NOT NULL,
+      tipo TEXT,
+      concesionario_id TEXT,
+      notas TEXT,
+      habilitado BOOLEAN DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (concesionario_id) REFERENCES proveedores(id)
+    )
+  `);
+
+  // Qué soportes tiene instalados cada locación, y cuántos. Es el catálogo
+  // del que se elige al cargar una línea de orden (Locación → Soporte →
+  // Cantidad), no un movimiento de venta en sí mismo.
+  db.run(`
+    CREATE TABLE IF NOT EXISTS locaciones_capacidad (
+      id TEXT PRIMARY KEY,
+      locacion_id TEXT NOT NULL,
+      producto_id TEXT NOT NULL,
+      cantidad INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (locacion_id) REFERENCES locaciones(id),
+      FOREIGN KEY (producto_id) REFERENCES productos(id)
+    )
+  `);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_locaciones_capacidad_locacion ON locaciones_capacidad(locacion_id)`);
+
+  // Puntos de instalación con nombre propio dentro de una locación+soporte
+  // (ej. Escaleras Mecánicas: "Freddo" y "Co Work" en Nordelta CC; o
+  // variantes como Gran Formato "6x4"/"8x4") — opcional: la mayoría de los
+  // soportes no lo necesitan y la cantidad vive directo en locaciones_capacidad.
+  // Cuando SÍ hay puntos, la cantidad real es la suma de estos, no la de
+  // locaciones_capacidad (que queda en 0/sin usar para ese caso).
+  db.run(`
+    CREATE TABLE IF NOT EXISTS locaciones_puntos (
+      id TEXT PRIMARY KEY,
+      capacidad_id TEXT NOT NULL,
+      nombre TEXT NOT NULL,
+      cantidad INTEGER DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (capacidad_id) REFERENCES locaciones_capacidad(id)
+    )
+  `);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_locaciones_puntos_capacidad ON locaciones_puntos(capacidad_id)`);
 
   // Contactos por Email
   db.run(`
@@ -613,16 +952,21 @@ db.serialize(() => {
       ('p12', 'compras_ver', 'Ver órdenes de compra', 'compras', 'ver'),
       ('p13', 'gastos_crear', 'Crear gastos', 'compras', 'crear'),
       ('p14', 'gastos_ver', 'Ver gastos', 'compras', 'ver'),
+      ('p39', 'gastos_editar', 'Editar gastos', 'compras', 'editar'),
 
       -- Maestros
       ('p15', 'productos_crear', 'Crear productos', 'maestros', 'crear'),
       ('p16', 'productos_editar', 'Editar productos', 'maestros', 'editar'),
       ('p17', 'productos_ver', 'Ver productos', 'maestros', 'ver'),
+      ('p36', 'productos_eliminar', 'Eliminar productos', 'maestros', 'eliminar'),
       ('p18', 'clientes_crear', 'Crear clientes', 'maestros', 'crear'),
       ('p19', 'clientes_editar', 'Editar clientes', 'maestros', 'editar'),
       ('p20', 'clientes_ver', 'Ver clientes', 'maestros', 'ver'),
+      ('p35', 'clientes_eliminar', 'Eliminar clientes', 'maestros', 'eliminar'),
       ('p21', 'proveedores_crear', 'Crear proveedores', 'maestros', 'crear'),
       ('p22', 'proveedores_ver', 'Ver proveedores', 'maestros', 'ver'),
+      ('p37', 'proveedores_editar', 'Editar proveedores', 'maestros', 'editar'),
+      ('p38', 'proveedores_eliminar', 'Eliminar proveedores', 'maestros', 'eliminar'),
 
       -- Tesorería
       ('p23', 'tesoreria_ver', 'Ver tesorería', 'tesoreria', 'ver'),
@@ -642,7 +986,15 @@ db.serialize(() => {
       -- TOPVIEW
       ('p32', 'topview_crear', 'Crear órdenes de publicidad', 'topview', 'crear'),
       ('p33', 'topview_editar', 'Editar órdenes de publicidad', 'topview', 'editar'),
-      ('p34', 'topview_ver', 'Ver órdenes de publicidad', 'topview', 'ver')
+      ('p34', 'topview_ver', 'Ver órdenes de publicidad', 'topview', 'ver'),
+      ('p40', 'topview_comisionistas_ver', 'Ver comisionistas y sus condiciones de comisión', 'topview', 'ver'),
+      ('p41', 'topview_comisionistas_crear', 'Crear comisionistas y condiciones de comisión', 'topview', 'crear'),
+      ('p42', 'topview_comisionistas_editar', 'Editar/eliminar comisionistas y condiciones de comisión', 'topview', 'editar'),
+      ('p43', 'topview_condiciones_agencia_crear', 'Crear condiciones de agencia', 'topview', 'crear'),
+      ('p44', 'topview_condiciones_agencia_editar', 'Editar/eliminar condiciones de agencia', 'topview', 'editar'),
+      ('p45', 'topview_vendedores_ver', 'Ver vendedores y su comisión por escala', 'topview', 'ver'),
+      ('p46', 'topview_vendedores_crear', 'Crear vendedores y tramos de escala', 'topview', 'crear'),
+      ('p47', 'topview_vendedores_editar', 'Editar/eliminar vendedores y tramos de escala', 'topview', 'editar')
   `);
 
   // Asignar permisos a roles
@@ -671,12 +1023,14 @@ db.serialize(() => {
   `);
 
   // Vendedor: Ventas y clientes
+  // Incluye tesoreria_ver además: sin él, un Vendedor puede registrar un cobro
+  // (permiso cobros_registrar) pero no puede ver en qué cuenta se recibe el dinero.
   db.run(`
     INSERT OR IGNORE INTO rol_permisos (id, rol_id, permiso_id)
     SELECT printf('rp_%s_%s', '4', id) as id, '4' as rol_id, id as permiso_id
     FROM permisos
     WHERE seccion IN ('ventas', 'maestros')
-    AND codigo LIKE '%clientes%' OR codigo LIKE '%facturas%' OR codigo LIKE '%presupuestos%' OR codigo LIKE '%cobros%'
+    AND codigo LIKE '%clientes%' OR codigo LIKE '%facturas%' OR codigo LIKE '%presupuestos%' OR codigo LIKE '%cobros%' OR codigo = 'tesoreria_ver'
   `);
 
   // Comprador: Compras y proveedores
@@ -689,11 +1043,13 @@ db.serialize(() => {
   `);
 
   // Operario: Solo consulta
+  // Excluye topview_comisionistas_ver y topview_vendedores_ver: datos de
+  // comisiones/compensación quedan reservados a Gerente/Administrador.
   db.run(`
     INSERT OR IGNORE INTO rol_permisos (id, rol_id, permiso_id)
     SELECT printf('rp_%s_%s', '6', id) as id, '6' as rol_id, id as permiso_id
     FROM permisos
-    WHERE codigo LIKE '%ver%'
+    WHERE codigo LIKE '%ver%' AND codigo NOT IN ('topview_comisionistas_ver', 'topview_vendedores_ver')
   `);
 
   // Insertar usuario administrador por defecto (password: admin123)
@@ -709,7 +1065,8 @@ db.serialize(() => {
       ('1', 'Pequeños Anunciantes', 'Pequeñas empresas y emprendimientos'),
       ('2', 'Pautas Estado', 'Organismos del estado'),
       ('3', 'Pautas Anuales', 'Contratos anuales'),
-      ('4', 'Pautas Mensuales', 'Contratos mensuales')
+      ('4', 'Pautas Mensuales', 'Contratos mensuales'),
+      ('5', 'Pautas en dólares', 'Compras desde el exterior')
   `);
 
   // Insertar productos de TOPVIEW
@@ -727,6 +1084,41 @@ db.serialize(() => {
       ('9', 'Varios', 'Otros', 'Otros productos y servicios')
   `);
 
+  // Producto genérico de catálogo usado para facturar órdenes de Topview:
+  // la factura no detalla el desglose fino de la pauta (eso vive en
+  // ordenes_publicidad_detalles), sólo esta línea genérica + el número de orden.
+  db.run(`
+    INSERT OR IGNORE INTO productos (id, codigo, nombre, descripcion, precio_venta, stock, habilitado, tipo)
+    VALUES ('topview-serv-1', 'TOPVIEW-SERV', 'Servicios de Publicidad Exterior', 'Línea genérica de facturación para órdenes de Topview (OOH/DOOH)', 0, 0, 1, 'servicio')
+  `);
+  db.run(`UPDATE productos SET tipo = 'servicio' WHERE id = 'topview-serv-1' AND (tipo IS NULL OR tipo != 'servicio')`, () => {});
+
+  // Idem para Órdenes de Producción, cuando la línea no está vinculada a un
+  // soporte puntual del catálogo (facturas_detalles.producto_id es obligatorio).
+  db.run(`
+    INSERT OR IGNORE INTO productos (id, codigo, nombre, descripcion, precio_venta, stock, habilitado, tipo)
+    VALUES ('topview-prod-1', 'TOPVIEW-PROD', 'Producción', 'Línea genérica de facturación para órdenes de producción de Topview', 0, 0, 1, 'servicio')
+  `);
+
+  // Soportes de Topview como productos reales del catálogo general (con ABM
+  // en Productos), reemplazando la lista fija de tipos_productos_topview que
+  // no tenía alta/edición/baja. precio_venta en 0: no se facturan por unidad,
+  // van dentro del monto acordado de la orden — la cantidad es solo para
+  // llevar el registro interno de la pauta (historia de venta por soporte).
+  db.run(`
+    INSERT OR IGNORE INTO productos (id, codigo, nombre, descripcion, precio_venta, stock, habilitado, tipo)
+    VALUES
+      ('soporte-1', 'SOP-PPL', 'PPLs', 'Publicidad Exterior — Pósters en puntos estratégicos', 0, 0, 1, 'fisico'),
+      ('soporte-2', 'SOP-BACKLIGHT', 'Cajas Backlight', 'Iluminación — Cajas iluminadas backlight', 0, 0, 1, 'fisico'),
+      ('soporte-3', 'SOP-GIGA', 'Gigantografías', 'Impresión de gran formato', 0, 0, 1, 'fisico'),
+      ('soporte-4', 'SOP-LEDV', 'Pantallas LEDs Verticales', 'Digital — Pantallas LED de gran tamaño verticales', 0, 0, 1, 'fisico'),
+      ('soporte-5', 'SOP-VWALL', 'Video Wall', 'Digital — Pared de video de múltiples pantallas', 0, 0, 1, 'fisico'),
+      ('soporte-6', 'SOP-GRANF', 'Pantallas Gran Formato', 'Digital — Pantallas LED de formato grande', 0, 0, 1, 'fisico'),
+      ('soporte-7', 'SOP-PLOTEO', 'Ploteos', 'Impresión — Adhesivos impresos', 0, 0, 1, 'fisico'),
+      ('soporte-8', 'SOP-STAND', 'Stands', 'Instalación — Estructuras para ferias y eventos', 0, 0, 1, 'fisico'),
+      ('soporte-9', 'SOP-VARIOS', 'Varios', 'Otros productos y servicios', 0, 0, 1, 'fisico')
+  `);
+
   // Insertar agencias de publicidad
   db.run(`
     INSERT OR IGNORE INTO agencias (id, nombre, descripcion, contacto)
@@ -736,13 +1128,102 @@ db.serialize(() => {
       ('ag3', 'TOPVIEW Córdoba', 'Sucursal Córdoba', 'Carlos Rodríguez')
   `);
 
-  // Insertar intermediarios (Columna Gris)
+  // Insertar comisionistas (Columna Gris)
   db.run(`
     INSERT OR IGNORE INTO intermediarios (id, nombre, tipo, descripcion, factura_formal)
     VALUES
-      ('int1', 'LATAMNetwork', 'Red LATAM', 'Red latinoamericana de publicidad', 1),
-      ('int2', 'Pupy', 'Plataforma Digital', 'Plataforma de publicidad digital', 1),
-      ('int3', 'Representante Regional', 'Persona Física', 'Representante de zona', 0)
+      ('int1', 'Comisionista 1', 'Red LATAM', 'Red latinoamericana de publicidad', 1),
+      ('int2', 'Comisionista 2', 'Plataforma Digital', 'Plataforma de publicidad digital', 1),
+      ('int3', 'Comisionista 3', 'Persona Física', 'Representante de zona', 0),
+      ('int4', 'Comisionista 4', 'Comisionista con factura', 'Cobra su comisión facturada formalmente', 1),
+      ('int5', 'Comisionista 5', 'Comisionista en efectivo', 'Cobra su comisión en efectivo, sin factura', 0)
+  `);
+  // Renombra la nomenclatura previa ("Intermediario N") a "Comisionista N" en
+  // instalaciones existentes, para que el dato coincida con el resto de la UI.
+  ['1', '2', '3', '4', '5'].forEach((n) => {
+    db.run(`UPDATE intermediarios SET nombre = 'Comisionista ${n}' WHERE id = 'int${n}' AND nombre = 'Intermediario ${n}'`, () => {});
+  });
+
+  // Vendedores: personal de ventas propio de Topview, distinto de los
+  // comisionistas (que son terceros externos a la operación). No están
+  // ligados a un usuario del sistema por ahora. Se taguean en la orden
+  // (vendedor_id) y comisionan mensual por escala sobre el total vendido,
+  // no por orden individual — ver escala_comisiones_vendedor.
+  db.run(`
+    CREATE TABLE IF NOT EXISTS vendedores (
+      id TEXT PRIMARY KEY,
+      nombre TEXT NOT NULL,
+      apellido TEXT,
+      email TEXT,
+      telefono TEXT,
+      habilitado BOOLEAN DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  // Instalaciones que ya crearon la tabla con "contacto" (nombre original del
+  // campo, copiado sin pensar del patrón de agencias/comisionistas — que son
+  // empresas, no personas): se renombra a "apellido", que tiene sentido acá.
+  db.run(`ALTER TABLE vendedores RENAME COLUMN contacto TO apellido`, () => {});
+  db.run(`ALTER TABLE vendedores ADD COLUMN apellido TEXT`, () => {});
+  db.run(`ALTER TABLE ordenes_publicidad ADD COLUMN vendedor_id TEXT`, () => {});
+  // Baja lógica: "eliminar" una orden nunca borra el registro (tiene facturas/gastos/
+  // comisiones colgando) — solo la oculta de la lista activa, igual que con comisionistas.
+  db.run(`ALTER TABLE ordenes_publicidad ADD COLUMN habilitado BOOLEAN DEFAULT 1`, () => {});
+  // Nota libre de vigencia (ej. "Diciembre" o "Noviembre (oct y nov 2.8M)") — de la planilla
+  // de referencia real, no es un dato estructurado ni afecta ningún cálculo.
+  db.run(`ALTER TABLE ordenes_publicidad ADD COLUMN vigencia_hasta_nota TEXT`, () => {});
+  // El estado de la orden pasó de un pseudo-ciclo de vida (Activa/Pausada/
+  // Cancelada/Finalizada) a un tracker simple de 3 pasos del proceso real con
+  // Colppy (Cargada/Revisada/Facturada) — ver comentario junto a ESTADOS_ORDEN
+  // en el frontend. Migra lo existente para que no queden huérfanas.
+  db.run(`UPDATE ordenes_publicidad SET estado = 'Cargada' WHERE estado = 'Activa'`, () => {});
+  // Cuando el estado pasa a "Facturada" (ya se facturó de verdad en Colppy),
+  // acá quedan los números reales del comprobante — dato de referencia libre,
+  // no genera ni valida nada, solo para tener trazabilidad hacia Colppy.
+  db.run(`ALTER TABLE ordenes_publicidad ADD COLUMN numero_factura_colppy TEXT`, () => {});
+  db.run(`ALTER TABLE ordenes_publicidad ADD COLUMN numero_nc_colppy TEXT`, () => {});
+  // Cobro de las órdenes NO registradas (facturado = false): como nunca
+  // generan una factura real, nunca tocan cc_clientes/tesorería — este es
+  // el único lugar donde queda si esa plata efectivamente se cobró. Para
+  // las registradas esto no aplica, el cobro real se seguirá viendo en
+  // cc_clientes vía las facturas de verdad.
+  db.run(`ALTER TABLE ordenes_publicidad ADD COLUMN cobrado BOOLEAN DEFAULT 0`, () => {});
+  db.run(`ALTER TABLE ordenes_publicidad ADD COLUMN fecha_cobro DATE`, () => {});
+  // Referencia a Locaciones — reemplaza de a poco el texto libre "ubicacion".
+  // Ambos campos quedan (ubicacion sigue existiendo) para no romper lo ya
+  // cargado; las líneas nuevas usan locacion_id/punto_instalacion.
+  db.run(`ALTER TABLE ordenes_publicidad_detalles ADD COLUMN locacion_id TEXT`, () => {});
+  db.run(`ALTER TABLE ordenes_publicidad_detalles ADD COLUMN punto_instalacion TEXT`, () => {});
+  db.run(`ALTER TABLE ordenes_produccion_detalles ADD COLUMN locacion_id TEXT`, () => {});
+  db.run(`ALTER TABLE ordenes_produccion_detalles ADD COLUMN punto_instalacion TEXT`, () => {});
+
+  // Escala de comisión de vendedores: todo-o-nada por tramo (no progresiva) —
+  // según el total vendido en el mes, TODO ese total comisiona al % del tramo
+  // en que cae, no por tramos parciales como IVA. hasta = NULL en el último
+  // tramo (sin techo). vendedor_id NULL = escala general (default para
+  // cualquier vendedor sin escala propia); cada vendedor puede tener la suya
+  // con tramos y % totalmente distintos — no es una única escala compartida.
+  db.run(`
+    CREATE TABLE IF NOT EXISTS escala_comisiones_vendedor (
+      id TEXT PRIMARY KEY,
+      vendedor_id TEXT,
+      desde REAL NOT NULL,
+      hasta REAL,
+      porcentaje REAL NOT NULL,
+      habilitado BOOLEAN DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (vendedor_id) REFERENCES vendedores(id)
+    )
+  `);
+  db.run(`ALTER TABLE escala_comisiones_vendedor ADD COLUMN vendedor_id TEXT`, () => {});
+  db.run(`
+    INSERT OR IGNORE INTO escala_comisiones_vendedor (id, vendedor_id, desde, hasta, porcentaje)
+    VALUES
+      ('esc1', NULL, 1, 30000000, 2.0),
+      ('esc2', NULL, 30000001, 50000000, 3.0),
+      ('esc3', NULL, 50000001, NULL, 4.0)
   `);
 
   console.log('✓ Base de datos iniciada correctamente');

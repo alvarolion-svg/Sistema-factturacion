@@ -30,15 +30,47 @@ export interface Proveedor {
 export interface Cliente {
   id: string;
   razon_social: string;
+  nombre_fantasia?: string;
   cuit?: string;
+  dni?: string;
   email?: string;
   telefono?: string;
   direccion?: string;
   ciudad?: string;
+  codigo_postal?: string;
+  provincia?: string;
+  pais?: string;
+  direccion_fiscal?: string;
+  ciudad_fiscal?: string;
+  codigo_postal_fiscal?: string;
+  provincia_fiscal?: string;
+  pais_fiscal?: string;
   condicion_iva: string;
+  condicion_pago?: string;
+  limite_credito?: number;
+  porcentaje_iva?: number;
+  retencion_ganancias?: number;
+  numero_plan_cuenta?: string;
+  numero_cuenta_bancaria?: string;
+  cbu?: string;
+  banco?: string;
+  descripcion_banco?: string;
   habilitado: boolean;
   created_at: string;
   updated_at: string;
+}
+
+export interface ContactoCliente {
+  id: string;
+  cliente_id: string;
+  nombre?: string;
+  apellido?: string;
+  email?: string;
+  rol?: string;
+  telefono?: string;
+  interno?: string;
+  skype?: string;
+  created_at: string;
 }
 
 // ==================== VENTAS ====================
@@ -68,6 +100,7 @@ export interface FacturaDetalle {
   cantidad: number;
   precio_unitario: number;
   subtotal: number;
+  descripcion?: string;
   created_at: string;
 }
 
@@ -225,6 +258,7 @@ export interface TipoProductoTopview {
 export interface OrdenPublicidad {
   id: string;
   numero_orden: string;
+  numero_orden_agencia?: string;
   tipo_anunciante: string;
   razon_social: string;
   nombre_anunciante: string;
@@ -236,6 +270,7 @@ export interface OrdenPublicidad {
   costo_produccion: number;
   monto_neto: number;
   descuento_porcentaje: number;
+  descuento_en_cascada: boolean;
   descuento_monto: number;
   monto_neto_aplicado: number;
   descuento_facturas_porcentaje: number;
@@ -243,6 +278,13 @@ export interface OrdenPublicidad {
   monto_final: number;
   estado: 'Activa' | 'Pausada' | 'Cancelada' | 'Finalizada';
   notas?: string;
+  leyenda_factura?: string;
+  incluir_numero_orden_agencia: boolean;
+  descuento_facturas_en_cascada: boolean;
+  mes_ingreso?: number;
+  ano_ingreso?: number;
+  vigencia_hasta_nota?: string;
+  cantidades_por_producto?: Record<string, number>;
   created_at: string;
   updated_at: string;
 }
@@ -263,6 +305,7 @@ export interface DocumentoAdjunto {
   nombre_archivo: string;
   tipo_archivo?: string;
   url_drive?: string;
+  ruta_archivo?: string;
   descripcion?: string;
   fecha_carga: string;
 }

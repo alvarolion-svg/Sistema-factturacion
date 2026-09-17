@@ -100,6 +100,47 @@ export class AutenticacionService {
   }
 
   /**
+   * Obtiene un usuario con su rol y permisos completos (mismo formato que devuelve el login)
+   */
+  static async obtenerUsuarioCompleto(usuarioId: string): Promise<Usuario> {
+    return new Promise((resolve, reject) => {
+      db.get('SELECT * FROM usuarios WHERE id = ? AND activo = 1', [usuarioId], (err, usuario: any) => {
+        if (err) return reject(err);
+        if (!usuario) return reject(new Error('Usuario no encontrado'));
+
+        db.get('SELECT * FROM roles WHERE id = ?', [usuario.rol_id], (err, rol: any) => {
+          if (err) return reject(err);
+
+          db.all(
+            `
+            SELECT p.* FROM permisos p
+            JOIN rol_permisos rp ON p.id = rp.permiso_id
+            WHERE rp.rol_id = ?
+          `,
+            [usuario.rol_id],
+            (err, permisos: Permiso[]) => {
+              if (err) return reject(err);
+
+              resolve({
+                id: usuario.id,
+                nombre: usuario.nombre,
+                email: usuario.email,
+                rol_id: usuario.rol_id,
+                departamento: usuario.departamento,
+                rol,
+                permisos,
+                activo: usuario.activo,
+                created_at: usuario.created_at,
+                updated_at: usuario.updated_at,
+              } as any);
+            }
+          );
+        });
+      });
+    });
+  }
+
+  /**
    * Verificar token y obtener usuario
    */
   static async verificarToken(token: string): Promise<Usuario & { permisos: string[] }> {
@@ -267,6 +308,7 @@ export class AutenticacionService {
               nombre: u.nombre,
               email: u.email,
               rol_id: u.rol_id,
+              rol_nombre: u.rol_nombre,
               departamento: u.departamento,
               activo: u.activo,
               created_at: u.created_at,

@@ -50,8 +50,10 @@ export class ReportesService {
         const totales = {
           cantidad: facturas.length,
           monto_total: facturas.reduce((sum, f) => sum + f.total, 0),
-          monto_cobrado: facturas.filter((f) => f.estado === 'Cobrada').reduce((sum, f) => sum + f.total, 0),
-          monto_pendiente: facturas.filter((f) => f.estado === 'Abierta').reduce((sum, f) => sum + f.saldo, 0),
+          monto_cobrado: facturas.reduce((sum, f) => sum + (f.total - f.saldo), 0),
+          monto_pendiente: facturas
+            .filter((f) => f.estado !== 'Anulada')
+            .reduce((sum, f) => sum + f.saldo, 0),
           facturas_validadas: facturas.filter((f) => f.validada_arca).length,
         };
 
@@ -79,8 +81,7 @@ export class ReportesService {
           oc.fecha,
           p.razon_social as proveedor,
           oc.total,
-          oc.estado,
-          COUNT(DISTINCT CASE WHEN gasto_id IS NOT NULL THEN gasto_id END) as gastos
+          oc.estado
         FROM ordenes_compra oc
         LEFT JOIN proveedores p ON oc.proveedor_id = p.id
         WHERE 1=1
@@ -93,7 +94,7 @@ export class ReportesService {
         params.push(filtros.fecha_inicio, filtros.fecha_fin);
       }
 
-      query += ` GROUP BY oc.id ORDER BY oc.fecha DESC`;
+      query += ` ORDER BY oc.fecha DESC`;
 
       db.all(query, params, (err, compras: any[]) => {
         if (err) return reject(err);

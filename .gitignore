@@ -37,3 +37,12 @@ Thumbs.db
 # Database
 *.db
 backend/facturacion.db
+
+# Archivos subidos por usuarios (documentos adjuntos a órdenes)
+backend/uploads/
+
+# Backups de datos reales — no van al repo
+backups/
+
+# Archivos de respaldo sueltos de editores
+*.save

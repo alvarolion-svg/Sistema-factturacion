@@ -95,8 +95,12 @@ export class TesoreriaService {
           const nuevoSaldo = tipo === 'debe' ? saldoActual + monto : saldoActual - monto;
 
           db.run(
-            'UPDATE cc_clientes SET saldo = ? WHERE cliente_id = ?',
-            [nuevoSaldo, clienteId],
+            `
+            INSERT INTO cc_clientes (id, cliente_id, saldo)
+            VALUES (?, ?, ?)
+            ON CONFLICT(cliente_id) DO UPDATE SET saldo = excluded.saldo, updated_at = CURRENT_TIMESTAMP
+          `,
+            [uuid(), clienteId, nuevoSaldo],
             (err) => {
               if (err) return reject(err);
               resolve(nuevoSaldo);
