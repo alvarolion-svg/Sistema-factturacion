@@ -4,6 +4,14 @@
 
 Sistema web completo de facturación con gestión de clientes, creación de facturas y reportes analíticos.
 
+## ⚠️ Pendiente para producción
+
+El archivo [`PENDIENTE-PRODUCCION.md`](./PENDIENTE-PRODUCCION.md) (raíz del repo) tiene el
+relevamiento completo de qué falta antes de desplegar esta app fuera de la Mac del usuario
+(contraseñas sin hashear, CORS abierto, token de sesión predecible, falta servir el build del
+frontend, elección de hosting con disco persistente, y más). Leerlo antes de tocar nada
+relacionado con despliegue, autenticación o configuración de producción.
+
 ## Arquitectura
 
 ### Frontend
