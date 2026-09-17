@@ -9,6 +9,10 @@ node_modules/
 # Production
 /dist
 /build
+dist/
+build/
+*/dist/
+*/build/
 *.tsbuildinfo
 
 # Misc

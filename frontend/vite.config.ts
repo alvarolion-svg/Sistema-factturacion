@@ -11,6 +11,10 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
+    hmr: {
+      host: 'localhost',
+      port: 5173,
+    },
   },
   build: {
     outDir: 'dist',

@@ -587,7 +587,7 @@ app.post('/api/facturas', autenticacion, requierePermiso('facturas_crear'), asyn
 });
 
 app.get('/api/facturas/:id', autenticacion, requierePermiso('facturas_ver'), (req: RequestConUsuario, res: Response) => {
-  db.get('SELECT * FROM facturas WHERE id = ?', [req.params.id], (err, factura) => {
+  db.get('SELECT * FROM facturas WHERE id = ?', [req.params.id], (err, factura: any) => {
     if (err) return res.status(500).json({ error: err.message });
 
     db.all(
