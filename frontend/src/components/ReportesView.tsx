@@ -638,6 +638,48 @@ function ReporteTopview({ datos }: { datos: any }) {
 
       {porAnunciante.length === 0 ? (
         <p className="empty-state">No hay órdenes de publicidad activas.</p>
+      ) : mostrarNetos ? (
+        <div>
+          <h3 className="reportes-subtitulo">Participación por tipo de anunciante (neto post-comisión)</h3>
+          <ResponsiveContainer width="100%" height={300}>
+            <PieChart>
+              <Pie
+                data={porAnunciante}
+                dataKey="monto_final_total"
+                nameKey="tipo_anunciante"
+                outerRadius={110}
+                label={({ percent }: any) => `${(percent * 100).toFixed(1)}%`}
+              >
+                {porAnunciante.map((_: any, i: number) => (
+                  <Cell key={i} fill={COLORES_GRAFICO[i % COLORES_GRAFICO.length]} />
+                ))}
+              </Pie>
+              <Tooltip formatter={(v: any) => formatMoney(Number(v))} />
+              <Legend />
+            </PieChart>
+          </ResponsiveContainer>
+
+          <table className="data-table" style={{ marginTop: '1rem' }}>
+            <thead>
+              <tr>
+                <th>Tipo de anunciante</th>
+                <th>Cantidad</th>
+                <th>Monto neto</th>
+                <th>Monto final</th>
+              </tr>
+            </thead>
+            <tbody>
+              {porAnunciante.map((a: any) => (
+                <tr key={a.tipo_anunciante}>
+                  <td>{a.tipo_anunciante}</td>
+                  <td>{a.cantidad}</td>
+                  <td>{formatMoney(a.monto_neto_total)}</td>
+                  <td>{formatMoney(a.monto_final_total)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       ) : (
         <table className="data-table">
           <thead>
@@ -645,14 +687,6 @@ function ReporteTopview({ datos }: { datos: any }) {
               <th>Tipo de anunciante</th>
               <th>Cantidad</th>
               <th>Monto neto</th>
-              {mostrarNetos && (
-                <>
-                  <th>Costo</th>
-                  <th>Monto final</th>
-                  <th>Ganancia</th>
-                  <th>Margen</th>
-                </>
-              )}
             </tr>
           </thead>
           <tbody>
@@ -661,14 +695,6 @@ function ReporteTopview({ datos }: { datos: any }) {
                 <td>{a.tipo_anunciante}</td>
                 <td>{a.cantidad}</td>
                 <td>{formatMoney(a.monto_neto_total)}</td>
-                {mostrarNetos && (
-                  <>
-                    <td>{formatMoney(a.costo_total)}</td>
-                    <td>{formatMoney(a.monto_final_total)}</td>
-                    <td>{formatMoney(a.ganancia_total)}</td>
-                    <td>{a.margen_ganancia}%</td>
-                  </>
-                )}
               </tr>
             ))}
           </tbody>
