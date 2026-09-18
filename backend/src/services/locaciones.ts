@@ -140,16 +140,31 @@ export class LocacionesService {
   ): Promise<any> {
     const existente = await this.queryGet('SELECT * FROM locaciones WHERE id = ?', [id]);
     if (!existente || !existente.id) throw new Error('Locación no encontrada.');
-    await this.runQuery(
-      `UPDATE locaciones SET
-        nombre = COALESCE(?, nombre),
-        tipo = ?,
-        concesionario_id = ?,
-        notas = ?,
-        updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?`,
-      [datos.nombre || null, datos.tipo || null, datos.concesionario_id || null, datos.notas || null, id]
-    );
+
+    // Solo se actualizan los campos realmente enviados — un PUT parcial (por
+    // ejemplo, para asignar nomás el concesionario) no debe borrar el resto.
+    const campos: string[] = [];
+    const valores: any[] = [];
+    if (datos.nombre !== undefined) {
+      campos.push('nombre = ?');
+      valores.push(datos.nombre);
+    }
+    if (datos.tipo !== undefined) {
+      campos.push('tipo = ?');
+      valores.push(datos.tipo || null);
+    }
+    if (datos.concesionario_id !== undefined) {
+      campos.push('concesionario_id = ?');
+      valores.push(datos.concesionario_id || null);
+    }
+    if (datos.notas !== undefined) {
+      campos.push('notas = ?');
+      valores.push(datos.notas || null);
+    }
+    campos.push('updated_at = CURRENT_TIMESTAMP');
+    valores.push(id);
+
+    await this.runQuery(`UPDATE locaciones SET ${campos.join(', ')} WHERE id = ?`, valores);
     AuditoriaService.registrarOperacion('locaciones', 'UPDATE', id, existente, datos);
     return this.obtenerLocacion(id);
   }
