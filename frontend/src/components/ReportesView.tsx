@@ -511,7 +511,6 @@ function ReporteTopview({ datos }: { datos: any }) {
   const porMes = (datos.por_mes || []).map((m: any) => ({ ...m, mesLabel: formatMesCorto(m.mes) }));
   const porSoporte = datos.por_soporte || [];
   const topClientes = datos.top_clientes || [];
-  const porComisionistaTipo = datos.por_comisionista_tipo || [];
 
   return (
     <>
@@ -617,23 +616,6 @@ function ReporteTopview({ datos }: { datos: any }) {
             </div>
           )}
         </div>
-      )}
-
-      {mostrarNetos && porComisionistaTipo.length > 0 && (
-        <>
-          <h3 className="reportes-subtitulo">Comisión Tipo 1 (facturas) vs. Tipo 2 (efectivo) por comisionista</h3>
-          <ResponsiveContainer width="100%" height={280}>
-            <BarChart data={porComisionistaTipo}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="nombre" tick={{ fontSize: 11 }} />
-              <YAxis tickFormatter={(v) => formatMoney(v)} width={90} />
-              <Tooltip formatter={(v: any) => formatMoney(Number(v))} />
-              <Legend />
-              <Bar dataKey="comision_tipo1" name="Tipo 1 (facturas)" fill={COLORES_GRAFICO[0]} />
-              <Bar dataKey="comision_tipo2" name="Tipo 2 (efectivo)" fill={COLORES_GRAFICO[2]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </>
       )}
 
       {porAnunciante.length === 0 ? (
