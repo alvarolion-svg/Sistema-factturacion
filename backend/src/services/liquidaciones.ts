@@ -51,6 +51,8 @@ export class LiquidacionesService {
         o.numero_orden,
         o.numero_orden_agencia,
         o.razon_social as anunciante,
+        o.periodo_desde,
+        o.periodo_hasta,
         d.tipo_producto,
         d.cantidad,
         d.punto_instalacion,

@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
 import axios from 'axios';
-import { authHeaders, mensajeError, formatMoney } from '../utils/api';
+import ExcelJS from 'exceljs';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import { authHeaders, mensajeError, formatMoney, formatFecha } from '../utils/api';
 
 const NOMBRES_MES = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -18,6 +21,8 @@ interface LineaLiquidacion {
   numero_orden: string;
   numero_orden_agencia: string | null;
   anunciante: string;
+  periodo_desde: string;
+  periodo_hasta: string;
   tipo_producto: string;
   cantidad: number;
   punto_instalacion: string | null;
@@ -97,6 +102,75 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
   const total = (filas || []).reduce((s, f) => s + (Number(f.monto) || 0), 0);
   const nombreConcesionario = concesionarios.find((c) => c.id === concesionarioId)?.razon_social || '';
 
+  // Varias "órdenes" seguidas en Colppy suelen ser la misma campaña real con
+  // cortes de fecha — mostrar la vigencia evita que el concesionario piense
+  // que son campañas distintas. El N° de orden es solo referencia interna:
+  // no sale en lo que se exporta para mandarle al concesionario.
+  const vigenciaTexto = (f: LineaLiquidacion) =>
+    f.periodo_desde || f.periodo_hasta ? `${formatFecha(f.periodo_desde)} – ${formatFecha(f.periodo_hasta)}` : '—';
+
+  const nombreArchivoExport = (ext: string) =>
+    `liquidacion_${(nombreConcesionario || 'concesionario').replace(/\s+/g, '_')}_${NOMBRES_MES[Number(mes) - 1]}_${ano}.${ext}`;
+
+  const handleExportarExcel = async () => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Liquidación');
+    ws.columns = [
+      { header: 'Anunciante', width: 28 },
+      { header: 'Vigencia', width: 22 },
+      { header: 'Producto', width: 24 },
+      { header: 'Locación', width: 22 },
+      { header: 'Posición', width: 20 },
+      { header: 'Cantidad', width: 10 },
+      { header: 'Monto liquidado', width: 18 },
+    ];
+    (filas || []).forEach((f) => {
+      ws.addRow([f.anunciante, vigenciaTexto(f), f.tipo_producto, f.locacion_nombre, f.punto_instalacion || '—', f.cantidad, f.monto]);
+    });
+    ws.addRow([]);
+    ws.addRow(['', '', '', '', '', 'Total', total]);
+    const headerRow = ws.getRow(1);
+    headerRow.eachCell((cell) => {
+      cell.font = { name: 'Calibri', size: 10 };
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFA4C2F4' } };
+    });
+    const formatoMoneda = '_-"$"* #,##0.00_-;_-"$"* \\-#,##0.00_-;_-"$"* "-"??_-;_-@';
+    ws.getColumn(7).numFmt = formatoMoneda;
+    const buffer = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = nombreArchivoExport('xlsx');
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportarPDF = () => {
+    const doc = new jsPDF({ orientation: 'landscape' });
+    doc.setFontSize(14);
+    doc.text(`Liquidación — ${nombreConcesionario} — ${NOMBRES_MES[Number(mes) - 1]} ${ano}`, 14, 15);
+    autoTable(doc, {
+      startY: 22,
+      head: [['Anunciante', 'Vigencia', 'Producto', 'Locación', 'Posición', 'Cantidad', 'Monto liquidado']],
+      body: (filas || []).map((f) => [
+        f.anunciante,
+        vigenciaTexto(f),
+        f.tipo_producto,
+        f.locacion_nombre,
+        f.punto_instalacion || '—',
+        String(f.cantidad),
+        formatMoney(f.monto),
+      ]),
+      foot: [['', '', '', '', '', 'Total', formatMoney(total)]],
+      styles: { fontSize: 8 },
+      headStyles: { fillColor: [232, 24, 56] },
+      footStyles: { fillColor: [240, 240, 240], textColor: [0, 0, 0], fontStyle: 'bold' },
+    });
+    doc.save(nombreArchivoExport('pdf'));
+  };
+
   return (
     <>
       <div className="view-header">
@@ -156,11 +230,24 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
 
       {filas && filas.length > 0 && (
         <>
+          <div style={{ display: 'flex', gap: '0.6rem', marginBottom: '0.8rem' }}>
+            <button type="button" className="btn-secondary" onClick={handleExportarExcel}>
+              Exportar Excel
+            </button>
+            <button type="button" className="btn-secondary" onClick={handleExportarPDF}>
+              Exportar PDF
+            </button>
+          </div>
+          <p className="totales-preview" style={{ marginTop: 0 }}>
+            El N° de orden es solo referencia interna (varias órdenes seguidas suelen ser la misma campaña con
+            cortes de fecha) — no sale en lo exportado, ahí se muestra la vigencia en fechas.
+          </p>
           <table className="data-table" style={{ marginBottom: '1rem' }}>
             <thead>
               <tr>
                 <th>Anunciante</th>
                 <th>N° orden</th>
+                <th>Vigencia</th>
                 <th>Producto</th>
                 <th>Locación</th>
                 <th>Posición</th>
@@ -174,6 +261,7 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
                 <tr key={f.detalle_id}>
                   <td>{f.anunciante}</td>
                   <td>{f.numero_orden_agencia || f.numero_orden}</td>
+                  <td>{vigenciaTexto(f)}</td>
                   <td>{f.tipo_producto}</td>
                   <td>{f.locacion_nombre}</td>
                   <td>{f.punto_instalacion || '—'}</td>
