@@ -89,10 +89,13 @@ más importantes:
 2. **Módulo Liquidaciones a locatarios**: diseñado (pantalla de carga manual por
    concesionario/mes + reporte PDF para mandarle al locatario), con mockups ya hechos, pero **no
    construido** — bloqueado hasta terminar de asignar concesionarios y cargar más órdenes con
-   locación/soporte real. Suma una vuelta más: **OXANT GROUP S.R.L.** (proveedor real) cobra un %
-   de lo que Topview le liquida a tres concesionarios puntuales — CECNOR SA, World Padel Pilar
-   (WFPP SRL) y Hey Add Center (Pilar Shops S.A.) — hay que decidir cómo modelar ese paso extra
-   (Topview → concesionario → Oxant) cuando se retome el módulo.
+   locación/soporte real. Suma dos vueltas más, mismo patrón (un tercero que se cuelga de la
+   liquidación de un concesionario, con su propia fila/campo por campaña):
+   - **OXANT GROUP S.R.L.** cobra un **%** de lo que Topview le liquida a CECNOR SA, World Padel
+     Pilar (WFPP SRL) y Hey Add Center (Pilar Shops S.A.).
+   - **Esteban Vivo** trajo los concesionarios de **Parque C. Avellaneda** y **Pueblo Caamaño** —
+     cuando se liquide cualquiera de esos dos, tiene que replicarse automáticamente la misma lista
+     de campañas con un campo aparte para cargarle a mano cuánto se le paga (monto fijo, no %).
 3. **Concesionario por punto, no solo por locación**: algunas locaciones (ej. Bahía Grande
    Nordelta) tienen varios proveedores distintos adentro, cada uno dueño de un cartel/punto
    específico — el modelo actual (`concesionario_id` único en `locaciones`) no alcanza. Diseño ya
@@ -102,19 +105,17 @@ más importantes:
    (ítem 2), que va a tener que resolver el concesionario por esta misma cadena. **Pistas
    parciales**: tres de los proveedores reales que son parte de Bahía Nordelta son **IRIS
    CHITERER**, **FIDEICOMISO LOFTS DE BAHIA GRANDE** y **ALQUICER S.R.L.** — todavía falta saber
-   qué soporte/punto puntual le corresponde a cada uno. (Esteban Vivo, del ítem 4, **no** es parte
-   de esta lista — es un tema aparte, deliberadamente pausado, no confundir los dos.)
-4. **Caso Esteban Vivo**: proveedor que comisiona pero no encaja en el modelo actual de
-   comisionistas/intermediarios — pausado a pedido del usuario, para revisar al final.
-5. **Integración con Asana**: idea diseñada (botón manual por orden, tarea compartida a 3
+   qué soporte/punto puntual le corresponde a cada uno. Esteban Vivo (ver ítem 2) **no** es parte
+   de esta lista de Bahía Nordelta — es un caso aparte, ya resuelto y explicado más arriba.
+4. **Integración con Asana**: idea diseñada (botón manual por orden, tarea compartida a 3
    proyectos reales de Asana) pero no construida — guardada para más adelante.
-6. **Bug conocido en Reportes**: la tarjeta "Órdenes revisadas" todavía cuenta todas las órdenes,
+5. **Bug conocido en Reportes**: la tarjeta "Órdenes revisadas" todavía cuenta todas las órdenes,
    no solo las revisadas.
-7. **Export a Excel**: faltan opciones de formato (totales, colores por estado, secciones).
-8. **Despliegue a producción**: ver [`PENDIENTE-PRODUCCION.md`](./PENDIENTE-PRODUCCION.md) —
+6. **Export a Excel**: faltan opciones de formato (totales, colores por estado, secciones).
+7. **Despliegue a producción**: ver [`PENDIENTE-PRODUCCION.md`](./PENDIENTE-PRODUCCION.md) —
    contraseñas sin hashear de verdad, CORS abierto, token de sesión predecible, falta servir el
    build del frontend, elegir hosting con disco persistente.
-9. **Revisar privilegios de usuario y jerarquías a fondo**: no es urgente, pero queda pendiente.
+8. **Revisar privilegios de usuario y jerarquías a fondo**: no es urgente, pero queda pendiente.
    Al armar el permiso `topview_netos_ver` (netos post-comisión en Reportes, reservado a
    Administrador — ver más abajo) se vio que el patrón de seed en `backend/src/database.ts`
    ("todos los permisos menos estos") es frágil: un permiso nuevo se filtra a roles que no
