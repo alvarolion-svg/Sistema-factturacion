@@ -622,45 +622,80 @@ function ReporteTopview({ datos }: { datos: any }) {
         <p className="empty-state">No hay órdenes de publicidad activas.</p>
       ) : mostrarNetos ? (
         <div>
-          <h3 className="reportes-subtitulo">Participación por tipo de anunciante (neto post-comisión)</h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <PieChart>
-              <Pie
-                data={porAnunciante}
-                dataKey="monto_final_total"
-                nameKey="tipo_anunciante"
-                outerRadius={110}
-                label={({ percent }: any) => `${(percent * 100).toFixed(1)}%`}
-              >
-                {porAnunciante.map((_: any, i: number) => (
-                  <Cell key={i} fill={COLORES_GRAFICO[i % COLORES_GRAFICO.length]} />
-                ))}
-              </Pie>
-              <Tooltip formatter={(v: any) => formatMoney(Number(v))} />
-              <Legend />
-            </PieChart>
-          </ResponsiveContainer>
+          <h3 className="reportes-subtitulo">Participación por tipo de anunciante — bruto vs. neto post-comisión</h3>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+            <div>
+              <p style={{ textAlign: 'center', fontWeight: 600, fontSize: '0.85rem', color: '#666' }}>Monto neto (bruto)</p>
+              <ResponsiveContainer width="100%" height={280}>
+                <PieChart>
+                  <Pie
+                    data={porAnunciante}
+                    dataKey="monto_neto_total"
+                    nameKey="tipo_anunciante"
+                    outerRadius={100}
+                    label={({ percent }: any) => `${(percent * 100).toFixed(1)}%`}
+                  >
+                    {porAnunciante.map((_: any, i: number) => (
+                      <Cell key={i} fill={COLORES_GRAFICO[i % COLORES_GRAFICO.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(v: any) => formatMoney(Number(v))} />
+                  <Legend />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+            <div>
+              <p style={{ textAlign: 'center', fontWeight: 600, fontSize: '0.85rem', color: '#666' }}>Monto final (neto post-comisión)</p>
+              <ResponsiveContainer width="100%" height={280}>
+                <PieChart>
+                  <Pie
+                    data={porAnunciante}
+                    dataKey="monto_final_total"
+                    nameKey="tipo_anunciante"
+                    outerRadius={100}
+                    label={({ percent }: any) => `${(percent * 100).toFixed(1)}%`}
+                  >
+                    {porAnunciante.map((_: any, i: number) => (
+                      <Cell key={i} fill={COLORES_GRAFICO[i % COLORES_GRAFICO.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(v: any) => formatMoney(Number(v))} />
+                  <Legend />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
 
-          <table className="data-table" style={{ marginTop: '1rem' }}>
-            <thead>
-              <tr>
-                <th>Tipo de anunciante</th>
-                <th>Cantidad</th>
-                <th>Monto neto</th>
-                <th>Monto final</th>
-              </tr>
-            </thead>
-            <tbody>
-              {porAnunciante.map((a: any) => (
-                <tr key={a.tipo_anunciante}>
-                  <td>{a.tipo_anunciante}</td>
-                  <td>{a.cantidad}</td>
-                  <td>{formatMoney(a.monto_neto_total)}</td>
-                  <td>{formatMoney(a.monto_final_total)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          {(() => {
+            const totalNeto = porAnunciante.reduce((acc: number, a: any) => acc + (a.monto_neto_total || 0), 0);
+            const totalFinal = porAnunciante.reduce((acc: number, a: any) => acc + (a.monto_final_total || 0), 0);
+            return (
+              <table className="data-table" style={{ marginTop: '1rem' }}>
+                <thead>
+                  <tr>
+                    <th>Tipo de anunciante</th>
+                    <th>Cantidad</th>
+                    <th>Monto neto</th>
+                    <th>% bruto</th>
+                    <th>Monto final</th>
+                    <th>% neto</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {porAnunciante.map((a: any) => (
+                    <tr key={a.tipo_anunciante}>
+                      <td>{a.tipo_anunciante}</td>
+                      <td>{a.cantidad}</td>
+                      <td>{formatMoney(a.monto_neto_total)}</td>
+                      <td>{totalNeto > 0 ? `${((a.monto_neto_total / totalNeto) * 100).toFixed(1)}%` : '-'}</td>
+                      <td>{formatMoney(a.monto_final_total)}</td>
+                      <td>{totalFinal > 0 ? `${((a.monto_final_total / totalFinal) * 100).toFixed(1)}%` : '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            );
+          })()}
         </div>
       ) : (
         <table className="data-table">
