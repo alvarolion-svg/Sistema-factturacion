@@ -20,6 +20,7 @@ function LocacionesTab({ token, puedeCrear, puedeEditar }: { token: string; pued
   const [error, setError] = useState('');
 
   const [mostrarAlta, setMostrarAlta] = useState(false);
+  const [editandoLocacionId, setEditandoLocacionId] = useState<string | null>(null);
   const [altaForm, setAltaForm] = useState(LOCACION_VACIA);
   const [guardandoAlta, setGuardandoAlta] = useState(false);
   const [errorAlta, setErrorAlta] = useState('');
@@ -57,7 +58,7 @@ function LocacionesTab({ token, puedeCrear, puedeEditar }: { token: string; pued
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleCrearLocacion = async (e: React.FormEvent) => {
+  const handleGuardarLocacion = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!altaForm.nombre.trim()) {
       setErrorAlta('El nombre es obligatorio.');
@@ -65,20 +66,41 @@ function LocacionesTab({ token, puedeCrear, puedeEditar }: { token: string; pued
     }
     setGuardandoAlta(true);
     setErrorAlta('');
+    const datos = { ...altaForm, concesionario_id: altaForm.concesionario_id || undefined };
     try {
-      await axios.post(
-        '/api/locaciones',
-        { ...altaForm, concesionario_id: altaForm.concesionario_id || undefined },
-        authHeaders(token)
-      );
+      if (editandoLocacionId) {
+        await axios.put(`/api/locaciones/${editandoLocacionId}`, datos, authHeaders(token));
+      } else {
+        await axios.post('/api/locaciones', datos, authHeaders(token));
+      }
       setAltaForm(LOCACION_VACIA);
       setMostrarAlta(false);
+      setEditandoLocacionId(null);
       cargarLocaciones();
     } catch (err: any) {
-      setErrorAlta(mensajeError(err, 'No se pudo crear la locación.'));
+      setErrorAlta(mensajeError(err, editandoLocacionId ? 'No se pudo guardar los cambios.' : 'No se pudo crear la locación.'));
     } finally {
       setGuardandoAlta(false);
     }
+  };
+
+  const handleAbrirEditarLocacion = (loc: any) => {
+    setEditandoLocacionId(loc.id);
+    setAltaForm({
+      nombre: loc.nombre || '',
+      tipo: loc.tipo || TIPOS_LOCACION[0],
+      concesionario_id: loc.concesionario_id || '',
+      notas: loc.notas || '',
+    });
+    setErrorAlta('');
+    setMostrarAlta(true);
+  };
+
+  const handleCancelarAlta = () => {
+    setMostrarAlta(false);
+    setEditandoLocacionId(null);
+    setAltaForm(LOCACION_VACIA);
+    setErrorAlta('');
   };
 
   const handleEliminarLocacion = async (id: string, nombre: string) => {
@@ -180,7 +202,10 @@ function LocacionesTab({ token, puedeCrear, puedeEditar }: { token: string; pued
     <>
       <div className="view-header">
         {puedeCrear && (
-          <button className="btn-primary" onClick={() => setMostrarAlta((v) => !v)}>
+          <button
+            className="btn-primary"
+            onClick={() => (mostrarAlta ? handleCancelarAlta() : setMostrarAlta(true))}
+          >
             {mostrarAlta ? 'Cancelar' : '+ Nueva locación'}
           </button>
         )}
@@ -189,7 +214,8 @@ function LocacionesTab({ token, puedeCrear, puedeEditar }: { token: string; pued
       {error && <div className="error-message">{error}</div>}
 
       {mostrarAlta && (
-        <form className="cliente-form" onSubmit={handleCrearLocacion}>
+        <form className="cliente-form" onSubmit={handleGuardarLocacion}>
+          <h3 style={{ gridColumn: '1 / -1', margin: 0 }}>{editandoLocacionId ? 'Editar locación' : 'Nueva locación'}</h3>
           {errorAlta && (
             <div className="error-message" style={{ gridColumn: '1 / -1' }}>
               {errorAlta}
@@ -247,7 +273,7 @@ function LocacionesTab({ token, puedeCrear, puedeEditar }: { token: string; pued
           </div>
           <div className="cliente-form-actions">
             <button type="submit" className="btn-primary" disabled={guardandoAlta}>
-              {guardandoAlta ? 'Creando...' : 'Crear locación'}
+              {guardandoAlta ? 'Guardando...' : editandoLocacionId ? 'Guardar cambios' : 'Crear locación'}
             </button>
           </div>
         </form>
@@ -498,6 +524,10 @@ function LocacionesTab({ token, puedeCrear, puedeEditar }: { token: string; pued
                     )}
 
                     <div style={{ marginTop: '0.75rem' }}>
+                      <button className="btn-link" onClick={() => handleAbrirEditarLocacion(loc)}>
+                        Editar locación
+                      </button>
+                      {' · '}
                       <button
                         className="btn-link btn-link-danger"
                         onClick={() => handleEliminarLocacion(loc.id, loc.nombre)}
