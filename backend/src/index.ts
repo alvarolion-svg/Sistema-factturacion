@@ -1563,7 +1563,8 @@ app.post('/api/comisiones-efectivo/pagar', autenticacion, requierePermiso('topvi
 
 app.get('/api/reportes/topview', autenticacion, requierePermiso('topview_ver'), async (req: RequestConUsuario, res: Response) => {
   try {
-    const reporte = await TopviewService.reporteOrdenes();
+    const incluirNetos = !!req.permisos?.includes('topview_netos_ver');
+    const reporte = await TopviewService.reporteOrdenes(incluirNetos);
     res.json(reporte);
   } catch (err: any) {
     res.status(500).json({ error: err.message });

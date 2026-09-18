@@ -502,6 +502,10 @@ function ReporteClientesProveedores({ datos, tipo }: { datos: any; tipo: 'client
 }
 
 function ReporteTopview({ datos }: { datos: any }) {
+  const puedeVerNetos = !!datos.incluye_netos;
+  const [verNetos, setVerNetos] = useState(true);
+  const mostrarNetos = puedeVerNetos && verNetos;
+
   const porAnunciante = datos.por_anunciante || [];
   const totales = datos.totales || {};
   const porMes = (datos.por_mes || []).map((m: any) => ({ ...m, mesLabel: formatMesCorto(m.mes) }));
@@ -511,19 +515,34 @@ function ReporteTopview({ datos }: { datos: any }) {
 
   return (
     <>
+      {puedeVerNetos && (
+        <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', marginBottom: '1rem' }}>
+          <input type="checkbox" checked={verNetos} onChange={(e) => setVerNetos(e.target.checked)} />
+          Mostrar netos post-comisión (solo Administrador)
+        </label>
+      )}
+
       <div className="totales-grid">
         <div className="totales-card">
           <span>Órdenes revisadas</span>
           <strong>{totales.total_ordenes ?? 0}</strong>
         </div>
         <div className="totales-card">
-          <span>Monto final total</span>
-          <strong>{formatMoney(totales.monto_final_total)}</strong>
+          <span>Facturación bruta total</span>
+          <strong>{formatMoney(totales.monto_neto_total)}</strong>
         </div>
-        <div className="totales-card">
-          <span>Ganancia total</span>
-          <strong>{formatMoney(totales.ganancia_total)}</strong>
-        </div>
+        {mostrarNetos && (
+          <>
+            <div className="totales-card">
+              <span>Monto final total</span>
+              <strong>{formatMoney(totales.monto_final_total)}</strong>
+            </div>
+            <div className="totales-card">
+              <span>Ganancia total</span>
+              <strong>{formatMoney(totales.ganancia_total)}</strong>
+            </div>
+          </>
+        )}
       </div>
 
       {porMes.length > 0 && (
@@ -592,7 +611,7 @@ function ReporteTopview({ datos }: { datos: any }) {
                   <XAxis type="number" tickFormatter={(v) => formatMoney(v)} />
                   <YAxis type="category" dataKey="razon_social" width={150} tick={{ fontSize: 11 }} />
                   <Tooltip formatter={(v: any) => formatMoney(Number(v))} />
-                  <Bar dataKey="monto_final_total" name="Monto final" fill={COLORES_GRAFICO[0]} />
+                  <Bar dataKey="monto_total" name={puedeVerNetos ? 'Monto final' : 'Facturación bruta'} fill={COLORES_GRAFICO[0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -600,7 +619,7 @@ function ReporteTopview({ datos }: { datos: any }) {
         </div>
       )}
 
-      {porComisionistaTipo.length > 0 && (
+      {mostrarNetos && porComisionistaTipo.length > 0 && (
         <>
           <h3 className="reportes-subtitulo">Comisión Tipo 1 (facturas) vs. Tipo 2 (efectivo) por comisionista</h3>
           <ResponsiveContainer width="100%" height={280}>
@@ -625,11 +644,15 @@ function ReporteTopview({ datos }: { datos: any }) {
             <tr>
               <th>Tipo de anunciante</th>
               <th>Cantidad</th>
-              <th>Costo</th>
               <th>Monto neto</th>
-              <th>Monto final</th>
-              <th>Ganancia</th>
-              <th>Margen</th>
+              {mostrarNetos && (
+                <>
+                  <th>Costo</th>
+                  <th>Monto final</th>
+                  <th>Ganancia</th>
+                  <th>Margen</th>
+                </>
+              )}
             </tr>
           </thead>
           <tbody>
@@ -637,11 +660,15 @@ function ReporteTopview({ datos }: { datos: any }) {
               <tr key={a.tipo_anunciante}>
                 <td>{a.tipo_anunciante}</td>
                 <td>{a.cantidad}</td>
-                <td>{formatMoney(a.costo_total)}</td>
                 <td>{formatMoney(a.monto_neto_total)}</td>
-                <td>{formatMoney(a.monto_final_total)}</td>
-                <td>{formatMoney(a.ganancia_total)}</td>
-                <td>{a.margen_ganancia}%</td>
+                {mostrarNetos && (
+                  <>
+                    <td>{formatMoney(a.costo_total)}</td>
+                    <td>{formatMoney(a.monto_final_total)}</td>
+                    <td>{formatMoney(a.ganancia_total)}</td>
+                    <td>{a.margen_ganancia}%</td>
+                  </>
+                )}
               </tr>
             ))}
           </tbody>

@@ -994,7 +994,8 @@ db.serialize(() => {
       ('p44', 'topview_condiciones_agencia_editar', 'Editar/eliminar condiciones de agencia', 'topview', 'editar'),
       ('p45', 'topview_vendedores_ver', 'Ver vendedores y su comisión por escala', 'topview', 'ver'),
       ('p46', 'topview_vendedores_crear', 'Crear vendedores y tramos de escala', 'topview', 'crear'),
-      ('p47', 'topview_vendedores_editar', 'Editar/eliminar vendedores y tramos de escala', 'topview', 'editar')
+      ('p47', 'topview_vendedores_editar', 'Editar/eliminar vendedores y tramos de escala', 'topview', 'editar'),
+      ('p48', 'topview_netos_ver', 'Ver netos reales post-comisión en Reportes (reservado a Administrador)', 'topview', 'ver')
   `);
 
   // Asignar permisos a roles
@@ -1005,12 +1006,14 @@ db.serialize(() => {
     FROM permisos
   `);
 
-  // Gerente: Casi todos excepto auditoría y usuarios
+  // Gerente: Casi todos excepto auditoría, usuarios y netos post-comisión
+  // (topview_netos_ver queda reservado a Administrador — de Gerente para
+  // abajo solo se ve la facturación bruta en Reportes → Topview).
   db.run(`
     INSERT OR IGNORE INTO rol_permisos (id, rol_id, permiso_id)
     SELECT printf('rp_%s_%s', '2', id) as id, '2' as rol_id, id as permiso_id
     FROM permisos
-    WHERE codigo NOT IN ('auditoria_ver', 'usuarios_gestionar')
+    WHERE codigo NOT IN ('auditoria_ver', 'usuarios_gestionar', 'topview_netos_ver')
   `);
 
   // Contador: Tesorería, reportes, auditoría
@@ -1045,11 +1048,12 @@ db.serialize(() => {
   // Operario: Solo consulta
   // Excluye topview_comisionistas_ver y topview_vendedores_ver: datos de
   // comisiones/compensación quedan reservados a Gerente/Administrador.
+  // topview_netos_ver queda reservado a Administrador únicamente.
   db.run(`
     INSERT OR IGNORE INTO rol_permisos (id, rol_id, permiso_id)
     SELECT printf('rp_%s_%s', '6', id) as id, '6' as rol_id, id as permiso_id
     FROM permisos
-    WHERE codigo LIKE '%ver%' AND codigo NOT IN ('topview_comisionistas_ver', 'topview_vendedores_ver')
+    WHERE codigo LIKE '%ver%' AND codigo NOT IN ('topview_comisionistas_ver', 'topview_vendedores_ver', 'topview_netos_ver')
   `);
 
   // Insertar usuario administrador por defecto (password: admin123)

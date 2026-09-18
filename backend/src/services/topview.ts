@@ -1193,8 +1193,14 @@ export class TopviewService {
    * Reporte de órdenes con análisis de rentabilidad, más los desgloses que
    * alimentan los gráficos de Reportes → Topview (mensual, por soporte,
    * top clientes, comisión tipo 1/2).
+   *
+   * `incluirNetos` gatea todo lo que sea neto post-comisión (monto_final,
+   * ganancia, margen, y el desglose de comisión tipo 1/2 por comisionista)
+   * — reservado a quien tenga el permiso `topview_netos_ver` (Administrador).
+   * De Gerente para abajo solo se manda la facturación bruta (monto_neto):
+   * el dato ni sale del servidor, no es solo ocultarlo en la pantalla.
    */
-  static async reporteOrdenes(): Promise<any> {
+  static async reporteOrdenes(incluirNetos: boolean = true): Promise<any> {
     const analisis = await this.queryAll(`
       SELECT
         tipo_anunciante,
@@ -1244,34 +1250,55 @@ export class TopviewService {
       ORDER BY cantidad DESC
     `);
 
+    // Sin permiso de netos, el ranking usa la bruta (monto_neto) en vez del
+    // neto post-comisión — nunca se manda monto_final campo por campo.
+    const campoTopClientes = incluirNetos ? 'monto_final' : 'monto_neto';
     const topClientes = await this.queryAll(`
-      SELECT razon_social, SUM(monto_final) as monto_final_total
+      SELECT razon_social, SUM(${campoTopClientes}) as monto_total
       FROM ordenes_publicidad
       WHERE (habilitado != 0 OR habilitado IS NULL)
       GROUP BY razon_social
-      ORDER BY monto_final_total DESC
+      ORDER BY monto_total DESC
       LIMIT 10
     `);
 
-    const porComisionistaTipo = await this.queryAll(`
-      SELECT i.nombre,
-        COALESCE(SUM(CASE WHEN oi.factura_formal = 1 THEN oi.monto_comision ELSE 0 END), 0) as comision_tipo1,
-        COALESCE(SUM(CASE WHEN oi.factura_formal = 0 OR oi.factura_formal IS NULL THEN oi.monto_comision ELSE 0 END), 0) as comision_tipo2
-      FROM intermediarios i
-      LEFT JOIN ordenes_intermediarios oi ON oi.intermediario_id = i.id
-      WHERE i.habilitado = 1
-      GROUP BY i.id
-      HAVING comision_tipo1 > 0 OR comision_tipo2 > 0
-      ORDER BY (comision_tipo1 + comision_tipo2) DESC
-    `);
+    const porComisionistaTipo = incluirNetos
+      ? await this.queryAll(`
+          SELECT i.nombre,
+            COALESCE(SUM(CASE WHEN oi.factura_formal = 1 THEN oi.monto_comision ELSE 0 END), 0) as comision_tipo1,
+            COALESCE(SUM(CASE WHEN oi.factura_formal = 0 OR oi.factura_formal IS NULL THEN oi.monto_comision ELSE 0 END), 0) as comision_tipo2
+          FROM intermediarios i
+          LEFT JOIN ordenes_intermediarios oi ON oi.intermediario_id = i.id
+          WHERE i.habilitado = 1
+          GROUP BY i.id
+          HAVING comision_tipo1 > 0 OR comision_tipo2 > 0
+          ORDER BY (comision_tipo1 + comision_tipo2) DESC
+        `)
+      : [];
+
+    // Recortar campos post-comisión de lo que sí se manda siempre (totales y
+    // por_anunciante) cuando no hay permiso de netos — se borran, no se
+    // ocultan solo en la pantalla.
+    const totalesFiltrados = incluirNetos
+      ? totales || {}
+      : { total_ordenes: totales?.total_ordenes ?? 0, monto_neto_total: totales?.monto_neto_total ?? 0 };
+    const analisisFiltrado = (analisis || []).map((a: any) =>
+      incluirNetos
+        ? a
+        : { tipo_anunciante: a.tipo_anunciante, cantidad: a.cantidad, monto_neto_total: a.monto_neto_total }
+    );
+    const porMesFiltrado = (porMes || []).map((m: any) =>
+      incluirNetos ? m : { mes: m.mes, monto_neto_total: m.monto_neto_total }
+    );
 
     return {
-      por_anunciante: analisis || [],
-      totales: totales || {},
-      por_mes: porMes || [],
+      por_anunciante: analisisFiltrado,
+      totales: totalesFiltrados,
+      por_mes: porMesFiltrado,
       por_soporte: porSoporte || [],
       top_clientes: topClientes || [],
-      por_comisionista_tipo: porComisionistaTipo || [],
+      por_comisionista_tipo: porComisionistaTipo,
+      incluye_netos: incluirNetos,
       generado_en: new Date().toISOString(),
     };
   }
