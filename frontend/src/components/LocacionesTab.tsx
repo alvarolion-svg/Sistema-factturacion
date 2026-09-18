@@ -35,13 +35,12 @@ function LocacionesTab({ token, puedeCrear, puedeEditar }: { token: string; pued
 
   const cargarLocaciones = () => {
     setError('');
-    setLocaciones(null);
     axios
       .get('/api/locaciones', authHeaders(token))
       .then((res) => setLocaciones(res.data))
       .catch((err) => {
         setError(mensajeError(err, 'No se pudieron cargar las locaciones.'));
-        setLocaciones([]);
+        setLocaciones((actual) => actual ?? []);
       });
   };
 
