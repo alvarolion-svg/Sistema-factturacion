@@ -1232,6 +1232,10 @@ db.serialize(() => {
   db.run(`ALTER TABLE ordenes_publicidad_detalles ADD COLUMN punto_instalacion TEXT`, () => {});
   db.run(`ALTER TABLE ordenes_produccion_detalles ADD COLUMN locacion_id TEXT`, () => {});
   db.run(`ALTER TABLE ordenes_produccion_detalles ADD COLUMN punto_instalacion TEXT`, () => {});
+  // Lo que paga esa línea (soporte × cantidad en esa locación) — opcional.
+  // Si se carga en al menos una línea, "Monto neto" de la orden se arma
+  // solo (suma de líneas) en vez de escribirlo a mano.
+  db.run(`ALTER TABLE ordenes_publicidad_detalles ADD COLUMN precio REAL DEFAULT 0`, () => {});
 
   // Escala de comisión de vendedores: todo-o-nada por tramo (no progresiva) —
   // según el total vendido en el mes, TODO ese total comisiona al % del tramo

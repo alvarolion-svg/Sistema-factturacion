@@ -35,6 +35,7 @@ interface DatosOrden {
     especificaciones?: string;
     locacion_id?: string;
     punto_instalacion?: string;
+    precio?: number;
   }>;
   emails_contacto?: Array<{ email: string; nombre: string; cargo?: string; principal: boolean }>;
   intermediarios?: Array<{
@@ -240,8 +241,8 @@ export class TopviewService {
                 db.run(
                   `
                 INSERT INTO ordenes_publicidad_detalles (
-                  id, orden_id, tipo_producto, producto_id, cantidad, ubicacion, especificaciones, locacion_id, punto_instalacion
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  id, orden_id, tipo_producto, producto_id, cantidad, ubicacion, especificaciones, locacion_id, punto_instalacion, precio
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
               `,
                   [
                     detalleId,
@@ -253,6 +254,7 @@ export class TopviewService {
                     detalle.especificaciones || null,
                     detalle.locacion_id || null,
                     detalle.punto_instalacion || null,
+                    detalle.precio || 0,
                   ],
                   (err) => {
                     if (err) return reject(err);
@@ -463,8 +465,8 @@ export class TopviewService {
       if (!producto) throw new Error('El producto/soporte elegido no existe.');
       await new Promise<void>((resolve, reject) => {
         db.run(
-          `INSERT INTO ordenes_publicidad_detalles (id, orden_id, tipo_producto, producto_id, cantidad, ubicacion, especificaciones, locacion_id, punto_instalacion)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO ordenes_publicidad_detalles (id, orden_id, tipo_producto, producto_id, cantidad, ubicacion, especificaciones, locacion_id, punto_instalacion, precio)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             uuid(),
             ordenId,
@@ -475,6 +477,7 @@ export class TopviewService {
             detalle.especificaciones || null,
             detalle.locacion_id || null,
             detalle.punto_instalacion || null,
+            detalle.precio || 0,
           ],
           (err) => (err ? reject(err) : resolve())
         );

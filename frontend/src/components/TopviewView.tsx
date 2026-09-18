@@ -91,6 +91,86 @@ const NOMBRES_MES = [
   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
 ];
 
+// El form guarda los montos como string "crudo" (sin separadores, con punto
+// decimal) igual que antes — estas dos funciones solo convierten esa cadena
+// a formato "1.700.000,50" para mostrar y de vuelta al tipear.
+function formatearMiles(valorCrudo: string): string {
+  if (!valorCrudo) return '';
+  const limpio = valorCrudo.replace(/[^\d.]/g, '');
+  const [enteros, decimales] = limpio.split('.');
+  const enterosFormateados = (enteros || '').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  return decimales !== undefined ? `${enterosFormateados},${decimales}` : enterosFormateados;
+}
+
+function limpiarMiles(texto: string): string {
+  const limpio = texto.replace(/[^\d,]/g, '');
+  const [enteros, decimales] = limpio.split(',');
+  return decimales !== undefined ? `${enteros}.${decimales}` : enteros;
+}
+
+function InputMiles({
+  value,
+  onChange,
+  placeholder,
+  disabled,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  disabled?: boolean;
+}) {
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      placeholder={placeholder}
+      value={formatearMiles(value)}
+      onChange={(e) => onChange(limpiarMiles(e.target.value))}
+      disabled={disabled}
+    />
+  );
+}
+
+function InputPorcentaje({
+  value,
+  onChange,
+  placeholder,
+  disabled,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  disabled?: boolean;
+}) {
+  return (
+    <div style={{ position: 'relative' }}>
+      <input
+        type="number"
+        min="0"
+        max="100"
+        step="0.01"
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
+        style={{ paddingRight: '1.6rem', width: '100%', boxSizing: 'border-box' }}
+      />
+      <span
+        style={{
+          position: 'absolute',
+          right: '0.6rem',
+          top: '50%',
+          transform: 'translateY(-50%)',
+          color: '#666',
+          pointerEvents: 'none',
+        }}
+      >
+        %
+      </span>
+    </div>
+  );
+}
+
 interface LineaProducto {
   producto_id: string;
   cantidad: string;
@@ -98,6 +178,7 @@ interface LineaProducto {
   especificaciones: string;
   locacion_id: string;
   punto_instalacion: string;
+  precio: string;
 }
 
 interface LineaEmail {
@@ -302,7 +383,7 @@ function OrdenesTab({
 
   const [ordenForm, setOrdenForm] = useState(ORDEN_VACIA);
   const [lineasProductos, setLineasProductos] = useState<LineaProducto[]>([
-    { producto_id: '', cantidad: '1', ubicacion: '', especificaciones: '', locacion_id: '', punto_instalacion: '' },
+    { producto_id: '', cantidad: '1', ubicacion: '', especificaciones: '', locacion_id: '', punto_instalacion: '', precio: '' },
   ]);
   const [lineasEmails, setLineasEmails] = useState<LineaEmail[]>([
     { email: '', nombre: '', cargo: '', principal: true },
@@ -390,7 +471,7 @@ function OrdenesTab({
 
   const handleNueva = () => {
     setOrdenForm(ORDEN_VACIA);
-    setLineasProductos([{ producto_id: '', cantidad: '1', ubicacion: '', especificaciones: '', locacion_id: '', punto_instalacion: '' }]);
+    setLineasProductos([{ producto_id: '', cantidad: '1', ubicacion: '', especificaciones: '', locacion_id: '', punto_instalacion: '', precio: '' }]);
     setLineasEmails([{ email: '', nombre: '', cargo: '', principal: true }]);
     setLineasIntermediarios([]);
     setLineasArreglos([]);
@@ -444,8 +525,9 @@ function OrdenesTab({
             especificaciones: d.especificaciones || '',
             locacion_id: d.locacion_id || '',
             punto_instalacion: d.punto_instalacion || '',
+            precio: d.precio ? String(d.precio) : '',
           }))
-        : [{ producto_id: '', cantidad: '1', ubicacion: '', especificaciones: '', locacion_id: '', punto_instalacion: '' }]
+        : [{ producto_id: '', cantidad: '1', ubicacion: '', especificaciones: '', locacion_id: '', punto_instalacion: '', precio: '' }]
     );
     setLineasEmails(
       (o.contactos || []).length > 0
@@ -964,7 +1046,13 @@ function OrdenesTab({
   // Cálculo en vivo: descuento comercial (NC) + descuento de facturas (FC), cada uno
   // plano sobre el bruto o en cascada sobre el remanente del anterior según su toggle
   // — misma lógica que el backend — + comisiones de intermediarios.
-  const montoNeto = Number(ordenForm.monto_neto) || 0;
+  // Si "Monto neto" se cargó a mano, se respeta tal cual (override manual).
+  // Si se dejó vacío/0, se arma solo sumando el precio de cada línea de
+  // producto/soporte — así se puede construir el total soporte por soporte
+  // en vez de escribir un número suelto arriba.
+  const sumaPreciosLineas = lineasProductos.reduce((acc, l) => acc + (Number(l.precio) || 0), 0);
+  const montoNetoManual = Number(ordenForm.monto_neto) || 0;
+  const montoNeto = montoNetoManual || sumaPreciosLineas;
   let descuentoMonto = 0;
   let descuentoFacturasMonto = 0;
   {
@@ -1011,7 +1099,7 @@ function OrdenesTab({
   const handleAgregarProducto = () => {
     setLineasProductos((prev) => [
       ...prev,
-      { producto_id: '', cantidad: '1', ubicacion: '', especificaciones: '', locacion_id: '', punto_instalacion: '' },
+      { producto_id: '', cantidad: '1', ubicacion: '', especificaciones: '', locacion_id: '', punto_instalacion: '', precio: '' },
     ]);
   };
   const handleQuitarProducto = (i: number) => {
@@ -1170,6 +1258,7 @@ function OrdenesTab({
             especificaciones: l.especificaciones,
             locacion_id: l.locacion_id || undefined,
             punto_instalacion: l.punto_instalacion || undefined,
+            precio: Number(l.precio) || 0,
           })),
           emails_contacto: lineasEmails.filter((l) => l.email.trim()),
           intermediarios: lineasIntermediarios
@@ -2045,39 +2134,29 @@ function OrdenesTab({
             <label>Montos y descuentos en cascada</label>
 
             <div className="linea-factura" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                placeholder="Monto neto"
+              <InputMiles
+                placeholder="Monto neto (vacío = suma de líneas)"
                 value={ordenForm.monto_neto}
-                onChange={(e) => handleChangeOrden('monto_neto', e.target.value)}
+                onChange={(v) => handleChangeOrden('monto_neto', v)}
                 disabled={guardando}
               />
-              <input
-                type="number"
-                min="0"
-                max="100"
-                step="0.01"
-                placeholder="Descuento comercial % (NC)"
+              <InputPorcentaje
+                placeholder="Descuento comercial (NC)"
                 value={ordenForm.descuento_porcentaje}
-                onChange={(e) => handleChangeOrden('descuento_porcentaje', e.target.value)}
+                onChange={(v) => handleChangeOrden('descuento_porcentaje', v)}
                 disabled={guardando}
               />
-              <input
-                type="number"
-                min="0"
-                max="100"
-                step="0.01"
-                placeholder="Descuento facturas % (FC)"
+              <InputPorcentaje
+                placeholder="Descuento facturas (FC)"
                 value={ordenForm.descuento_facturas_porcentaje}
-                onChange={(e) => handleChangeOrden('descuento_facturas_porcentaje', e.target.value)}
+                onChange={(v) => handleChangeOrden('descuento_facturas_porcentaje', v)}
                 disabled={guardando}
               />
             </div>
             <small style={{ color: '#666' }}>
               "Monto neto" es solo la exhibición. La producción (impresión, colocación, cambio o reposición de
-              gráfica) se carga como su propia orden en "Órdenes de Producción", no acá.
+              gráfica) se carga como su propia orden en "Órdenes de Producción", no acá. Si lo dejás vacío, se arma
+              solo sumando el precio de cada línea en "Productos / soportes" de abajo.
             </small>
 
             <label htmlFor="orden_desc_cascada" style={{ fontWeight: 'normal', marginTop: '0.5rem', display: 'block' }}>
@@ -2185,7 +2264,7 @@ function OrdenesTab({
               const soporteEnLocacion = (locacionElegida?.soportes || []).find((s: any) => s.producto_id === linea.producto_id);
               const puntosDisponibles = soporteEnLocacion?.puntos || [];
               return (
-              <div className="linea-factura" key={i} style={{ gridTemplateColumns: '1.8fr 70px 1.3fr 1.2fr 1.6fr auto' }}>
+              <div className="linea-factura" key={i} style={{ gridTemplateColumns: '1.8fr 70px 1.3fr 1.2fr 1fr 1.6fr auto' }}>
                 <select
                   value={linea.producto_id}
                   onChange={(e) => handleChangeProducto(i, 'producto_id', e.target.value)}
@@ -2240,6 +2319,12 @@ function OrdenesTab({
                     </option>
                   ))}
                 </select>
+                <InputMiles
+                  placeholder="Precio ($)"
+                  value={linea.precio}
+                  onChange={(v) => handleChangeProducto(i, 'precio', v)}
+                  disabled={guardando}
+                />
                 <input
                   type="text"
                   placeholder="Nota de ubicación (opcional)"
