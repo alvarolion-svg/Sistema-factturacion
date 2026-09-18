@@ -6,6 +6,7 @@ import autoTable from 'jspdf-autotable';
 import { authHeaders, mensajeError, formatMoney, formatFecha, scrollAlFormulario } from '../utils/api';
 import ProduccionTopviewTab from './ProduccionTopviewTab';
 import LocacionesTab from './LocacionesTab';
+import LiquidacionesTab from './LiquidacionesTab';
 
 interface OrdenPublicidad {
   id: string;
@@ -159,9 +160,19 @@ function TopviewView({ token, usuario }: TopviewViewProps) {
   const puedeGestionarCondicionAgencia = permisos.has('topview_condiciones_agencia_crear');
   const puedeVerVendedores = permisos.has('topview_vendedores_ver');
   const puedeGestionarVendedores = permisos.has('topview_vendedores_crear');
+  const puedeVerLiquidaciones = permisos.has('liquidaciones_ver');
+  const puedeCargarLiquidaciones = permisos.has('liquidaciones_cargar');
 
   const [seccion, setSeccion] = useState<
-    'ordenes' | 'produccion' | 'agencias' | 'locaciones' | 'intermediarios' | 'condiciones' | 'comisiones' | 'vendedores'
+    | 'ordenes'
+    | 'produccion'
+    | 'agencias'
+    | 'locaciones'
+    | 'intermediarios'
+    | 'condiciones'
+    | 'comisiones'
+    | 'vendedores'
+    | 'liquidaciones'
   >('ordenes');
 
   return (
@@ -225,6 +236,14 @@ function TopviewView({ token, usuario }: TopviewViewProps) {
             Vendedores
           </button>
         )}
+        {puedeVerLiquidaciones && (
+          <button
+            className={`reportes-tab ${seccion === 'liquidaciones' ? 'active' : ''}`}
+            onClick={() => setSeccion('liquidaciones')}
+          >
+            Liquidaciones
+          </button>
+        )}
       </div>
 
       {seccion === 'ordenes' && (
@@ -251,6 +270,9 @@ function TopviewView({ token, usuario }: TopviewViewProps) {
       )}
       {seccion === 'vendedores' && puedeVerVendedores && (
         <VendedoresTab token={token} puedeCrear={puedeGestionarVendedores} />
+      )}
+      {seccion === 'liquidaciones' && puedeVerLiquidaciones && (
+        <LiquidacionesTab token={token} puedeCargar={puedeCargarLiquidaciones} />
       )}
     </section>
   );

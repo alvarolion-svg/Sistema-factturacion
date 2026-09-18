@@ -61,6 +61,16 @@ una feature secundaria.
   efectivo, o ambas), detalle expandible por comisionista con las campañas/clientes que la
   conforman, marca de "sin órdenes" cuando no hubo actividad en el período filtrado, y exportar a
   Excel/PDF.
+- **Topview → Liquidaciones** (nuevo, **Administrador únicamente** — `liquidaciones_ver`/
+  `liquidaciones_cargar`): elegís concesionario + mes/año y lista automáticamente todas las líneas
+  de orden con locación de ese concesionario activas ese período (cantidad/locación/posición de
+  solo lectura, tomadas de la orden real). El monto que se le paga al concesionario se carga a
+  mano por línea y por mes — no se calcula de lo que le cobramos al anunciante, no tiene relación
+  fija. Guarda una fila por línea de detalle de orden + mes/año (tabla `liquidaciones_detalle`),
+  no por orden entera, porque una misma orden puede tener líneas en varias locaciones (hasta 11
+  distintas se vieron en los datos reales) y por lo tanto deberle a varios concesionarios a la
+  vez. Cubre el mecanismo base; **todavía no cubre** los casos de terceros colgados de la
+  liquidación de un concesionario (Oxant, Esteban Vivo — ver pendiente 2 abajo).
 - **Producción se despliega fuera de esta Mac**: sin hacer todavía — ver
   [`PENDIENTE-PRODUCCION.md`](./PENDIENTE-PRODUCCION.md) para el relevamiento completo (qué falta
   antes de exponerlo a internet).
@@ -86,14 +96,12 @@ más importantes:
 1. **Concesionarios sin asignar**: solo 3 de 20 locaciones ya (ver arriba) — Bahía Grande
    Nordelta, Chateau Portal Nordelta y Parque Austral. "World Padel Center Pilar" ya se resolvió
    creando el proveedor WFPP SRL con su CUIT real.
-2. **Módulo Liquidaciones a locatarios**: diseñado (pantalla de carga manual por
-   concesionario/mes + reporte PDF para mandarle al locatario), con mockups ya hechos, pero **no
-   construido** — bloqueado hasta terminar de asignar concesionarios y cargar más órdenes con
-   locación/soporte real. Confirmado: que una locación tenga **más de un tercero cobrando de su
-   liquidación** (además del concesionario) es parte real del negocio de Topview, no una
-   excepción rara — el diseño tiene que contemplarlo de entrada. Dos casos confirmados hasta
-   ahora, mismo patrón (un tercero que se cuelga de la liquidación de un concesionario, con su
-   propia fila/campo por campaña):
+2. **Módulo Liquidaciones a locatarios**: **mecanismo base construido** (Topview →
+   Liquidaciones, ver arriba) — falta el reporte PDF para mandarle al locatario y, sobre todo,
+   los dos casos de terceros que se cuelgan de la liquidación de un concesionario (además del
+   concesionario mismo), que **todavía no están construidos**. Confirmado: que una locación tenga
+   **más de un tercero cobrando de su liquidación** es parte real del negocio de Topview, no una
+   excepción rara. Dos casos confirmados hasta ahora, mismo patrón:
    - **OXANT GROUP S.R.L.** cobra un **%** de lo que Topview le liquida a CECNOR SA, World Padel
      Pilar (WFPP SRL) y Hey Add Center (Pilar Shops S.A.).
    - **Esteban Vivo** trajo los concesionarios de **Parque C. Avellaneda** y **Pueblo Caamaño** —

@@ -862,6 +862,27 @@ db.serialize(() => {
   `);
   db.run(`CREATE INDEX IF NOT EXISTS idx_locaciones_puntos_capacidad ON locaciones_puntos(capacidad_id)`);
 
+  // Liquidaciones a concesionarios: cuánto le paga Topview a cada
+  // concesionario por cada línea de orden, mes a mes. No se calcula del
+  // precio que le cobramos al anunciante — no tiene relación fija con eso —
+  // se carga a mano por línea de detalle (que ya sabe su locación y su
+  // cantidad/punto real). Una fila por línea de orden + mes/año.
+  db.run(`
+    CREATE TABLE IF NOT EXISTS liquidaciones_detalle (
+      id TEXT PRIMARY KEY,
+      orden_detalle_id TEXT NOT NULL,
+      mes INTEGER NOT NULL,
+      ano INTEGER NOT NULL,
+      monto REAL NOT NULL DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (orden_detalle_id) REFERENCES ordenes_publicidad_detalles(id),
+      UNIQUE(orden_detalle_id, mes, ano)
+    )
+  `);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_liquidaciones_detalle_periodo ON liquidaciones_detalle(mes, ano)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_liquidaciones_detalle_orden_detalle ON liquidaciones_detalle(orden_detalle_id)`);
+
   // Contactos por Email
   db.run(`
     CREATE TABLE IF NOT EXISTS contactos_email (
@@ -995,7 +1016,9 @@ db.serialize(() => {
       ('p45', 'topview_vendedores_ver', 'Ver vendedores y su comisión por escala', 'topview', 'ver'),
       ('p46', 'topview_vendedores_crear', 'Crear vendedores y tramos de escala', 'topview', 'crear'),
       ('p47', 'topview_vendedores_editar', 'Editar/eliminar vendedores y tramos de escala', 'topview', 'editar'),
-      ('p48', 'topview_netos_ver', 'Ver netos reales post-comisión en Reportes (reservado a Administrador)', 'topview', 'ver')
+      ('p48', 'topview_netos_ver', 'Ver netos reales post-comisión en Reportes (reservado a Administrador)', 'topview', 'ver'),
+      ('p49', 'liquidaciones_ver', 'Ver liquidaciones a concesionarios (reservado a Administrador)', 'topview', 'ver'),
+      ('p50', 'liquidaciones_cargar', 'Cargar/editar montos de liquidaciones a concesionarios (reservado a Administrador)', 'topview', 'crear')
   `);
 
   // Asignar permisos a roles
@@ -1006,17 +1029,20 @@ db.serialize(() => {
     FROM permisos
   `);
 
-  // Gerente: Casi todos excepto auditoría, usuarios, netos post-comisión y
-  // comisionistas (topview_netos_ver y todo topview_comisionistas_* quedan
+  // Gerente: Casi todos excepto auditoría, usuarios, netos post-comisión,
+  // comisionistas y liquidaciones a concesionarios (topview_netos_ver,
+  // liquidaciones_ver/cargar y todo topview_comisionistas_* quedan
   // reservados a Administrador — de Gerente para abajo no se ve ni la
-  // facturación bruta desglosada por comisionista ni su ficha de contacto).
+  // facturación bruta desglosada por comisionista ni cuánto se le paga a
+  // cada concesionario).
   db.run(`
     INSERT OR IGNORE INTO rol_permisos (id, rol_id, permiso_id)
     SELECT printf('rp_%s_%s', '2', id) as id, '2' as rol_id, id as permiso_id
     FROM permisos
     WHERE codigo NOT IN (
       'auditoria_ver', 'usuarios_gestionar', 'topview_netos_ver',
-      'topview_comisionistas_ver', 'topview_comisionistas_crear', 'topview_comisionistas_editar'
+      'topview_comisionistas_ver', 'topview_comisionistas_crear', 'topview_comisionistas_editar',
+      'liquidaciones_ver', 'liquidaciones_cargar'
     )
   `);
 
@@ -1052,12 +1078,13 @@ db.serialize(() => {
   // Operario: Solo consulta
   // Excluye topview_comisionistas_ver y topview_vendedores_ver: datos de
   // comisiones/compensación quedan reservados a Gerente/Administrador.
-  // topview_netos_ver queda reservado a Administrador únicamente.
+  // topview_netos_ver y liquidaciones_ver quedan reservados a Administrador
+  // únicamente.
   db.run(`
     INSERT OR IGNORE INTO rol_permisos (id, rol_id, permiso_id)
     SELECT printf('rp_%s_%s', '6', id) as id, '6' as rol_id, id as permiso_id
     FROM permisos
-    WHERE codigo LIKE '%ver%' AND codigo NOT IN ('topview_comisionistas_ver', 'topview_vendedores_ver', 'topview_netos_ver')
+    WHERE codigo LIKE '%ver%' AND codigo NOT IN ('topview_comisionistas_ver', 'topview_vendedores_ver', 'topview_netos_ver', 'liquidaciones_ver')
   `);
 
   // Insertar usuario administrador por defecto (password: admin123)

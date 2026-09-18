@@ -13,6 +13,7 @@ import { ReportesService } from './services/reportes';
 import { TopviewService } from './services/topview';
 import { ProduccionTopviewService } from './services/produccionTopview';
 import { LocacionesService } from './services/locaciones';
+import { LiquidacionesService } from './services/liquidaciones';
 import { autenticacion, requierePermiso, RequestConUsuario } from './middleware';
 import { v4 as uuid } from 'uuid';
 
@@ -1067,6 +1068,42 @@ app.get('/api/topview/intermediarios/reporte', autenticacion, requierePermiso('t
     res.json(Array.from(porIntermediario.values()));
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/liquidaciones/concesionarios', autenticacion, requierePermiso('liquidaciones_ver'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const concesionarios = await LiquidacionesService.listarConcesionarios();
+    res.json(concesionarios);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/liquidaciones', autenticacion, requierePermiso('liquidaciones_ver'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const { concesionario_id, mes, ano } = req.query;
+    if (!concesionario_id || !mes || !ano) {
+      return res.status(400).json({ error: 'Faltan concesionario_id, mes o año.' });
+    }
+    const filas = await LiquidacionesService.listarPeriodo(String(concesionario_id), Number(mes), Number(ano));
+    const total = filas.reduce((s, f) => s + (Number(f.monto) || 0), 0);
+    res.json({ filas, total });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/liquidaciones/:ordenDetalleId', autenticacion, requierePermiso('liquidaciones_cargar'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const { mes, ano, monto } = req.body;
+    if (!mes || !ano || monto === undefined) {
+      return res.status(400).json({ error: 'Faltan mes, año o monto.' });
+    }
+    await LiquidacionesService.guardarMonto(req.params.ordenDetalleId, Number(mes), Number(ano), Number(monto));
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
   }
 });
 
