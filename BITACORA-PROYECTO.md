@@ -80,14 +80,21 @@ más importantes:
    concesionario/mes + reporte PDF para mandarle al locatario), con mockups ya hechos, pero **no
    construido** — bloqueado hasta terminar de asignar concesionarios y cargar más órdenes con
    locación/soporte real.
-3. **Caso Esteban Vivo**: proveedor que comisiona pero no encaja en el modelo actual de
+3. **Concesionario por punto, no solo por locación**: algunas locaciones (ej. Bahía Grande
+   Nordelta) tienen varios proveedores distintos adentro, cada uno dueño de un cartel/punto
+   específico — el modelo actual (`concesionario_id` único en `locaciones`) no alcanza. Diseño ya
+   acordado: cadena de herencia punto → soporte → locación (el de la locación sigue siendo el
+   default para los casos simples). No construido — bloqueado hasta que el usuario averigüe el
+   desglose real de proveedores de Bahía Nordelta. Afecta directo al módulo de Liquidaciones
+   (ítem 2), que va a tener que resolver el concesionario por esta misma cadena.
+4. **Caso Esteban Vivo**: proveedor que comisiona pero no encaja en el modelo actual de
    comisionistas/intermediarios — pausado a pedido del usuario, para revisar al final.
-4. **Integración con Asana**: idea diseñada (botón manual por orden, tarea compartida a 3
+5. **Integración con Asana**: idea diseñada (botón manual por orden, tarea compartida a 3
    proyectos reales de Asana) pero no construida — guardada para más adelante.
-5. **Bug conocido en Reportes**: la tarjeta "Órdenes revisadas" todavía cuenta todas las órdenes,
+6. **Bug conocido en Reportes**: la tarjeta "Órdenes revisadas" todavía cuenta todas las órdenes,
    no solo las revisadas.
-6. **Export a Excel**: faltan opciones de formato (totales, colores por estado, secciones).
-7. **Despliegue a producción**: ver [`PENDIENTE-PRODUCCION.md`](./PENDIENTE-PRODUCCION.md) —
+7. **Export a Excel**: faltan opciones de formato (totales, colores por estado, secciones).
+8. **Despliegue a producción**: ver [`PENDIENTE-PRODUCCION.md`](./PENDIENTE-PRODUCCION.md) —
    contraseñas sin hashear de verdad, CORS abierto, token de sesión predecible, falta servir el
    build del frontend, elegir hosting con disco persistente.
 
