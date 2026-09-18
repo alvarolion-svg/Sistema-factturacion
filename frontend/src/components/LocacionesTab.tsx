@@ -33,6 +33,8 @@ function LocacionesTab({ token, puedeCrear, puedeEditar }: { token: string; pued
   const [eliminandoLocacionId, setEliminandoLocacionId] = useState<string | null>(null);
   const [eliminandoSoporteId, setEliminandoSoporteId] = useState<string | null>(null);
 
+  const [filtroTipoLoc, setFiltroTipoLoc] = useState<string>('todas');
+
   const cargarLocaciones = () => {
     setError('');
     axios
@@ -260,8 +262,42 @@ function LocacionesTab({ token, puedeCrear, puedeEditar }: { token: string; pued
       )}
 
       {locaciones && locaciones.length > 0 && (
+        <div className="reportes-tabs" style={{ marginBottom: '1rem' }}>
+          <button
+            className={`reportes-tab ${filtroTipoLoc === 'todas' ? 'active' : ''}`}
+            onClick={() => setFiltroTipoLoc('todas')}
+          >
+            Todas ({locaciones.length})
+          </button>
+          {TIPOS_LOCACION.map((tipo) => (
+            <button
+              key={tipo}
+              className={`reportes-tab ${filtroTipoLoc === tipo ? 'active' : ''}`}
+              onClick={() => setFiltroTipoLoc(tipo)}
+            >
+              {tipo} ({locaciones.filter((loc) => loc.tipo === tipo).length})
+            </button>
+          ))}
+          {locaciones.some((loc) => !loc.tipo) && (
+            <button
+              className={`reportes-tab ${filtroTipoLoc === 'sin-tipo' ? 'active' : ''}`}
+              onClick={() => setFiltroTipoLoc('sin-tipo')}
+            >
+              Sin tipo ({locaciones.filter((loc) => !loc.tipo).length})
+            </button>
+          )}
+        </div>
+      )}
+
+      {locaciones && locaciones.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '1rem' }}>
-          {locaciones.map((loc) => (
+          {locaciones
+            .filter((loc) => {
+              if (filtroTipoLoc === 'todas') return true;
+              if (filtroTipoLoc === 'sin-tipo') return !loc.tipo;
+              return loc.tipo === filtroTipoLoc;
+            })
+            .map((loc) => (
             <details key={loc.id} style={{ border: '1px solid #e5e5e5', borderRadius: '8px', padding: '0.25rem 1rem' }}>
               <summary
                 style={{
