@@ -89,7 +89,10 @@ más importantes:
 2. **Módulo Liquidaciones a locatarios**: diseñado (pantalla de carga manual por
    concesionario/mes + reporte PDF para mandarle al locatario), con mockups ya hechos, pero **no
    construido** — bloqueado hasta terminar de asignar concesionarios y cargar más órdenes con
-   locación/soporte real.
+   locación/soporte real. Suma una vuelta más: **OXANT GROUP S.R.L.** (proveedor real) cobra un %
+   de lo que Topview le liquida a tres concesionarios puntuales — CECNOR SA, World Padel Pilar
+   (WFPP SRL) y Hey Add Center (Pilar Shops S.A.) — hay que decidir cómo modelar ese paso extra
+   (Topview → concesionario → Oxant) cuando se retome el módulo.
 3. **Concesionario por punto, no solo por locación**: algunas locaciones (ej. Bahía Grande
    Nordelta) tienen varios proveedores distintos adentro, cada uno dueño de un cartel/punto
    específico — el modelo actual (`concesionario_id` único en `locaciones`) no alcanza. Diseño ya
