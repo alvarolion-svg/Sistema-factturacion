@@ -2376,19 +2376,19 @@ function OrdenesTab({
 
       {ordenes && ordenes.length > 0 && (
         <p className="empty-state" style={{ textAlign: 'left' }}>
-          Registrado ({ordenesRegistradas.length} órdenes): <strong>{formatMoney(totalesRegistrado.montoFinal)}</strong>
+          Registrado ({ordenesRegistradas.length} órdenes): <strong>{formatMoney(totalesRegistrado.montoNeto)}</strong>
           {' · '}
           No registrado ({ordenesNoRegistradas.length} órdenes):{' '}
-          <strong>{formatMoney(totalesNoRegistrado.montoFinal)}</strong>
+          <strong>{formatMoney(totalesNoRegistrado.montoNeto)}</strong>
           {ordenesNoRegistradas.length > 0 && (
             <span style={{ fontSize: '0.85em', color: '#666' }}>
               {' '}
-              (cobrado {noRegistradasCobradas.length}: {formatMoney(totalesNoRegistradoCobrado.montoFinal)} · pendiente{' '}
-              {noRegistradasPendientes.length}: {formatMoney(totalesNoRegistradoPendiente.montoFinal)})
+              (cobrado {noRegistradasCobradas.length}: {formatMoney(totalesNoRegistradoCobrado.montoNeto)} · pendiente{' '}
+              {noRegistradasPendientes.length}: {formatMoney(totalesNoRegistradoPendiente.montoNeto)})
             </span>
           )}
           {' · '}
-          Total general: <strong>{formatMoney(totalesRegistrado.montoFinal + totalesNoRegistrado.montoFinal)}</strong>
+          Total general: <strong>{formatMoney(totalesRegistrado.montoNeto + totalesNoRegistrado.montoNeto)}</strong>
         </p>
       )}
 
