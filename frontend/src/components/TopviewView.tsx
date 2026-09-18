@@ -172,6 +172,7 @@ function InputPorcentaje({
 }
 
 interface LineaProducto {
+  id?: string;
   producto_id: string;
   cantidad: string;
   ubicacion: string;
@@ -519,6 +520,7 @@ function OrdenesTab({
     setLineasProductos(
       (o.detalles || []).length > 0
         ? o.detalles.map((d: any) => ({
+            id: d.id,
             producto_id: d.producto_id || '',
             cantidad: String(d.cantidad ?? 1),
             ubicacion: d.ubicacion || '',
@@ -1252,6 +1254,7 @@ function OrdenesTab({
           notas: ordenForm.notas,
           vigencia_hasta_nota: ordenForm.vigencia_hasta_nota.trim() || undefined,
           detalles_productos: productosValidos.map((l) => ({
+            id: l.id || undefined,
             producto_id: l.producto_id,
             cantidad: Number(l.cantidad),
             ubicacion: l.ubicacion,

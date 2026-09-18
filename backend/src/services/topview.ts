@@ -29,6 +29,7 @@ interface DatosOrden {
   ano_ingreso?: number;
   vigencia_hasta_nota?: string;
   detalles_productos: Array<{
+    id?: string;
     producto_id: string;
     cantidad: number;
     ubicacion?: string;
@@ -455,30 +456,87 @@ export class TopviewService {
       });
     }
 
-    await new Promise<void>((resolve, reject) => {
-      db.run('DELETE FROM ordenes_publicidad_detalles WHERE orden_id = ?', [ordenId], (err) => (err ? reject(err) : resolve()));
-    });
+    // Se actualiza in place por id la línea que ya existía (para no romper
+    // la referencia que Liquidaciones cuelga de este mismo id — ver
+    // liquidaciones_detalle.orden_detalle_id — cada vez que se edita
+    // cualquier otra cosa de la orden), se inserta nueva la que no traía id,
+    // y se borra (junto con lo ya liquidado en esa línea) la que el usuario
+    // sacó del formulario.
+    const idsExistentes: string[] = (
+      await new Promise<any[]>((resolve, reject) => {
+        db.all('SELECT id FROM ordenes_publicidad_detalles WHERE orden_id = ?', [ordenId], (err, rows) =>
+          err ? reject(err) : resolve(rows as any[])
+        );
+      })
+    ).map((r) => r.id);
+
+    const idsConservados = new Set<string>();
     for (const detalle of datos.detalles_productos) {
       const producto: any = await new Promise((resolve, reject) => {
         db.get('SELECT nombre FROM productos WHERE id = ?', [detalle.producto_id], (err, row) => (err ? reject(err) : resolve(row)));
       });
       if (!producto) throw new Error('El producto/soporte elegido no existe.');
+
+      const idExistente = detalle.id && idsExistentes.includes(detalle.id) ? detalle.id : null;
+      if (idExistente) {
+        idsConservados.add(idExistente);
+        await new Promise<void>((resolve, reject) => {
+          db.run(
+            `UPDATE ordenes_publicidad_detalles SET
+              tipo_producto = ?, producto_id = ?, cantidad = ?, ubicacion = ?, especificaciones = ?,
+              locacion_id = ?, punto_instalacion = ?, precio = ?
+             WHERE id = ?`,
+            [
+              producto.nombre,
+              detalle.producto_id,
+              detalle.cantidad,
+              detalle.ubicacion || null,
+              detalle.especificaciones || null,
+              detalle.locacion_id || null,
+              detalle.punto_instalacion || null,
+              detalle.precio || 0,
+              idExistente,
+            ],
+            (err) => (err ? reject(err) : resolve())
+          );
+        });
+      } else {
+        await new Promise<void>((resolve, reject) => {
+          db.run(
+            `INSERT INTO ordenes_publicidad_detalles (id, orden_id, tipo_producto, producto_id, cantidad, ubicacion, especificaciones, locacion_id, punto_instalacion, precio)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              uuid(),
+              ordenId,
+              producto.nombre,
+              detalle.producto_id,
+              detalle.cantidad,
+              detalle.ubicacion || null,
+              detalle.especificaciones || null,
+              detalle.locacion_id || null,
+              detalle.punto_instalacion || null,
+              detalle.precio || 0,
+            ],
+            (err) => (err ? reject(err) : resolve())
+          );
+        });
+      }
+    }
+
+    const idsAEliminar = idsExistentes.filter((id) => !idsConservados.has(id));
+    if (idsAEliminar.length > 0) {
+      const marcadores = idsAEliminar.map(() => '?').join(',');
       await new Promise<void>((resolve, reject) => {
         db.run(
-          `INSERT INTO ordenes_publicidad_detalles (id, orden_id, tipo_producto, producto_id, cantidad, ubicacion, especificaciones, locacion_id, punto_instalacion, precio)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            uuid(),
-            ordenId,
-            producto.nombre,
-            detalle.producto_id,
-            detalle.cantidad,
-            detalle.ubicacion || null,
-            detalle.especificaciones || null,
-            detalle.locacion_id || null,
-            detalle.punto_instalacion || null,
-            detalle.precio || 0,
-          ],
+          `DELETE FROM liquidaciones_detalle WHERE orden_detalle_id IN (${marcadores})`,
+          idsAEliminar,
+          (err) => (err ? reject(err) : resolve())
+        );
+      });
+      await new Promise<void>((resolve, reject) => {
+        db.run(
+          `DELETE FROM ordenes_publicidad_detalles WHERE id IN (${marcadores})`,
+          idsAEliminar,
           (err) => (err ? reject(err) : resolve())
         );
       });
