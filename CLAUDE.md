@@ -4,6 +4,13 @@
 
 Sistema web completo de facturación con gestión de clientes, creación de facturas y reportes analíticos.
 
+## 📋 Bitácora del proyecto
+
+El archivo [`BITACORA-PROYECTO.md`](./BITACORA-PROYECTO.md) (raíz del repo) tiene el estado
+actual del proyecto, las decisiones importantes ya tomadas (no volver a preguntarlas) y los
+pendientes abiertos — pensado para que cualquier sesión nueva entienda el contexto sin releer
+meses de conversación. Leerlo al empezar a trabajar en este repo.
+
 ## ⚠️ Pendiente para producción
 
 El archivo [`PENDIENTE-PRODUCCION.md`](./PENDIENTE-PRODUCCION.md) (raíz del repo) tiene el

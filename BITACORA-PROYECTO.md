@@ -1,0 +1,103 @@
+# Bitácora del proyecto — Sistema de Facturación / Topview
+
+Este documento existe para que **cualquier sesión nueva de Claude Code** (o cualquier persona)
+pueda entender en pocos minutos dónde está parado el proyecto, sin tener que releer meses de
+conversación. Se actualiza cada tanto, no después de cada cambio chico — para el día a día, el
+historial de git y los commits son la fuente de verdad.
+
+Si sos una sesión de Claude Code leyendo esto por primera vez: además de este archivo, existe un
+sistema de memoria propio de Claude (fuera del repo, en `~/.claude/projects/.../memory/`) que se
+carga solo al arrancar una conversación con este usuario — ahí están los detalles finos
+(decisiones tomadas, preferencias de trabajo, pendientes puntuales). Este archivo es el
+complemento pensado para quedar **versionado en git**, legible por el usuario, y disponible aunque
+esa memoria no esté cargada.
+
+## Qué es esto
+
+Sistema de facturación a medida para **Topview**, una empresa real argentina de publicidad
+exterior (OOH/DOOH): opera pantallas y carteles físicos (PPLs, cajas backlight, gigantografías,
+video walls, pantallas LED, etc.) instalados dentro de paseos comerciales y centros de alto poder
+adquisitivo del GBA (Nordelta, Pilar, Maschwitz, Devoto, etc.). Vende ese espacio publicitario
+directo, vía agencias, o vía comisionistas/intermediarios en cascada. El sistema es multi-negocio:
+además de Topview también lleva Clientes, Proveedores, Gastos, Facturas, Productos, Tesorería,
+Usuarios, Auditoría y Reportes generales — pero **Topview es el corazón real del proyecto**, no
+una feature secundaria.
+
+## Arquitectura (resumen — el detalle está en `CLAUDE.md`)
+
+- Frontend: React 18 + TypeScript + Vite, puerto 5173.
+- Backend: Node + Express + TypeScript + SQLite (`backend/facturacion.db`), puerto configurable
+  por `PORT` (se usa 5001 en desarrollo).
+- Sin ORM: SQL directo por servicio (`backend/src/services/*.ts`).
+
+## Estado actual (qué ya funciona, verificado)
+
+- **Autenticación y roles** con permisos por sección.
+- **Topview**: Órdenes de publicidad, Órdenes de producción, Agencias, Comisionistas,
+  Condiciones, Comisiones en efectivo, Vendedores — todo con datos reales cargados (44 órdenes de
+  publicidad, 268 clientes, 506 proveedores).
+- **Catálogo de Locaciones** (`locaciones` + `locaciones_capacidad` + `locaciones_puntos`): 15
+  locaciones reales (Nordelta CC, Bahía Grande Nordelta, Euskal Herria Plaza, Santa Bárbara,
+  Chateau Portal Nordelta, Ven Street Center, Maschwitz Mall, Pueblo Caamaño, World Padel Pilar,
+  Hey Add Center, Devoto Shopping, Parque C. Avellaneda, Nuevo Quilmes Plaza, Parque Austral, Av
+  Corrientes y Boulogne Sur Mer), cada una con su inventario de soportes y, opcionalmente, puntos
+  de instalación con nombre propio. Las órdenes ya pueden asociar cada línea de producto a una
+  locación + punto real (reemplaza de a poco el texto libre de ubicación viejo, que se conserva
+  como respaldo).
+  - **Concesionarios asignados: 3 de 15** — Nordelta CC → CECNOR SA, World Padel Pilar → WFPP SRL,
+    Av Corrientes y Boulogne Sur Mer → CARTELES NORTE SRL. Las otras 12 locaciones todavía no
+    tienen concesionario (proveedor al que Topview le paga por el espacio) asignado.
+  - Las 3 órdenes de YPF (2026080187, 2026080296, 2026080245) se usaron como caso de prueba real
+    para anotar líneas de orden con locación/soporte/punto — están las tres idénticas en
+    soportes, sirven de referencia para seguir cargando el resto.
+- **Clientes, Proveedores, Gastos, Facturas, Productos, Tesorería, Usuarios, Auditoría,
+  Reportes**: pantallas completas, CRUD funcionando.
+- **Producción se despliega fuera de esta Mac**: sin hacer todavía — ver
+  [`PENDIENTE-PRODUCCION.md`](./PENDIENTE-PRODUCCION.md) para el relevamiento completo (qué falta
+  antes de exponerlo a internet).
+
+## Decisiones importantes ya tomadas (no volver a preguntar)
+
+- **`cc_clientes` (deuda real de 48 clientes importada de Colppy) se perdió** en algún momento
+  entre sesiones. Hay un backup completo (`backups/cc_clientes_backup_20260915_214454.sql`), pero
+  el usuario decidió explícitamente **no restaurarlo** — queda en $0 a propósito. No volver a
+  ofrecer restaurarlo.
+- **El merge entre la rama local y la del remoto** (dos historias divergentes de Git) se resolvió
+  a favor de la rama local en los 4 archivos con conflicto real, porque tenía meses más de trabajo
+  real (todo Topview). Se verificó archivo por archivo que no se perdió funcionalidad real del
+  remoto. El commit de merge conserva ambas ramas en la historia (`git log --graph`).
+- **Datavisiooh** (medición de audiencia) está explícitamente fuera de foco — es un proveedor
+  externo de datos, no parte de la lógica de negocio.
+
+## Pendientes abiertos
+
+Cada uno tiene su propio detalle en la memoria de Claude (o en este repo, donde se indica). Los
+más importantes:
+
+1. **Concesionarios sin asignar**: 12 de 15 locaciones (ver arriba). "World Padel Center Pilar"
+   ya se resolvió creando el proveedor WFPP SRL con su CUIT real.
+2. **Módulo Liquidaciones a locatarios**: diseñado (pantalla de carga manual por
+   concesionario/mes + reporte PDF para mandarle al locatario), con mockups ya hechos, pero **no
+   construido** — bloqueado hasta terminar de asignar concesionarios y cargar más órdenes con
+   locación/soporte real.
+3. **Caso Esteban Vivo**: proveedor que comisiona pero no encaja en el modelo actual de
+   comisionistas/intermediarios — pausado a pedido del usuario, para revisar al final.
+4. **Integración con Asana**: idea diseñada (botón manual por orden, tarea compartida a 3
+   proyectos reales de Asana) pero no construida — guardada para más adelante.
+5. **Bug conocido en Reportes**: la tarjeta "Órdenes revisadas" todavía cuenta todas las órdenes,
+   no solo las revisadas.
+6. **Export a Excel**: faltan opciones de formato (totales, colores por estado, secciones).
+7. **Despliegue a producción**: ver [`PENDIENTE-PRODUCCION.md`](./PENDIENTE-PRODUCCION.md) —
+   contraseñas sin hashear de verdad, CORS abierto, token de sesión predecible, falta servir el
+   build del frontend, elegir hosting con disco persistente.
+
+## Cómo trabaja este usuario (para que una sesión nueva no tenga que redescubrirlo)
+
+- Prefiere construir con ejemplos concretos y reales, no specs completas de entrada — va
+  definiendo reglas de negocio a medida que usa la app.
+- Edita la app en vivo en su propio navegador mientras se conversa — un dato inesperado puede ser
+  su edición real, no una corrupción. Antes de asumir un bug, comparar contra la base de datos.
+- No usar la herramienta AskUserQuestion — su cliente no la recibe bien y la sesión queda
+  trabada. Preguntar siempre en texto plano.
+- Cuando pide un "status", espera que se listen también los pendientes pausados a propósito
+  (como Esteban Vivo), no solo lo que está activo en el momento.
