@@ -528,19 +528,40 @@ function ReporteTopview({ datos }: { datos: any }) {
 
       {porMes.length > 0 && (
         <>
-          <h3 className="reportes-subtitulo">Facturación mensual (todas las órdenes, según fecha de facturación)</h3>
+          <h3 className="reportes-subtitulo">Facturación bruta mensual (todas las órdenes, según fecha de facturación)</h3>
           <ResponsiveContainer width="100%" height={280}>
             <BarChart data={porMes}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="mesLabel" />
               <YAxis tickFormatter={(v) => formatMoney(v)} width={90} />
               <Tooltip formatter={(v: any) => formatMoney(Number(v))} />
-              <Legend />
-              <Bar dataKey="monto_neto_total" name="Neto s/desc" fill={COLORES_GRAFICO[2]} />
-              <Bar dataKey="monto_final_total" name="Neto Topview" fill={COLORES_GRAFICO[0]} />
+              <Bar dataKey="monto_neto_total" name="Facturación bruta" fill={COLORES_GRAFICO[0]} />
             </BarChart>
           </ResponsiveContainer>
         </>
+      )}
+
+      {porAnunciante.length > 0 && (
+        <div>
+          <h3 className="reportes-subtitulo">Participación por tipo de anunciante (sobre facturación bruta)</h3>
+          <ResponsiveContainer width="100%" height={300}>
+            <PieChart>
+              <Pie
+                data={porAnunciante}
+                dataKey="monto_neto_total"
+                nameKey="tipo_anunciante"
+                outerRadius={110}
+                label={({ percent }: any) => `${(percent * 100).toFixed(1)}%`}
+              >
+                {porAnunciante.map((_: any, i: number) => (
+                  <Cell key={i} fill={COLORES_GRAFICO[i % COLORES_GRAFICO.length]} />
+                ))}
+              </Pie>
+              <Tooltip formatter={(v: any) => formatMoney(Number(v))} />
+              <Legend />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
       )}
 
       {(porSoporte.length > 0 || topClientes.length > 0) && (
