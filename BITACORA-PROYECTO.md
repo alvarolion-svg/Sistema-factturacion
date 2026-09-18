@@ -100,9 +100,9 @@ más importantes:
    default para los casos simples). No construido — bloqueado hasta que el usuario averigüe el
    desglose real de proveedores de Bahía Nordelta. Afecta directo al módulo de Liquidaciones
    (ítem 2), que va a tener que resolver el concesionario por esta misma cadena. **Pistas
-   parciales**: dos de los proveedores reales que son parte de Bahía Nordelta son **IRIS
-   CHITERER** y **FIDEICOMISO LOFTS DE BAHIA GRANDE** — todavía falta saber qué soporte/punto
-   puntual le corresponde a cada uno.
+   parciales**: tres de los proveedores reales que son parte de Bahía Nordelta son **IRIS
+   CHITERER**, **FIDEICOMISO LOFTS DE BAHIA GRANDE** y **ALQUICER S.R.L.** — todavía falta saber
+   qué soporte/punto puntual le corresponde a cada uno.
 4. **Caso Esteban Vivo**: proveedor que comisiona pero no encaja en el modelo actual de
    comisionistas/intermediarios — pausado a pedido del usuario, para revisar al final.
 5. **Integración con Asana**: idea diseñada (botón manual por orden, tarea compartida a 3
