@@ -2159,7 +2159,7 @@ function OrdenesTab({
               const soporteEnLocacion = (locacionElegida?.soportes || []).find((s: any) => s.producto_id === linea.producto_id);
               const puntosDisponibles = soporteEnLocacion?.puntos || [];
               return (
-              <div className="linea-factura" key={i} style={{ gridTemplateColumns: '1.8fr 0.6fr 1.4fr 1.2fr 1.2fr auto' }}>
+              <div className="linea-factura" key={i} style={{ gridTemplateColumns: '1.8fr 70px 1.3fr 1.2fr 1.6fr auto' }}>
                 <select
                   value={linea.producto_id}
                   onChange={(e) => handleChangeProducto(i, 'producto_id', e.target.value)}
