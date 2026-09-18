@@ -36,22 +36,26 @@ una feature secundaria.
 - **Topview**: Órdenes de publicidad, Órdenes de producción, Agencias, Comisionistas,
   Condiciones, Comisiones en efectivo, Vendedores — todo con datos reales cargados (44 órdenes de
   publicidad, 268 clientes, 506 proveedores).
-- **Catálogo de Locaciones** (`locaciones` + `locaciones_capacidad` + `locaciones_puntos`): 15
-  locaciones reales (Nordelta CC, Bahía Grande Nordelta, Euskal Herria Plaza, Santa Bárbara,
-  Chateau Portal Nordelta, Ven Street Center, Maschwitz Mall, Pueblo Caamaño, World Padel Pilar,
-  Hey Add Center, Devoto Shopping, Parque C. Avellaneda, Nuevo Quilmes Plaza, Parque Austral, Av
-  Corrientes y Boulogne Sur Mer), cada una con su inventario de soportes y, opcionalmente, puntos
-  de instalación con nombre propio. Las órdenes ya pueden asociar cada línea de producto a una
-  locación + punto real (reemplaza de a poco el texto libre de ubicación viejo, que se conserva
+- **Catálogo de Locaciones** (`locaciones` + `locaciones_capacidad` + `locaciones_puntos`): 16
+  locaciones reales (el usuario las va sumando/editando en vivo, así que este número crece solo),
+  cada una con su inventario de soportes y, opcionalmente, puntos de instalación con nombre propio
+  ("posiciones" en la interfaz). Las órdenes ya pueden asociar cada línea de producto a una
+  locación + posición real (reemplaza de a poco el texto libre de ubicación viejo, que se conserva
   como respaldo).
-  - **Concesionarios asignados: 3 de 15** — Nordelta CC → CECNOR SA, World Padel Pilar → WFPP SRL,
-    Av Corrientes y Boulogne Sur Mer → CARTELES NORTE SRL. Las otras 12 locaciones todavía no
-    tienen concesionario (proveedor al que Topview le paga por el espacio) asignado.
+  - **Concesionarios asignados: 6 de 16** — Nordelta CC → CECNOR SA, World Padel Pilar → WFPP SRL,
+    Av Corrientes y Boulogne Sur Mer → CARTELES NORTE SRL, Hey Add Center → PILAR SHOPS S.A.,
+    Santa Bárbara → PASEO SANTA BARBARA S.A., Parkings CABA - Park Work → PARK WORK S.R.L. El
+    resto todavía no tiene concesionario (proveedor al que Topview le paga por el espacio)
+    asignado.
   - Las 3 órdenes de YPF (2026080187, 2026080296, 2026080245) se usaron como caso de prueba real
-    para anotar líneas de orden con locación/soporte/punto — están las tres idénticas en
+    para anotar líneas de orden con locación/soporte/posición — están las tres idénticas en
     soportes, sirven de referencia para seguir cargando el resto.
 - **Clientes, Proveedores, Gastos, Facturas, Productos, Tesorería, Usuarios, Auditoría,
   Reportes**: pantallas completas, CRUD funcionando.
+- **Reportes → Topview** tiene gráficos de facturación bruta (mensual y por tipo de anunciante) y
+  un desglose de netos post-comisión (monto final, ganancia, comisión por comisionista con/sin
+  factura) que **solo ve Administrador** — el backend directamente no manda esos campos a nadie
+  más, no es un tema de ocultar en pantalla (permiso `topview_netos_ver`).
 - **Producción se despliega fuera de esta Mac**: sin hacer todavía — ver
   [`PENDIENTE-PRODUCCION.md`](./PENDIENTE-PRODUCCION.md) para el relevamiento completo (qué falta
   antes de exponerlo a internet).
@@ -74,7 +78,7 @@ una feature secundaria.
 Cada uno tiene su propio detalle en la memoria de Claude (o en este repo, donde se indica). Los
 más importantes:
 
-1. **Concesionarios sin asignar**: 12 de 15 locaciones (ver arriba). "World Padel Center Pilar"
+1. **Concesionarios sin asignar**: 10 de 16 locaciones (ver arriba). "World Padel Center Pilar"
    ya se resolvió creando el proveedor WFPP SRL con su CUIT real.
 2. **Módulo Liquidaciones a locatarios**: diseñado (pantalla de carga manual por
    concesionario/mes + reporte PDF para mandarle al locatario), con mockups ya hechos, pero **no
@@ -97,6 +101,14 @@ más importantes:
 8. **Despliegue a producción**: ver [`PENDIENTE-PRODUCCION.md`](./PENDIENTE-PRODUCCION.md) —
    contraseñas sin hashear de verdad, CORS abierto, token de sesión predecible, falta servir el
    build del frontend, elegir hosting con disco persistente.
+9. **Revisar privilegios de usuario y jerarquías a fondo**: no es urgente, pero queda pendiente.
+   Al armar el permiso `topview_netos_ver` (netos post-comisión en Reportes, reservado a
+   Administrador — ver más abajo) se vio que el patrón de seed en `backend/src/database.ts`
+   ("todos los permisos menos estos") es frágil: un permiso nuevo se filtra a roles que no
+   deberían tenerlo si no se lo excluye a mano (pasó en el momento, se corrigió). Además
+   `requiereRol()` en `backend/src/middleware.ts` está roto (compara un UUID de rol contra un
+   nombre tipo `'Administrador'`, nunca matchea) — no se usa todavía, pero conviene arreglarlo o
+   sacarlo antes de que alguien lo use tal cual.
 
 ## Cómo trabaja este usuario (para que una sesión nueva no tenga que redescubrirlo)
 
