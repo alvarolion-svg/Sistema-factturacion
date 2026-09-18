@@ -1006,14 +1006,18 @@ db.serialize(() => {
     FROM permisos
   `);
 
-  // Gerente: Casi todos excepto auditoría, usuarios y netos post-comisión
-  // (topview_netos_ver queda reservado a Administrador — de Gerente para
-  // abajo solo se ve la facturación bruta en Reportes → Topview).
+  // Gerente: Casi todos excepto auditoría, usuarios, netos post-comisión y
+  // comisionistas (topview_netos_ver y todo topview_comisionistas_* quedan
+  // reservados a Administrador — de Gerente para abajo no se ve ni la
+  // facturación bruta desglosada por comisionista ni su ficha de contacto).
   db.run(`
     INSERT OR IGNORE INTO rol_permisos (id, rol_id, permiso_id)
     SELECT printf('rp_%s_%s', '2', id) as id, '2' as rol_id, id as permiso_id
     FROM permisos
-    WHERE codigo NOT IN ('auditoria_ver', 'usuarios_gestionar', 'topview_netos_ver')
+    WHERE codigo NOT IN (
+      'auditoria_ver', 'usuarios_gestionar', 'topview_netos_ver',
+      'topview_comisionistas_ver', 'topview_comisionistas_crear', 'topview_comisionistas_editar'
+    )
   `);
 
   // Contador: Tesorería, reportes, auditoría

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import ExcelJS from 'exceljs';
 import jsPDF from 'jspdf';
@@ -2822,14 +2822,22 @@ function AgenciasTab({ token, puedeCrear }: { token: string; puedeCrear: boolean
   );
 }
 
+interface OrdenComisionista {
+  orden_id: string;
+  numero_orden: string;
+  numero_orden_agencia: string | null;
+  nombre_anunciante: string;
+  monto_comision: number;
+  factura_formal: boolean;
+  mes_ingreso: number;
+  ano_ingreso: number;
+}
+
 interface ReporteIntermediario {
   id: string;
   nombre: string;
   tipo: string;
-  cantidad_ordenes: number;
-  comision_total: number;
-  comision_tipo1: number;
-  comision_tipo2: number;
+  ordenes: OrdenComisionista[];
 }
 
 const INTERMEDIARIO_VACIO = {
@@ -2855,6 +2863,11 @@ function IntermediariosTab({ token, puedeCrear }: { token: string; puedeCrear: b
   const [form, setForm] = useState(INTERMEDIARIO_VACIO);
   const [guardando, setGuardando] = useState(false);
   const [errorForm, setErrorForm] = useState('');
+
+  const [filtroMesCom, setFiltroMesCom] = useState('');
+  const [filtroAnoCom, setFiltroAnoCom] = useState('');
+  const [filtroTipoCom, setFiltroTipoCom] = useState(''); // '' = ambas, '1' = con factura, '2' = efectivo
+  const [expandidoId, setExpandidoId] = useState<string | null>(null);
 
   const cargar = () => {
     setError('');
@@ -2947,6 +2960,96 @@ function IntermediariosTab({ token, puedeCrear }: { token: string; puedeCrear: b
   };
 
   const nombreProveedor = (id: string | null) => proveedores.find((p) => p.id === id)?.razon_social;
+
+  const anosDisponiblesCom = Array.from(
+    new Set((reporte || []).flatMap((r) => r.ordenes.map((o) => o.ano_ingreso)))
+  ).sort((a, b) => b - a);
+
+  // Todo el cálculo (filtro por mes/año/tipo, totales, "sin órdenes") se
+  // arma acá, del lado del cliente, a partir del detalle orden por orden
+  // que ya mandó el backend — mismo patrón que el filtro de la lista de
+  // Órdenes.
+  const reporteFiltrado = (reporte || [])
+    .map((r) => {
+      const ordenesFiltradas = r.ordenes.filter((o) => {
+        if (filtroMesCom && Number(o.mes_ingreso) !== Number(filtroMesCom)) return false;
+        if (filtroAnoCom && Number(o.ano_ingreso) !== Number(filtroAnoCom)) return false;
+        if (filtroTipoCom === '1' && !o.factura_formal) return false;
+        if (filtroTipoCom === '2' && o.factura_formal) return false;
+        return true;
+      });
+      const comision_tipo1 = ordenesFiltradas.filter((o) => o.factura_formal).reduce((acc, o) => acc + o.monto_comision, 0);
+      const comision_tipo2 = ordenesFiltradas.filter((o) => !o.factura_formal).reduce((acc, o) => acc + o.monto_comision, 0);
+      return {
+        ...r,
+        ordenesFiltradas,
+        cantidad_ordenes: ordenesFiltradas.length,
+        comision_tipo1,
+        comision_tipo2,
+        comision_total: comision_tipo1 + comision_tipo2,
+      };
+    })
+    .sort((a, b) => b.comision_total - a.comision_total);
+
+  const hayFiltroPeriodo = !!(filtroMesCom || filtroAnoCom);
+
+  const nombreArchivoExportCom = (ext: string) => {
+    const sufijo =
+      filtroMesCom || filtroAnoCom
+        ? `${filtroMesCom ? NOMBRES_MES[Number(filtroMesCom) - 1] : 'todos'}_${filtroAnoCom || 'todos'}`
+        : 'todas';
+    return `comisionistas_${sufijo}.${ext}`;
+  };
+
+  const handleExportarComisionistasExcel = async () => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Comisionistas');
+    ws.columns = [
+      { header: 'Nombre', width: 24 },
+      { header: 'Tipo', width: 18 },
+      { header: 'Órdenes', width: 10 },
+      { header: 'Comisión Tipo 1 (facturas)', width: 22 },
+      { header: 'Comisión Tipo 2 (efectivo)', width: 22 },
+      { header: 'Comisión total', width: 18 },
+    ];
+    reporteFiltrado.forEach((r) => {
+      ws.addRow([r.nombre, r.tipo, r.cantidad_ordenes, r.comision_tipo1, r.comision_tipo2, r.comision_total]);
+    });
+    const headerRow = ws.getRow(1);
+    headerRow.eachCell((cell) => {
+      cell.font = { name: 'Calibri', size: 10 };
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFA4C2F4' } };
+    });
+    const formatoMoneda = '_-"$"* #,##0.00_-;_-"$"* \\-#,##0.00_-;_-"$"* "-"??_-;_-@';
+    [4, 5, 6].forEach((i) => (ws.getColumn(i).numFmt = formatoMoneda));
+    const buffer = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = nombreArchivoExportCom('xlsx');
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportarComisionistasPDF = () => {
+    const doc = new jsPDF({ orientation: 'landscape' });
+    autoTable(doc, {
+      head: [['Nombre', 'Tipo', 'Órdenes', 'Comisión Tipo 1', 'Comisión Tipo 2', 'Comisión total']],
+      body: reporteFiltrado.map((r) => [
+        r.nombre,
+        r.tipo,
+        String(r.cantidad_ordenes),
+        formatMoney(r.comision_tipo1),
+        formatMoney(r.comision_tipo2),
+        formatMoney(r.comision_total),
+      ]),
+      styles: { fontSize: 8, cellPadding: 2 },
+      headStyles: { fillColor: [232, 24, 56] },
+    });
+    doc.save(nombreArchivoExportCom('pdf'));
+  };
 
   return (
     <>
@@ -3054,35 +3157,139 @@ function IntermediariosTab({ token, puedeCrear }: { token: string; puedeCrear: b
       {reporte && reporte.length === 0 && <p className="empty-state">No hay comisionistas cargados.</p>}
       {reporte && reporte.length > 0 && (
         <>
+          <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: '1rem' }}>
+            <div className="form-group" style={{ margin: 0 }}>
+              <label htmlFor="filtro_mes_com">Mes</label>
+              <select id="filtro_mes_com" value={filtroMesCom} onChange={(e) => setFiltroMesCom(e.target.value)}>
+                <option value="">Todos los meses</option>
+                {NOMBRES_MES.map((nombre, i) => (
+                  <option key={nombre} value={i + 1}>
+                    {nombre}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="form-group" style={{ margin: 0 }}>
+              <label htmlFor="filtro_ano_com">Año</label>
+              <select id="filtro_ano_com" value={filtroAnoCom} onChange={(e) => setFiltroAnoCom(e.target.value)}>
+                <option value="">Todos los años</option>
+                {anosDisponiblesCom.map((ano) => (
+                  <option key={ano} value={ano}>
+                    {ano}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="form-group" style={{ margin: 0 }}>
+              <label htmlFor="filtro_tipo_com">Tipo</label>
+              <select id="filtro_tipo_com" value={filtroTipoCom} onChange={(e) => setFiltroTipoCom(e.target.value)}>
+                <option value="">Ambas</option>
+                <option value="1">Solo Tipo 1 (facturas)</option>
+                <option value="2">Solo Tipo 2 (efectivo)</option>
+              </select>
+            </div>
+            {(filtroMesCom || filtroAnoCom || filtroTipoCom) && (
+              <button
+                type="button"
+                className="btn-link"
+                onClick={() => {
+                  setFiltroMesCom('');
+                  setFiltroAnoCom('');
+                  setFiltroTipoCom('');
+                }}
+              >
+                Limpiar filtro
+              </button>
+            )}
+            <div style={{ flexGrow: 1 }} />
+            <button type="button" onClick={handleExportarComisionistasExcel}>
+              Exportar Excel
+            </button>
+            <button type="button" onClick={handleExportarComisionistasPDF}>
+              Exportar PDF
+            </button>
+          </div>
+
           <table className="data-table">
             <thead>
               <tr>
                 <th>Nombre</th>
                 <th>Tipo</th>
                 <th>Órdenes</th>
-                <th>Comisión Tipo 1 (facturas)</th>
-                <th>Comisión Tipo 2 (efectivo)</th>
+                {filtroTipoCom !== '2' && <th>Comisión Tipo 1 (facturas)</th>}
+                {filtroTipoCom !== '1' && <th>Comisión Tipo 2 (efectivo)</th>}
                 <th>Comisión total</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
-              {reporte.map((r) => (
-                <tr key={r.id}>
-                  <td>{r.nombre}</td>
-                  <td>{r.tipo}</td>
-                  <td>{r.cantidad_ordenes}</td>
-                  <td>{formatMoney(r.comision_tipo1)}</td>
-                  <td>{formatMoney(r.comision_tipo2)}</td>
-                  <td>{formatMoney(r.comision_total)}</td>
-                </tr>
+              {reporteFiltrado.map((r) => (
+                <Fragment key={r.id}>
+                  <tr>
+                    <td>{r.nombre}</td>
+                    <td>{r.tipo}</td>
+                    <td>
+                      {r.cantidad_ordenes}
+                      {r.cantidad_ordenes === 0 && (
+                        <span className="estado-badge estado-pendiente" style={{ marginLeft: '0.5rem', fontSize: '0.75rem' }}>
+                          sin órdenes{hayFiltroPeriodo ? ' este período' : ''}
+                        </span>
+                      )}
+                    </td>
+                    {filtroTipoCom !== '2' && <td>{formatMoney(r.comision_tipo1)}</td>}
+                    {filtroTipoCom !== '1' && <td>{formatMoney(r.comision_tipo2)}</td>}
+                    <td>{formatMoney(r.comision_total)}</td>
+                    <td>
+                      {r.ordenesFiltradas.length > 0 && (
+                        <button
+                          type="button"
+                          className="btn-link"
+                          onClick={() => setExpandidoId(expandidoId === r.id ? null : r.id)}
+                        >
+                          {expandidoId === r.id ? 'Ocultar' : 'Ver clientes'}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                  {expandidoId === r.id && r.ordenesFiltradas.length > 0 && (
+                    <tr>
+                      <td colSpan={7} style={{ background: '#faf7f7', padding: '0.75rem 1rem' }}>
+                        <table className="data-table" style={{ margin: 0 }}>
+                          <thead>
+                            <tr>
+                              <th>Anunciante</th>
+                              <th>N° orden</th>
+                              <th>Período</th>
+                              <th>Tipo</th>
+                              <th>Comisión</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {r.ordenesFiltradas.map((o) => (
+                              <tr key={o.orden_id}>
+                                <td>{o.nombre_anunciante}</td>
+                                <td>{o.numero_orden_agencia || o.numero_orden}</td>
+                                <td>
+                                  {NOMBRES_MES[o.mes_ingreso - 1]} {o.ano_ingreso}
+                                </td>
+                                <td>{o.factura_formal ? 'Tipo 1' : 'Tipo 2'}</td>
+                                <td>{formatMoney(o.monto_comision)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
               ))}
             </tbody>
           </table>
           <p className="totales-preview" style={{ marginBottom: '2rem' }}>
             Total Tipo 1 (facturas):{' '}
-            <strong>{formatMoney(reporte.reduce((acc, r) => acc + r.comision_tipo1, 0))}</strong>
+            <strong>{formatMoney(reporteFiltrado.reduce((acc, r) => acc + r.comision_tipo1, 0))}</strong>
             {' · '}Total Tipo 2 (efectivo):{' '}
-            <strong>{formatMoney(reporte.reduce((acc, r) => acc + r.comision_tipo2, 0))}</strong>
+            <strong>{formatMoney(reporteFiltrado.reduce((acc, r) => acc + r.comision_tipo2, 0))}</strong>
           </p>
         </>
       )}

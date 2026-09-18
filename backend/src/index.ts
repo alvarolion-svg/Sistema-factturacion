@@ -1003,7 +1003,7 @@ app.get('/api/topview/agencias', autenticacion, async (req: RequestConUsuario, r
   }
 });
 
-app.get('/api/topview/intermediarios', autenticacion, requierePermiso('topview_ver'), async (req: RequestConUsuario, res: Response) => {
+app.get('/api/topview/intermediarios', autenticacion, requierePermiso('topview_comisionistas_ver'), async (req: RequestConUsuario, res: Response) => {
   try {
     const intermediarios = await new Promise((resolve, reject) => {
       db.all('SELECT * FROM intermediarios WHERE habilitado = 1', (err, rows) => {
@@ -1019,28 +1019,52 @@ app.get('/api/topview/intermediarios', autenticacion, requierePermiso('topview_v
 
 app.get('/api/topview/intermediarios/reporte', autenticacion, requierePermiso('topview_comisionistas_ver'), async (req: RequestConUsuario, res: Response) => {
   try {
-    const reporte = await new Promise((resolve, reject) => {
+    // Trae el detalle orden por orden (no pre-agregado) para que el
+    // frontend pueda filtrar por mes/año/tipo y mostrar qué clientes
+    // conforman cada comisión — un comisionista sin ninguna orden en el
+    // período elegido igual aparece, con `ordenes: []`.
+    const filas: any[] = await new Promise((resolve, reject) => {
       db.all(
         `
         SELECT
-          i.id, i.nombre, i.tipo,
-          COUNT(DISTINCT oi.orden_id) as cantidad_ordenes,
-          COALESCE(SUM(oi.monto_comision), 0) as comision_total,
-          COALESCE(SUM(CASE WHEN oi.factura_formal = 1 THEN oi.monto_comision ELSE 0 END), 0) as comision_tipo1,
-          COALESCE(SUM(CASE WHEN oi.factura_formal = 0 OR oi.factura_formal IS NULL THEN oi.monto_comision ELSE 0 END), 0) as comision_tipo2
+          i.id as intermediario_id, i.nombre as intermediario_nombre, i.tipo as intermediario_tipo,
+          oi.orden_id, oi.monto_comision, oi.factura_formal,
+          o.numero_orden, o.numero_orden_agencia, o.nombre_anunciante, o.mes_ingreso, o.ano_ingreso
         FROM intermediarios i
         LEFT JOIN ordenes_intermediarios oi ON oi.intermediario_id = i.id
+        LEFT JOIN ordenes_publicidad o ON o.id = oi.orden_id AND (o.habilitado != 0 OR o.habilitado IS NULL)
         WHERE i.habilitado = 1
-        GROUP BY i.id
-        ORDER BY comision_total DESC
+        ORDER BY i.nombre
       `,
-        (err, rows) => {
-          if (err) reject(err);
-          else resolve(rows);
-        }
+        (err, rows) => (err ? reject(err) : resolve(rows))
       );
     });
-    res.json(reporte);
+
+    const porIntermediario = new Map<string, any>();
+    for (const f of filas) {
+      if (!porIntermediario.has(f.intermediario_id)) {
+        porIntermediario.set(f.intermediario_id, {
+          id: f.intermediario_id,
+          nombre: f.intermediario_nombre,
+          tipo: f.intermediario_tipo,
+          ordenes: [] as any[],
+        });
+      }
+      if (f.orden_id && f.numero_orden) {
+        porIntermediario.get(f.intermediario_id).ordenes.push({
+          orden_id: f.orden_id,
+          numero_orden: f.numero_orden,
+          numero_orden_agencia: f.numero_orden_agencia,
+          nombre_anunciante: f.nombre_anunciante,
+          monto_comision: f.monto_comision,
+          factura_formal: !!f.factura_formal,
+          mes_ingreso: f.mes_ingreso,
+          ano_ingreso: f.ano_ingreso,
+        });
+      }
+    }
+
+    res.json(Array.from(porIntermediario.values()));
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
