@@ -1452,7 +1452,7 @@ function OrdenesTab({
                             <tr>
                               <th>Producto</th>
                               <th>Cantidad</th>
-                              <th>Punto de instalación</th>
+                              <th>Posición</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -2205,9 +2205,9 @@ function OrdenesTab({
                   value={linea.punto_instalacion}
                   onChange={(e) => handleChangeProducto(i, 'punto_instalacion', e.target.value)}
                   disabled={guardando || puntosDisponibles.length === 0}
-                  title="Punto de instalación"
+                  title="Posición"
                 >
-                  <option value="">{puntosDisponibles.length === 0 ? 'Sin puntos' : 'Elegir punto'}</option>
+                  <option value="">{puntosDisponibles.length === 0 ? 'Sin posiciones' : 'Elegir posición'}</option>
                   {puntosDisponibles.map((p: any) => (
                     <option key={p.id} value={p.nombre}>
                       {p.nombre}

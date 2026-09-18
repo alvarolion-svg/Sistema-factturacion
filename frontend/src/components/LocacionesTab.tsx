@@ -139,7 +139,7 @@ function LocacionesTab({ token, puedeCrear, puedeEditar }: { token: string; pued
       ? soporteForm.puntos.filter((p) => p.nombre.trim()).map((p) => ({ nombre: p.nombre.trim(), cantidad: Number(p.cantidad) || 1 }))
       : [];
     if (soporteForm.tienePuntos && puntosValidos.length === 0) {
-      setErrorSoporte('Agregá al menos un punto de instalación, o desmarcá la opción.');
+      setErrorSoporte('Agregá al menos una posición, o desmarcá la opción.');
       return;
     }
     setGuardandoSoporte(true);
@@ -305,7 +305,7 @@ function LocacionesTab({ token, puedeCrear, puedeEditar }: { token: string; pued
                             {s.puntos.length > 0 ? (
                               <details>
                                 <summary style={{ cursor: 'pointer', fontSize: '0.85rem', color: '#c0392b' }}>
-                                  {s.puntos.length} punto(s) de instalación
+                                  {s.puntos.length} posición(es)
                                 </summary>
                                 <ul style={{ margin: '0.4rem 0 0', paddingLeft: '1.1rem' }}>
                                   {s.puntos.map((p: any) => (
@@ -316,7 +316,7 @@ function LocacionesTab({ token, puedeCrear, puedeEditar }: { token: string; pued
                                 </ul>
                               </details>
                             ) : (
-                              <span style={{ fontSize: '0.8rem', color: '#999' }}>sin puntos de instalación</span>
+                              <span style={{ fontSize: '0.8rem', color: '#999' }}>sin posiciones</span>
                             )}
                           </td>
                           {puedeEditar && (
@@ -397,7 +397,7 @@ function LocacionesTab({ token, puedeCrear, puedeEditar }: { token: string; pued
                               }
                               disabled={guardandoSoporte}
                             />
-                            Tiene puntos de instalación
+                            Tiene posiciones
                           </label>
                         </div>
 
@@ -406,7 +406,7 @@ function LocacionesTab({ token, puedeCrear, puedeEditar }: { token: string; pued
                             {soporteForm.puntos.map((punto, i) => (
                               <div key={i} style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.4rem', alignItems: 'center' }}>
                                 <input
-                                  placeholder='Nombre del punto (ej: "Freddo")'
+                                  placeholder='Nombre de la posición (ej: "Freddo")'
                                   value={punto.nombre}
                                   onChange={(e) => handleCambiarPunto(i, 'nombre', e.target.value)}
                                   disabled={guardandoSoporte}
@@ -429,7 +429,7 @@ function LocacionesTab({ token, puedeCrear, puedeEditar }: { token: string; pued
                               </div>
                             ))}
                             <button type="button" className="btn-link" onClick={handleAgregarPunto}>
-                              + Agregar punto
+                              + Agregar posición
                             </button>
                           </div>
                         )}
