@@ -56,6 +56,12 @@ una feature secundaria.
   un desglose de netos post-comisión (monto final, ganancia, comisión por comisionista con/sin
   factura) que **solo ve Administrador** — el backend directamente no manda esos campos a nadie
   más, no es un tema de ocultar en pantalla (permiso `topview_netos_ver`).
+- **Topview → Comisionistas** (ambas tablas — "Cuánto traccionan las ventas" y "Ficha de
+  comisionistas") es **Administrador únicamente** (permiso `topview_comisionistas_ver`, sacado de
+  Gerente). El reporte de comisiones tiene filtro por mes/año/tipo (Tipo 1 con factura, Tipo 2
+  efectivo, o ambas), detalle expandible por comisionista con las campañas/clientes que la
+  conforman, marca de "sin órdenes" cuando no hubo actividad en el período filtrado, y exportar a
+  Excel/PDF.
 - **Producción se despliega fuera de esta Mac**: sin hacer todavía — ver
   [`PENDIENTE-PRODUCCION.md`](./PENDIENTE-PRODUCCION.md) para el relevamiento completo (qué falta
   antes de exponerlo a internet).
