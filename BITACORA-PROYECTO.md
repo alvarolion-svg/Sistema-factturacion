@@ -102,7 +102,8 @@ más importantes:
    (ítem 2), que va a tener que resolver el concesionario por esta misma cadena. **Pistas
    parciales**: tres de los proveedores reales que son parte de Bahía Nordelta son **IRIS
    CHITERER**, **FIDEICOMISO LOFTS DE BAHIA GRANDE** y **ALQUICER S.R.L.** — todavía falta saber
-   qué soporte/punto puntual le corresponde a cada uno.
+   qué soporte/punto puntual le corresponde a cada uno. (Esteban Vivo, del ítem 4, **no** es parte
+   de esta lista — es un tema aparte, deliberadamente pausado, no confundir los dos.)
 4. **Caso Esteban Vivo**: proveedor que comisiona pero no encaja en el modelo actual de
    comisionistas/intermediarios — pausado a pedido del usuario, para revisar al final.
 5. **Integración con Asana**: idea diseñada (botón manual por orden, tarea compartida a 3
