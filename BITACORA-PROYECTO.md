@@ -108,10 +108,11 @@ más importantes:
    default para los casos simples). No construido — bloqueado hasta que el usuario averigüe el
    desglose real de proveedores de Bahía Nordelta. Afecta directo al módulo de Liquidaciones
    (ítem 2), que va a tener que resolver el concesionario por esta misma cadena. **Pistas
-   parciales**: tres de los proveedores reales que son parte de Bahía Nordelta son **IRIS
-   CHITERER**, **FIDEICOMISO LOFTS DE BAHIA GRANDE** y **ALQUICER S.R.L.** — todavía falta saber
-   qué soporte/punto puntual le corresponde a cada uno. Esteban Vivo (ver ítem 2) **no** es parte
-   de esta lista de Bahía Nordelta — es un caso aparte, ya resuelto y explicado más arriba.
+   parciales**: cuatro de los proveedores reales que son parte de Bahía Nordelta son **IRIS
+   CHITERER**, **FIDEICOMISO LOFTS DE BAHIA GRANDE**, **ALQUICER S.R.L.** y **TERRA UNO S A** —
+   todavía falta saber qué soporte/punto puntual le corresponde a cada uno. Esteban Vivo (ver
+   ítem 2) **no** es parte de esta lista de Bahía Nordelta — es un caso aparte, ya resuelto y
+   explicado más arriba.
 4. **Integración con Asana**: idea diseñada (botón manual por orden, tarea compartida a 3
    proyectos reales de Asana) pero no construida — guardada para más adelante.
 5. **Bug conocido en Reportes**: la tarjeta "Órdenes revisadas" todavía cuenta todas las órdenes,
