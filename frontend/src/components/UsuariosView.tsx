@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { authHeaders, mensajeError } from '../utils/api';
+import { authHeaders, mensajeError, scrollAlFormulario } from '../utils/api';
 
 interface Usuario {
   id: string;
@@ -85,6 +85,7 @@ function UsuariosView({ token, usuario }: UsuariosViewProps) {
     setNuevoUsuario(USUARIO_VACIO);
     setErrorForm('');
     setMostrarForm(true);
+    scrollAlFormulario();
   };
 
   const handleCancelar = () => {

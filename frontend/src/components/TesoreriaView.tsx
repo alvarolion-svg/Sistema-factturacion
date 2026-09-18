@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { authHeaders, mensajeError, formatMoney } from '../utils/api';
+import { authHeaders, mensajeError, formatMoney, scrollAlFormulario } from '../utils/api';
 
 interface Cuenta {
   id: string;
@@ -61,6 +61,7 @@ function TesoreriaView({ token, usuario }: TesoreriaViewProps) {
     setNuevaCuenta(CUENTA_VACIA);
     setErrorForm('');
     setMostrarForm(true);
+    scrollAlFormulario();
   };
 
   const handleCancelar = () => {

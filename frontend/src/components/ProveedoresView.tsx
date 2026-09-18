@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { authHeaders, mensajeError as mensajeErrorBase, formatMoney, formatFecha } from '../utils/api';
+import { authHeaders, mensajeError as mensajeErrorBase, formatMoney, formatFecha, scrollAlFormulario } from '../utils/api';
 
 interface Proveedor {
   id: string;
@@ -114,6 +114,7 @@ function ProveedoresView({ token, usuario }: ProveedoresViewProps) {
     setErrorForm('');
     setDetalleId(null);
     setMostrarForm(true);
+    scrollAlFormulario();
   };
 
   const handleEditar = (proveedor: Proveedor) => {
@@ -130,6 +131,7 @@ function ProveedoresView({ token, usuario }: ProveedoresViewProps) {
     setErrorForm('');
     setDetalleId(null);
     setMostrarForm(true);
+    scrollAlFormulario();
   };
 
   const handleCancelar = () => {

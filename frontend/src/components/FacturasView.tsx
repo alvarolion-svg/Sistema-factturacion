@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { authHeaders, mensajeError, formatMoney, formatFecha } from '../utils/api';
+import { authHeaders, mensajeError, formatMoney, formatFecha, scrollAlFormulario } from '../utils/api';
 
 interface Factura {
   id: string;
@@ -162,6 +162,7 @@ function FacturasView({ token, usuario }: FacturasViewProps) {
     setErrorForm('');
     setDetalleId(null);
     setMostrarForm(true);
+    scrollAlFormulario();
     cargarDatosParaCrear();
   };
 

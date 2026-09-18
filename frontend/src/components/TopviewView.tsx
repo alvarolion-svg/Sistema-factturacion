@@ -3,7 +3,7 @@ import axios from 'axios';
 import ExcelJS from 'exceljs';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { authHeaders, mensajeError, formatMoney, formatFecha } from '../utils/api';
+import { authHeaders, mensajeError, formatMoney, formatFecha, scrollAlFormulario } from '../utils/api';
 import ProduccionTopviewTab from './ProduccionTopviewTab';
 import LocacionesTab from './LocacionesTab';
 
@@ -376,6 +376,7 @@ function OrdenesTab({
     setDetalleId(null);
     setEditandoOrdenId(null);
     setMostrarForm(true);
+    scrollAlFormulario();
     setMostrarAgencia(false);
     cargarMaestros();
   };
@@ -469,6 +470,7 @@ function OrdenesTab({
       setEditandoOrdenId(null);
       setDetalleId(null);
       setMostrarForm(true);
+      scrollAlFormulario();
     } catch (err: any) {
       setError(mensajeError(err, 'No se pudo clonar la orden.'));
     } finally {
@@ -487,6 +489,7 @@ function OrdenesTab({
     setEditandoOrdenId(detalleId);
     setDetalleId(null);
     setMostrarForm(true);
+    scrollAlFormulario();
   };
 
   const [modificandoId, setModificandoId] = useState<string | null>(null);
@@ -503,6 +506,7 @@ function OrdenesTab({
       setEditandoOrdenId(id);
       setDetalleId(null);
       setMostrarForm(true);
+      scrollAlFormulario();
     } catch (err: any) {
       setError(mensajeError(err, 'No se pudo abrir la orden para editar.'));
     } finally {
@@ -2629,6 +2633,7 @@ function AgenciasTab({ token, puedeCrear }: { token: string; puedeCrear: boolean
     setErrorForm('');
     setBusquedaCliente('');
     setMostrarForm(true);
+    scrollAlFormulario();
   };
 
   const handleEditar = (a: any) => {
@@ -2645,6 +2650,7 @@ function AgenciasTab({ token, puedeCrear }: { token: string; puedeCrear: boolean
     setErrorForm('');
     setBusquedaCliente('');
     setMostrarForm(true);
+    scrollAlFormulario();
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -2902,6 +2908,7 @@ function IntermediariosTab({ token, puedeCrear }: { token: string; puedeCrear: b
     setEditandoId(null);
     setErrorForm('');
     setMostrarForm(true);
+    scrollAlFormulario();
   };
 
   const handleEditar = (i: Intermediario) => {
@@ -2917,6 +2924,7 @@ function IntermediariosTab({ token, puedeCrear }: { token: string; puedeCrear: b
     setEditandoId(i.id);
     setErrorForm('');
     setMostrarForm(true);
+    scrollAlFormulario();
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -4100,6 +4108,7 @@ function VendedoresTab({ token, puedeCrear }: { token: string; puedeCrear: boole
     setEditandoId(null);
     setErrorForm('');
     setMostrarForm(true);
+    scrollAlFormulario();
   };
 
   const handleEditar = (v: Vendedor) => {
@@ -4107,6 +4116,7 @@ function VendedoresTab({ token, puedeCrear }: { token: string; puedeCrear: boole
     setEditandoId(v.id);
     setErrorForm('');
     setMostrarForm(true);
+    scrollAlFormulario();
   };
 
   const handleSubmit = async (e: React.FormEvent) => {

@@ -3,7 +3,7 @@ import axios from 'axios';
 import ExcelJS from 'exceljs';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { authHeaders, mensajeError, formatMoney, formatFecha } from '../utils/api';
+import { authHeaders, mensajeError, formatMoney, formatFecha, scrollAlFormulario } from '../utils/api';
 
 const ESTADOS_PRODUCCION = ['Cargada', 'Revisada', 'Facturada'];
 
@@ -135,6 +135,7 @@ function ProduccionTopviewTab({
     setErrorForm('');
     cargarMaestros();
     setMostrarForm(true);
+    scrollAlFormulario();
   };
 
   // El row de la lista no trae "lineas" (solo el header) — hay que pedir la
@@ -177,6 +178,7 @@ function ProduccionTopviewTab({
       setEditandoId(o.id);
       cargarMaestros();
       setMostrarForm(true);
+      scrollAlFormulario();
     } catch (err: any) {
       setError(mensajeError(err, 'No se pudo cargar la orden para editar.'));
     }

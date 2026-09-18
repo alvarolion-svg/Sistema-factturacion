@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { authHeaders, mensajeError, formatMoney } from '../utils/api';
+import { authHeaders, mensajeError, formatMoney, scrollAlFormulario } from '../utils/api';
 
 interface Producto {
   id: string;
@@ -79,6 +79,7 @@ function ProductosView({ token, usuario }: ProductosViewProps) {
     setErrorForm('');
     setDetalleId(null);
     setMostrarForm(true);
+    scrollAlFormulario();
   };
 
   const handleEditar = (producto: Producto) => {
@@ -95,6 +96,7 @@ function ProductosView({ token, usuario }: ProductosViewProps) {
     setErrorForm('');
     setDetalleId(null);
     setMostrarForm(true);
+    scrollAlFormulario();
   };
 
   const handleCancelar = () => {

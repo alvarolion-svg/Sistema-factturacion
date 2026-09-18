@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { authHeaders, mensajeError as mensajeErrorBase, formatMoney, formatFecha } from '../utils/api';
+import { authHeaders, mensajeError as mensajeErrorBase, formatMoney, formatFecha, scrollAlFormulario } from '../utils/api';
 
 interface Contacto {
   id: string;
@@ -198,6 +198,7 @@ function ClientesView({ token, usuario }: ClientesViewProps) {
     setLineasContactosNuevos([]);
     setErrorContacto('');
     setMostrarForm(true);
+    scrollAlFormulario();
   };
 
   const handleEditar = (cliente: Cliente) => {
@@ -235,6 +236,7 @@ function ClientesView({ token, usuario }: ClientesViewProps) {
     setLineasContactosNuevos([]);
     setErrorContacto('');
     setMostrarForm(true);
+    scrollAlFormulario();
     cargarContactos(cliente.id);
   };
 

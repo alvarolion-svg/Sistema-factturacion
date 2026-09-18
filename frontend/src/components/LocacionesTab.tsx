@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import axios from 'axios';
-import { authHeaders, mensajeError } from '../utils/api';
+import { authHeaders, mensajeError, scrollAlFormulario } from '../utils/api';
 
 const TIPOS_LOCACION = ['Paseo Comercial', 'Parque Tecnológico', 'Parking', 'Vía Pública'];
 
@@ -94,6 +94,7 @@ function LocacionesTab({ token, puedeCrear, puedeEditar }: { token: string; pued
     });
     setErrorAlta('');
     setMostrarAlta(true);
+    scrollAlFormulario();
   };
 
   const handleCancelarAlta = () => {
@@ -204,7 +205,13 @@ function LocacionesTab({ token, puedeCrear, puedeEditar }: { token: string; pued
         {puedeCrear && (
           <button
             className="btn-primary"
-            onClick={() => (mostrarAlta ? handleCancelarAlta() : setMostrarAlta(true))}
+            onClick={() => {
+              if (mostrarAlta) handleCancelarAlta();
+              else {
+                setMostrarAlta(true);
+                scrollAlFormulario();
+              }
+            }}
           >
             {mostrarAlta ? 'Cancelar' : '+ Nueva locación'}
           </button>
