@@ -99,7 +99,9 @@ más importantes:
    acordado: cadena de herencia punto → soporte → locación (el de la locación sigue siendo el
    default para los casos simples). No construido — bloqueado hasta que el usuario averigüe el
    desglose real de proveedores de Bahía Nordelta. Afecta directo al módulo de Liquidaciones
-   (ítem 2), que va a tener que resolver el concesionario por esta misma cadena.
+   (ítem 2), que va a tener que resolver el concesionario por esta misma cadena. **Pista
+   parcial**: uno de los proveedores reales que es parte de Bahía Nordelta es **IRIS CHITERER**
+   — todavía falta saber qué soporte/punto puntual le corresponde a cada uno.
 4. **Caso Esteban Vivo**: proveedor que comisiona pero no encaja en el modelo actual de
    comisionistas/intermediarios — pausado a pedido del usuario, para revisar al final.
 5. **Integración con Asana**: idea diseñada (botón manual por orden, tarea compartida a 3
