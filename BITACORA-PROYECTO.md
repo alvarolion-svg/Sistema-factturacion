@@ -89,13 +89,18 @@ más importantes:
 2. **Módulo Liquidaciones a locatarios**: diseñado (pantalla de carga manual por
    concesionario/mes + reporte PDF para mandarle al locatario), con mockups ya hechos, pero **no
    construido** — bloqueado hasta terminar de asignar concesionarios y cargar más órdenes con
-   locación/soporte real. Suma dos vueltas más, mismo patrón (un tercero que se cuelga de la
-   liquidación de un concesionario, con su propia fila/campo por campaña):
+   locación/soporte real. Confirmado: que una locación tenga **más de un tercero cobrando de su
+   liquidación** (además del concesionario) es parte real del negocio de Topview, no una
+   excepción rara — el diseño tiene que contemplarlo de entrada. Dos casos confirmados hasta
+   ahora, mismo patrón (un tercero que se cuelga de la liquidación de un concesionario, con su
+   propia fila/campo por campaña):
    - **OXANT GROUP S.R.L.** cobra un **%** de lo que Topview le liquida a CECNOR SA, World Padel
      Pilar (WFPP SRL) y Hey Add Center (Pilar Shops S.A.).
    - **Esteban Vivo** trajo los concesionarios de **Parque C. Avellaneda** y **Pueblo Caamaño** —
      cuando se liquide cualquiera de esos dos, tiene que replicarse automáticamente la misma lista
      de campañas con un campo aparte para cargarle a mano cuánto se le paga (monto fijo, no %).
+   - Las reglas exactas (el % de Oxant, cómo se define el monto de Esteban Vivo) quedan para más
+     adelante — "después vemos las reglas para esos 2 casos."
 3. **Concesionario por punto, no solo por locación**: algunas locaciones (ej. Bahía Grande
    Nordelta) tienen varios proveedores distintos adentro, cada uno dueño de un cartel/punto
    específico — el modelo actual (`concesionario_id` único en `locaciones`) no alcanza. Diseño ya
