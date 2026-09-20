@@ -80,7 +80,13 @@ una feature secundaria.
   Canon propio de cada uno (se llama así, no "comisión", para no confundirlo con el módulo de
   Comisionistas) — el monto cargado a mano por línea es lo "declarado", el % determina el "Total a
   liquidar" real (ej. $220 declarado × 40% = $88 a liquidar), visible en pantalla y en los
-  exports. Cubre el mecanismo base; **todavía no cubre** los casos de terceros
+  exports. **Validado contra una liquidación real** (Centro Comercial Nordelta) que el usuario
+  compartió: se sumaron secciones **Publicidad/Stand** (cada una con su propio Canon, clasificado
+  por tipo de soporte), estados de línea **"Sin cargo"/"Canje"** (cuentan $0), **IVA + percepciones
+  IIBB** (puede haber varias a la vez) calculados sobre el Total Final hasta el **Total a Pagar**
+  real, y el export ahora **agrupa por anunciante + vigencia** con los soportes concatenados
+  ("PPL x 10 + CAJA BACK x 2") igual que el documento real, con encabezado (nombre/domicilio del
+  concesionario) y nota libre. Cubre el mecanismo base; **todavía no cubre** los casos de terceros
   colgados de la liquidación de un concesionario (Oxant, Esteban Vivo — ver pendiente 2 abajo).
 - **Producción se despliega fuera de esta Mac**: sin hacer todavía — ver
   [`PENDIENTE-PRODUCCION.md`](./PENDIENTE-PRODUCCION.md) para el relevamiento completo (qué falta
