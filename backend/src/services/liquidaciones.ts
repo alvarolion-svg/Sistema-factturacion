@@ -44,7 +44,22 @@ export class LiquidacionesService {
   // facturación mensual), con el monto ya cargado si existe. Devuelve
   // también las excluidas (con excluida=true) para poder restaurarlas — el
   // que llama decide si las muestra.
+  //
+  // Corte del día 15 (pedido explícito del usuario, 2026-09-20): si la
+  // campaña arranca (periodo_desde) DESPUÉS del 15 del mes que se está
+  // mirando, por defecto no cuenta para este mes — se informa igual (con
+  // inicio_tardio=true) pero arranca excluida, salvo que ya haya una
+  // decisión explícita guardada en liquidaciones_detalle.excluida (el
+  // usuario puede tildarla para sumarla igual a este mes).
   static async listarPeriodo(concesionarioId: string, mes: number, ano: number): Promise<any[]> {
+    const esInicioTardio = `
+      CASE
+        WHEN CAST(strftime('%Y', o.periodo_desde) AS INTEGER) = ?
+         AND CAST(strftime('%m', o.periodo_desde) AS INTEGER) = ?
+         AND CAST(strftime('%d', o.periodo_desde) AS INTEGER) > 15
+        THEN 1 ELSE 0
+      END
+    `;
     const filas = await this.queryAll(
       `
       SELECT
@@ -62,7 +77,8 @@ export class LiquidacionesService {
         l.nombre as locacion_nombre,
         ld.id as liquidacion_id,
         COALESCE(ld.monto, 0) as monto,
-        COALESCE(ld.excluida, 0) as excluida
+        ${esInicioTardio} as inicio_tardio,
+        COALESCE(ld.excluida, ${esInicioTardio}) as excluida
       FROM ordenes_publicidad_detalles d
       JOIN locaciones l ON l.id = d.locacion_id
       JOIN ordenes_publicidad o ON o.id = d.orden_id
@@ -71,9 +87,9 @@ export class LiquidacionesService {
       WHERE l.concesionario_id = ? AND (o.habilitado != 0 OR o.habilitado IS NULL)
       ORDER BY l.nombre, o.razon_social
       `,
-      [mes, ano, mes, ano, concesionarioId]
+      [ano, mes, ano, mes, mes, ano, mes, ano, concesionarioId]
     );
-    return filas.map((f) => ({ ...f, excluida: !!f.excluida }));
+    return filas.map((f) => ({ ...f, excluida: !!f.excluida, inicio_tardio: !!f.inicio_tardio }));
   }
 
   // Líneas sueltas cargadas a mano para ese concesionario/período — ajustes,

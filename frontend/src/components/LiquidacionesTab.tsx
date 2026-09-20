@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import axios from 'axios';
 import ExcelJS from 'exceljs';
 import jsPDF from 'jspdf';
@@ -32,6 +32,7 @@ interface LineaLiquidacion {
   liquidacion_id: string | null;
   monto: number;
   excluida: boolean;
+  inicio_tardio: boolean;
 }
 
 interface LineaManual {
@@ -154,6 +155,24 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
     }
   };
 
+  // Corte del día 15: una campaña que arranca después del 15 del mes no
+  // cuenta para ese mes por defecto (queda para el que viene), pero se
+  // informa igual acá con un tilde para sumarla a este mes si se quiere.
+  // Es una decisión de rutina, no un "sacar" destructivo — sin confirm().
+  const handleToggleIncluirEsteMes = async (f: LineaLiquidacion, incluir: boolean) => {
+    setError('');
+    try {
+      await axios.put(
+        `/api/liquidaciones/${f.detalle_id}/exclusion`,
+        { mes: Number(mes), ano: Number(ano), excluida: !incluir },
+        authHeaders(token)
+      );
+      setFilas((actual) => (actual || []).map((x) => (x.detalle_id === f.detalle_id ? { ...x, excluida: !incluir } : x)));
+    } catch (err: any) {
+      setError(mensajeError(err, 'No se pudo guardar la decisión de este mes.'));
+    }
+  };
+
   const handleAgregarManual = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!manualForm.descripcion.trim()) {
@@ -209,7 +228,10 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
   };
 
   const anosDisponibles = Array.from({ length: 5 }, (_, i) => hoy.getFullYear() - 2 + i);
-  const filasVisibles = (filas || []).filter((f) => mostrarExcluidas || !f.excluida);
+  // Las de inicio tardío se muestran siempre (son un aviso explícito, no una
+  // exclusión para esconder) — el toggle "mostrar excluidas" es solo para
+  // las sacadas a mano por otro motivo (ej. cliente no pagó).
+  const filasVisibles = (filas || []).filter((f) => f.inicio_tardio || mostrarExcluidas || !f.excluida);
   const total =
     (filas || []).filter((f) => !f.excluida).reduce((s, f) => s + (Number(f.monto) || 0), 0) +
     manuales.reduce((s, m) => s + (Number(m.monto) || 0), 0);
@@ -359,10 +381,10 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
             <button type="button" className="btn-secondary" onClick={handleExportarPDF}>
               Exportar PDF
             </button>
-            {filas.some((f) => f.excluida) && (
+            {filas.some((f) => f.excluida && !f.inicio_tardio) && (
               <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontWeight: 'normal' }}>
                 <input type="checkbox" checked={mostrarExcluidas} onChange={(e) => setMostrarExcluidas(e.target.checked)} />
-                Mostrar líneas sacadas ({filas.filter((f) => f.excluida).length})
+                Mostrar líneas sacadas ({filas.filter((f) => f.excluida && !f.inicio_tardio).length})
               </label>
             )}
           </div>
@@ -386,45 +408,69 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
             </thead>
             <tbody>
               {filasVisibles.map((f) => (
-                <tr key={f.detalle_id} style={f.excluida ? { opacity: 0.5 } : undefined}>
-                  <td>{f.anunciante}</td>
-                  <td>{f.numero_orden_agencia || f.numero_orden}</td>
-                  <td>{vigenciaTexto(f)}</td>
-                  <td>{f.tipo_producto}</td>
-                  <td>{f.locacion_nombre}</td>
-                  <td>{f.punto_instalacion || '—'}</td>
-                  <td>{f.cantidad}</td>
-                  <td>
-                    {puedeCargar && !f.excluida ? (
-                      <InputMiles
-                        value={montosLocal[f.detalle_id] ?? ''}
-                        onChange={(v) => setMontosLocal((actual) => ({ ...actual, [f.detalle_id]: v }))}
-                        onBlur={() => handleGuardarMonto(f.detalle_id)}
-                        style={{ width: '9rem', textAlign: 'right' }}
-                      />
-                    ) : (
-                      formatMoney(f.monto)
-                    )}
-                  </td>
-                  {puedeCargar && (
-                    <td style={{ fontSize: '0.85rem', whiteSpace: 'nowrap' }}>
-                      {f.excluida ? (
-                        <button type="button" className="btn-link" onClick={() => handleRestaurar(f)}>
-                          Restaurar
-                        </button>
+                <Fragment key={f.detalle_id}>
+                  {f.inicio_tardio && (
+                    <tr key={`${f.detalle_id}-aviso`} style={{ background: '#fff8e1' }}>
+                      <td colSpan={puedeCargar ? 9 : 8} style={{ fontSize: '0.85rem', color: '#8a6d00' }}>
+                        ⚠ Esta campaña arrancó el {formatFecha(f.periodo_desde)}, después del corte del día 15 — por
+                        defecto se liquida el mes que viene, no este.
+                        {puedeCargar && (
+                          <label style={{ marginLeft: '1rem', fontWeight: 'normal' }}>
+                            <input
+                              type="checkbox"
+                              checked={!f.excluida}
+                              onChange={(e) => handleToggleIncluirEsteMes(f, e.target.checked)}
+                            />{' '}
+                            Sumar igual a la liquidación de {NOMBRES_MES[Number(mes) - 1]}
+                          </label>
+                        )}
+                      </td>
+                    </tr>
+                  )}
+                  <tr key={f.detalle_id} style={f.excluida ? { opacity: 0.5 } : undefined}>
+                    <td>{f.anunciante}</td>
+                    <td>{f.numero_orden_agencia || f.numero_orden}</td>
+                    <td>{vigenciaTexto(f)}</td>
+                    <td>{f.tipo_producto}</td>
+                    <td>{f.locacion_nombre}</td>
+                    <td>{f.punto_instalacion || '—'}</td>
+                    <td>{f.cantidad}</td>
+                    <td>
+                      {puedeCargar ? (
+                        <InputMiles
+                          value={montosLocal[f.detalle_id] ?? ''}
+                          onChange={(v) => setMontosLocal((actual) => ({ ...actual, [f.detalle_id]: v }))}
+                          onBlur={() => handleGuardarMonto(f.detalle_id)}
+                          style={{ width: '9rem', textAlign: 'right' }}
+                        />
                       ) : (
-                        <>
-                          <span style={{ color: 'var(--color-exito, #2e7d32)', marginRight: '0.5rem' }}>
-                            {guardandoId === f.detalle_id ? 'Guardando...' : guardadoId === f.detalle_id ? 'Guardado ✓' : ''}
-                          </span>
-                          <button type="button" className="btn-link btn-link-danger" onClick={() => handleExcluir(f)}>
-                            Quitar
-                          </button>
-                        </>
+                        formatMoney(f.monto)
                       )}
                     </td>
-                  )}
-                </tr>
+                    {puedeCargar && (
+                      <td style={{ fontSize: '0.85rem', whiteSpace: 'nowrap' }}>
+                        {f.inicio_tardio ? (
+                          <span style={{ color: 'var(--color-exito, #2e7d32)' }}>
+                            {guardandoId === f.detalle_id ? 'Guardando...' : guardadoId === f.detalle_id ? 'Guardado ✓' : ''}
+                          </span>
+                        ) : f.excluida ? (
+                          <button type="button" className="btn-link" onClick={() => handleRestaurar(f)}>
+                            Restaurar
+                          </button>
+                        ) : (
+                          <>
+                            <span style={{ color: 'var(--color-exito, #2e7d32)', marginRight: '0.5rem' }}>
+                              {guardandoId === f.detalle_id ? 'Guardando...' : guardadoId === f.detalle_id ? 'Guardado ✓' : ''}
+                            </span>
+                            <button type="button" className="btn-link btn-link-danger" onClick={() => handleExcluir(f)}>
+                              Quitar
+                            </button>
+                          </>
+                        )}
+                      </td>
+                    )}
+                  </tr>
+                </Fragment>
               ))}
               {manuales.map((m) => (
                 <tr key={m.id} style={{ fontStyle: 'italic' }}>
