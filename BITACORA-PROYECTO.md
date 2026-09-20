@@ -73,8 +73,11 @@ una feature secundaria.
   orden, para que no se confunda con varias campañas cuando en realidad es una sola con cortes de
   fecha), monto con formato de miles al tipear, y ABM básico: se puede sacar una línea de la
   liquidación sin tocar la orden (ej. el cliente terminó no pagando) y restaurarla después, y
-  agregar una línea manual suelta para compensar ajustes que no vienen de ninguna orden. Cubre el
-  mecanismo base; **todavía no cubre** los casos de terceros colgados de la liquidación de un
+  agregar una línea manual suelta para compensar ajustes que no vienen de ninguna orden. Tiene
+  corte del día 15: una campaña que arranca (`periodo_desde`) después del 15 del mes no cuenta por
+  defecto para ese mes — se avisa igual en pantalla con un tilde para sumarla si se quiere en vez
+  de esperar al mes que viene. Cubre el mecanismo base; **todavía no cubre** los casos de terceros
+  colgados de la liquidación de un
   concesionario (Oxant, Esteban Vivo — ver pendiente 2 abajo).
 - **Producción se despliega fuera de esta Mac**: sin hacer todavía — ver
   [`PENDIENTE-PRODUCCION.md`](./PENDIENTE-PRODUCCION.md) para el relevamiento completo (qué falta
