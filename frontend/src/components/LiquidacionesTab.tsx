@@ -78,6 +78,7 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
   const [guardadoId, setGuardadoId] = useState<string | null>(null);
   const [mostrarExcluidas, setMostrarExcluidas] = useState(false);
   const [nota, setNota] = useState('');
+  const [colapsarPorCliente, setColapsarPorCliente] = useState(true);
 
   const [manualForm, setManualForm] = useState(MANUAL_VACIO);
   const [agregandoManual, setAgregandoManual] = useState(false);
@@ -301,29 +302,52 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
   const textoMonto = (f: LineaLiquidacion) =>
     f.estado_especial === 'sin_cargo' ? 'S/c' : f.estado_especial === 'canje' ? 'Canje' : formatMoney(f.monto);
 
-  // Una liquidación real agrupa por anunciante (no por línea de soporte):
-  // "El Cronista | PPL x 10 + CAJA BACK x 2 | ... | $1.684.800,00" es UNA
-  // fila aunque venga de varias líneas/órdenes distintas con la misma
-  // vigencia. La pantalla de carga queda por línea (así se edita cada
-  // soporte por separado); el agrupado es solo para lo que se exporta.
+  // Una liquidación real agrupa por anunciante (no por línea de soporte ni
+  // por orden): "El Cronista | PPL x 10 + CAJA BACK x 2 | ... |
+  // $1.684.800,00" es UNA fila aunque venga de varias líneas/órdenes
+  // distintas — típicamente el mismo cliente cortado en varias órdenes por
+  // fecha (mismo aviso, fragmentado administrativamente). La pantalla de
+  // carga queda por línea (así se edita cada soporte por separado); el
+  // agrupado es solo para lo que se exporta.
+  //
+  // Se agrupa por anunciante solo (no exige vigencia exacta): la Vigencia
+  // mostrada es el rango completo (desde lo más temprano hasta lo más
+  // tardío entre todas las campañas agrupadas), y "Elementos" no repite —
+  // si dos campañas tienen el mismo soporte+cantidad, aparece una sola vez;
+  // si una campaña tiene algo que las demás no, se agrega esa diferencia.
   const agruparParaExport = (filasSeccion: LineaLiquidacion[]) => {
-    const grupos = new Map<string, { anunciante: string; vigencia: string; elementos: string[]; monto: number; estados: Set<string> }>();
+    if (!colapsarPorCliente) {
+      return filasSeccion
+        .filter((f) => !f.excluida)
+        .map((f) => ({
+          anunciante: f.anunciante,
+          vigencia: vigenciaTexto(f),
+          elementos: `${f.tipo_producto} x ${f.cantidad}`,
+          textoMonto: textoMonto(f),
+          monto: Number(f.monto) || 0,
+        }));
+    }
+    const grupos = new Map<
+      string,
+      { anunciante: string; desde: string; hasta: string; elementos: Set<string>; monto: number; estados: Set<string> }
+    >();
     filasSeccion
       .filter((f) => !f.excluida)
       .forEach((f) => {
-        const clave = `${f.anunciante}|${f.periodo_desde}|${f.periodo_hasta}`;
-        if (!grupos.has(clave)) {
-          grupos.set(clave, { anunciante: f.anunciante, vigencia: vigenciaTexto(f), elementos: [], monto: 0, estados: new Set() });
+        if (!grupos.has(f.anunciante)) {
+          grupos.set(f.anunciante, { anunciante: f.anunciante, desde: f.periodo_desde, hasta: f.periodo_hasta, elementos: new Set(), monto: 0, estados: new Set() });
         }
-        const grupo = grupos.get(clave)!;
-        grupo.elementos.push(`${f.tipo_producto} x ${f.cantidad}`);
+        const grupo = grupos.get(f.anunciante)!;
+        if (f.periodo_desde && f.periodo_desde < grupo.desde) grupo.desde = f.periodo_desde;
+        if (f.periodo_hasta && f.periodo_hasta > grupo.hasta) grupo.hasta = f.periodo_hasta;
+        grupo.elementos.add(`${f.tipo_producto} x ${f.cantidad}`);
         grupo.monto += Number(f.monto) || 0;
         grupo.estados.add(f.estado_especial || 'monto');
       });
     return Array.from(grupos.values()).map((g) => ({
       anunciante: g.anunciante,
-      vigencia: g.vigencia,
-      elementos: g.elementos.join(' + '),
+      vigencia: `${formatFecha(g.desde)} – ${formatFecha(g.hasta)}`,
+      elementos: Array.from(g.elementos).join(' + '),
       // Si TODAS las líneas del grupo comparten el mismo estado especial, se
       // informa así en vez de "$0,00"; si están mezcladas con líneas con
       // monto real, se muestra la suma (las especiales ya suman $0 solas).
@@ -562,6 +586,11 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
                   </label>
                 )}
               </div>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.8rem' }}>
+                <input type="checkbox" checked={colapsarPorCliente} onChange={(e) => setColapsarPorCliente(e.target.checked)} />
+                Colapsar campañas del mismo cliente al exportar (junta las órdenes cortadas por fecha en una sola
+                fila, sin repetir soportes)
+              </label>
               <label style={{ display: 'block', marginBottom: '0.8rem' }}>
                 Nota para el export (opcional)
                 <input
