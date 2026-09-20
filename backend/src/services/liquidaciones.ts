@@ -31,7 +31,7 @@ export class LiquidacionesService {
   // el selector de la pantalla — no todo el padrón de proveedores.
   static async listarConcesionarios(): Promise<any[]> {
     return this.queryAll(`
-      SELECT DISTINCT p.id, p.razon_social
+      SELECT DISTINCT p.id, p.razon_social, p.direccion
       FROM proveedores p
       JOIN locaciones l ON l.concesionario_id = p.id
       WHERE l.habilitado != 0 OR l.habilitado IS NULL
@@ -39,14 +39,15 @@ export class LiquidacionesService {
     `);
   }
 
-  // % de Canon de cada concesionario para la solapa "Canon por concesionario"
-  // — todos los concesionarios reales, con 100 de default para el que
-  // todavía no tiene nada cargado (no se le descuenta nada hasta que se
-  // configure).
+  // % de Canon, IVA y percepciones de cada concesionario para la solapa
+  // "Canon por concesionario" — todos los concesionarios reales, con
+  // defaults (Canon 100%, IVA 21%, sin percepciones) para el que todavía no
+  // tiene nada cargado.
   static async listarCondiciones(): Promise<any[]> {
-    return this.queryAll(`
+    const concesionarios = await this.queryAll(`
       SELECT DISTINCT p.id as concesionario_id, p.razon_social,
         COALESCE(cc.porcentaje_comision, 100) as porcentaje_comision,
+        COALESCE(cc.iva_porcentaje, 21) as iva_porcentaje,
         cc.notas
       FROM proveedores p
       JOIN locaciones l ON l.concesionario_id = p.id
@@ -54,32 +55,84 @@ export class LiquidacionesService {
       WHERE l.habilitado != 0 OR l.habilitado IS NULL
       ORDER BY p.razon_social
     `);
+    const percepciones = await this.queryAll('SELECT * FROM condiciones_percepciones ORDER BY nombre');
+    const percepcionesPorConcesionario = new Map<string, any[]>();
+    percepciones.forEach((p) => {
+      if (!percepcionesPorConcesionario.has(p.concesionario_id)) percepcionesPorConcesionario.set(p.concesionario_id, []);
+      percepcionesPorConcesionario.get(p.concesionario_id)!.push(p);
+    });
+    return concesionarios.map((c) => ({ ...c, percepciones: percepcionesPorConcesionario.get(c.concesionario_id) || [] }));
   }
 
-  static async obtenerPorcentajeComision(concesionarioId: string): Promise<number> {
+  // Condición completa de un concesionario (Canon, IVA y percepciones) para
+  // calcular el Total a Pagar de su liquidación del período.
+  static async obtenerCondicion(concesionarioId: string): Promise<{ porcentajeComision: number; ivaPorcentaje: number; percepciones: any[] }> {
     const fila = await this.queryGet(
-      'SELECT porcentaje_comision FROM condiciones_concesionario WHERE concesionario_id = ?',
+      'SELECT porcentaje_comision, iva_porcentaje FROM condiciones_concesionario WHERE concesionario_id = ?',
       [concesionarioId]
     );
-    return fila && fila.porcentaje_comision !== undefined ? Number(fila.porcentaje_comision) : 100;
+    const percepciones = await this.queryAll(
+      'SELECT * FROM condiciones_percepciones WHERE concesionario_id = ? ORDER BY nombre',
+      [concesionarioId]
+    );
+    return {
+      porcentajeComision: fila && fila.porcentaje_comision !== undefined ? Number(fila.porcentaje_comision) : 100,
+      ivaPorcentaje: fila && fila.iva_porcentaje !== undefined ? Number(fila.iva_porcentaje) : 21,
+      percepciones,
+    };
   }
 
-  static async guardarCondicion(concesionarioId: string, porcentajeComision: number, notas?: string): Promise<void> {
+  static async guardarCondicion(
+    concesionarioId: string,
+    porcentajeComision: number,
+    ivaPorcentaje: number,
+    notas?: string
+  ): Promise<void> {
     const existente = await this.queryGet('SELECT * FROM condiciones_concesionario WHERE concesionario_id = ?', [concesionarioId]);
     if (existente && existente.id) {
       await this.runQuery(
-        'UPDATE condiciones_concesionario SET porcentaje_comision = ?, notas = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-        [porcentajeComision, notas || null, existente.id]
+        'UPDATE condiciones_concesionario SET porcentaje_comision = ?, iva_porcentaje = ?, notas = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+        [porcentajeComision, ivaPorcentaje, notas || null, existente.id]
       );
-      AuditoriaService.registrarOperacion('condiciones_concesionario', 'UPDATE', existente.id, existente, { porcentajeComision, notas });
+      AuditoriaService.registrarOperacion('condiciones_concesionario', 'UPDATE', existente.id, existente, { porcentajeComision, ivaPorcentaje, notas });
     } else {
       const id = uuid();
       await this.runQuery(
-        'INSERT INTO condiciones_concesionario (id, concesionario_id, porcentaje_comision, notas) VALUES (?, ?, ?, ?)',
-        [id, concesionarioId, porcentajeComision, notas || null]
+        'INSERT INTO condiciones_concesionario (id, concesionario_id, porcentaje_comision, iva_porcentaje, notas) VALUES (?, ?, ?, ?, ?)',
+        [id, concesionarioId, porcentajeComision, ivaPorcentaje, notas || null]
       );
-      AuditoriaService.registrarOperacion('condiciones_concesionario', 'INSERT', id, null, { concesionarioId, porcentajeComision, notas });
+      AuditoriaService.registrarOperacion('condiciones_concesionario', 'INSERT', id, null, { concesionarioId, porcentajeComision, ivaPorcentaje, notas });
     }
+  }
+
+  static async agregarPercepcion(concesionarioId: string, nombre: string, porcentaje: number): Promise<any> {
+    if (!nombre || !nombre.trim()) throw new Error('El nombre de la percepción es obligatorio.');
+    const id = uuid();
+    await this.runQuery(
+      'INSERT INTO condiciones_percepciones (id, concesionario_id, nombre, porcentaje) VALUES (?, ?, ?, ?)',
+      [id, concesionarioId, nombre.trim(), porcentaje || 0]
+    );
+    AuditoriaService.registrarOperacion('condiciones_percepciones', 'INSERT', id, null, { concesionarioId, nombre, porcentaje });
+    return this.queryGet('SELECT * FROM condiciones_percepciones WHERE id = ?', [id]);
+  }
+
+  static async actualizarPercepcion(id: string, nombre: string, porcentaje: number): Promise<any> {
+    const existente = await this.queryGet('SELECT * FROM condiciones_percepciones WHERE id = ?', [id]);
+    if (!existente || !existente.id) throw new Error('Esa percepción no existe.');
+    if (!nombre || !nombre.trim()) throw new Error('El nombre de la percepción es obligatorio.');
+    await this.runQuery(
+      'UPDATE condiciones_percepciones SET nombre = ?, porcentaje = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [nombre.trim(), porcentaje || 0, id]
+    );
+    AuditoriaService.registrarOperacion('condiciones_percepciones', 'UPDATE', id, existente, { nombre, porcentaje });
+    return this.queryGet('SELECT * FROM condiciones_percepciones WHERE id = ?', [id]);
+  }
+
+  static async eliminarPercepcion(id: string): Promise<void> {
+    const existente = await this.queryGet('SELECT * FROM condiciones_percepciones WHERE id = ?', [id]);
+    if (!existente || !existente.id) throw new Error('Esa percepción no existe.');
+    await this.runQuery('DELETE FROM condiciones_percepciones WHERE id = ?', [id]);
+    AuditoriaService.registrarOperacion('condiciones_percepciones', 'DELETE', id, existente, null);
   }
 
   // Todas las líneas de orden con locación de ese concesionario, activas ese
@@ -120,6 +173,8 @@ export class LiquidacionesService {
         l.nombre as locacion_nombre,
         ld.id as liquidacion_id,
         COALESCE(ld.monto, 0) as monto,
+        ld.estado_especial as estado_especial,
+        CASE WHEN d.tipo_producto = 'Stand' THEN 'stand' ELSE 'publicidad' END as seccion,
         ${esInicioTardio} as inicio_tardio,
         COALESCE(ld.excluida, ${esInicioTardio}) as excluida
       FROM ordenes_publicidad_detalles d
@@ -195,6 +250,41 @@ export class LiquidacionesService {
         [id, ordenDetalleId, mes, ano, excluida ? 1 : 0]
       );
       AuditoriaService.registrarOperacion('liquidaciones_detalle', 'INSERT', id, null, { ordenDetalleId, mes, ano, excluida });
+    }
+  }
+
+  // Marca una línea como "sin cargo" o "canje" en vez de un monto en pesos
+  // (visto en una liquidación real: "S/c" y "Canje" en columnas donde iría
+  // el importe) — cuenta como $0 en los totales. null la vuelve a un monto
+  // normal (no borra el monto que hubiera, el usuario lo re-carga si quiere).
+  static async marcarEstadoEspecial(
+    ordenDetalleId: string,
+    mes: number,
+    ano: number,
+    estadoEspecial: 'sin_cargo' | 'canje' | null
+  ): Promise<void> {
+    const detalle = await this.queryGet('SELECT id FROM ordenes_publicidad_detalles WHERE id = ?', [ordenDetalleId]);
+    if (!detalle || !detalle.id) throw new Error('Esa línea de orden no existe.');
+
+    const existente = await this.queryGet(
+      'SELECT * FROM liquidaciones_detalle WHERE orden_detalle_id = ? AND mes = ? AND ano = ?',
+      [ordenDetalleId, mes, ano]
+    );
+
+    const montoNuevo = estadoEspecial ? 0 : existente?.monto || 0;
+    if (existente && existente.id) {
+      await this.runQuery(
+        'UPDATE liquidaciones_detalle SET estado_especial = ?, monto = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+        [estadoEspecial, montoNuevo, existente.id]
+      );
+      AuditoriaService.registrarOperacion('liquidaciones_detalle', 'UPDATE', existente.id, existente, { estadoEspecial });
+    } else {
+      const id = uuid();
+      await this.runQuery(
+        'INSERT INTO liquidaciones_detalle (id, orden_detalle_id, mes, ano, monto, estado_especial) VALUES (?, ?, ?, ?, 0, ?)',
+        [id, ordenDetalleId, mes, ano, estadoEspecial]
+      );
+      AuditoriaService.registrarOperacion('liquidaciones_detalle', 'INSERT', id, null, { ordenDetalleId, mes, ano, estadoEspecial });
     }
   }
 

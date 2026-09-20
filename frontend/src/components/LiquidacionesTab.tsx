@@ -11,9 +11,12 @@ const NOMBRES_MES = [
   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
 ];
 
+type EstadoEspecial = 'sin_cargo' | 'canje' | null;
+
 interface Concesionario {
   id: string;
   razon_social: string;
+  direccion: string | null;
 }
 
 interface LineaLiquidacion {
@@ -33,6 +36,8 @@ interface LineaLiquidacion {
   monto: number;
   excluida: boolean;
   inicio_tardio: boolean;
+  estado_especial: EstadoEspecial;
+  seccion: 'publicidad' | 'stand';
 }
 
 interface LineaManual {
@@ -44,7 +49,19 @@ interface LineaManual {
   monto: number;
 }
 
+interface SeccionResumen {
+  declarado: number;
+  canon: number;
+}
+
+interface PercepcionCalculada {
+  nombre: string;
+  porcentaje: number;
+  monto: number;
+}
+
 const MANUAL_VACIO = { descripcion: '', monto: '' };
+const SECCION_NOMBRE: Record<'publicidad' | 'stand', string> = { publicidad: 'Publicidad', stand: 'Stand' };
 
 function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: boolean }) {
   const hoy = new Date();
@@ -60,6 +77,7 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
   const [guardandoId, setGuardandoId] = useState<string | null>(null);
   const [guardadoId, setGuardadoId] = useState<string | null>(null);
   const [mostrarExcluidas, setMostrarExcluidas] = useState(false);
+  const [nota, setNota] = useState('');
 
   const [manualForm, setManualForm] = useState(MANUAL_VACIO);
   const [agregandoManual, setAgregandoManual] = useState(false);
@@ -67,6 +85,15 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
   const [editManualForm, setEditManualForm] = useState(MANUAL_VACIO);
 
   const [porcentajeComision, setPorcentajeComision] = useState(100);
+  const [secciones, setSecciones] = useState<{ publicidad: SeccionResumen; stand: SeccionResumen }>({
+    publicidad: { declarado: 0, canon: 0 },
+    stand: { declarado: 0, canon: 0 },
+  });
+  const [ivaPorcentaje, setIvaPorcentaje] = useState(21);
+  const [ivaMonto, setIvaMonto] = useState(0);
+  const [percepcionesCalculadas, setPercepcionesCalculadas] = useState<PercepcionCalculada[]>([]);
+  const [totalFinal, setTotalFinal] = useState(0);
+  const [totalAPagar, setTotalAPagar] = useState(0);
   const [vista, setVista] = useState<'liquidar' | 'condiciones'>('liquidar');
 
   useEffect(() => {
@@ -91,6 +118,12 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
         setFilas(data);
         setManuales(res.data.manuales || []);
         setPorcentajeComision(res.data.porcentaje_comision ?? 100);
+        setSecciones(res.data.secciones || { publicidad: { declarado: 0, canon: 0 }, stand: { declarado: 0, canon: 0 } });
+        setIvaPorcentaje(res.data.iva_porcentaje ?? 21);
+        setIvaMonto(res.data.iva_monto ?? 0);
+        setPercepcionesCalculadas(res.data.percepciones || []);
+        setTotalFinal(res.data.total ?? 0);
+        setTotalAPagar(res.data.total_a_pagar ?? 0);
         const iniciales: Record<string, string> = {};
         data.forEach((f) => {
           iniciales[f.detalle_id] = f.monto ? String(f.monto) : '';
@@ -118,6 +151,7 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
       setFilas((actual) => (actual || []).map((f) => (f.detalle_id === detalleId ? { ...f, monto: valor } : f)));
       setGuardadoId(detalleId);
       setTimeout(() => setGuardadoId((actual) => (actual === detalleId ? null : actual)), 1500);
+      cargar();
     } catch (err: any) {
       setError(mensajeError(err, 'No se pudo guardar el monto.'));
     } finally {
@@ -139,7 +173,7 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
         { mes: Number(mes), ano: Number(ano), excluida: true },
         authHeaders(token)
       );
-      setFilas((actual) => (actual || []).map((x) => (x.detalle_id === f.detalle_id ? { ...x, excluida: true } : x)));
+      cargar();
     } catch (err: any) {
       setError(mensajeError(err, 'No se pudo sacar la línea.'));
     }
@@ -153,7 +187,7 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
         { mes: Number(mes), ano: Number(ano), excluida: false },
         authHeaders(token)
       );
-      setFilas((actual) => (actual || []).map((x) => (x.detalle_id === f.detalle_id ? { ...x, excluida: false } : x)));
+      cargar();
     } catch (err: any) {
       setError(mensajeError(err, 'No se pudo restaurar la línea.'));
     }
@@ -171,9 +205,27 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
         { mes: Number(mes), ano: Number(ano), excluida: !incluir },
         authHeaders(token)
       );
-      setFilas((actual) => (actual || []).map((x) => (x.detalle_id === f.detalle_id ? { ...x, excluida: !incluir } : x)));
+      cargar();
     } catch (err: any) {
       setError(mensajeError(err, 'No se pudo guardar la decisión de este mes.'));
+    }
+  };
+
+  // "Sin cargo" (S/c) y "Canje" — vistos en una liquidación real en vez de un
+  // número de pesos. Cuentan como $0 en los totales, pero se muestran
+  // distinto en pantalla y en los exports.
+  const handleEstadoEspecial = async (f: LineaLiquidacion, estado: EstadoEspecial) => {
+    setError('');
+    try {
+      await axios.put(
+        `/api/liquidaciones/${f.detalle_id}/estado-especial`,
+        { mes: Number(mes), ano: Number(ano), estado_especial: estado },
+        authHeaders(token)
+      );
+      if (estado) setMontosLocal((actual) => ({ ...actual, [f.detalle_id]: '' }));
+      cargar();
+    } catch (err: any) {
+      setError(mensajeError(err, 'No se pudo guardar el estado de la línea.'));
     }
   };
 
@@ -186,13 +238,13 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
     setAgregandoManual(true);
     setError('');
     try {
-      const res = await axios.post(
+      await axios.post(
         '/api/liquidaciones/manual',
         { concesionario_id: concesionarioId, mes: Number(mes), ano: Number(ano), descripcion: manualForm.descripcion, monto: Number(manualForm.monto) || 0 },
         authHeaders(token)
       );
-      setManuales((actual) => [...actual, res.data]);
       setManualForm(MANUAL_VACIO);
+      cargar();
     } catch (err: any) {
       setError(mensajeError(err, 'No se pudo agregar la línea manual.'));
     } finally {
@@ -208,13 +260,13 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
   const handleGuardarEditarManual = async (id: string) => {
     setError('');
     try {
-      const res = await axios.put(
+      await axios.put(
         `/api/liquidaciones/manual/${id}`,
         { descripcion: editManualForm.descripcion, monto: Number(editManualForm.monto) || 0 },
         authHeaders(token)
       );
-      setManuales((actual) => actual.map((m) => (m.id === id ? res.data : m)));
       setEditandoManualId(null);
+      cargar();
     } catch (err: any) {
       setError(mensajeError(err, 'No se pudo guardar la línea manual.'));
     }
@@ -225,7 +277,7 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
     setError('');
     try {
       await axios.delete(`/api/liquidaciones/manual/${m.id}`, authHeaders(token));
-      setManuales((actual) => actual.filter((x) => x.id !== m.id));
+      cargar();
     } catch (err: any) {
       setError(mensajeError(err, 'No se pudo quitar la línea manual.'));
     }
@@ -236,14 +288,8 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
   // exclusión para esconder) — el toggle "mostrar excluidas" es solo para
   // las sacadas a mano por otro motivo (ej. cliente no pagó).
   const filasVisibles = (filas || []).filter((f) => f.inicio_tardio || mostrarExcluidas || !f.excluida);
-  // "Declarado" es la suma de lo cargado a mano por campaña (lo que Topview
-  // dice que facturó esa locación). El concesionario cobra su % sobre eso,
-  // no el declarado en sí — ver la solapa "Condiciones".
-  const totalDeclarado =
-    (filas || []).filter((f) => !f.excluida).reduce((s, f) => s + (Number(f.monto) || 0), 0) +
-    manuales.reduce((s, m) => s + (Number(m.monto) || 0), 0);
-  const totalALiquidar = totalDeclarado * (porcentajeComision / 100);
   const nombreConcesionario = concesionarios.find((c) => c.id === concesionarioId)?.razon_social || '';
+  const direccionConcesionario = concesionarios.find((c) => c.id === concesionarioId)?.direccion || '';
 
   // Varias "órdenes" seguidas en Colppy suelen ser la misma campaña real con
   // cortes de fecha — mostrar la vigencia evita que el concesionario piense
@@ -252,42 +298,106 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
   const vigenciaTexto = (f: LineaLiquidacion) =>
     f.periodo_desde || f.periodo_hasta ? `${formatFecha(f.periodo_desde)} – ${formatFecha(f.periodo_hasta)}` : '—';
 
+  const textoMonto = (f: LineaLiquidacion) =>
+    f.estado_especial === 'sin_cargo' ? 'S/c' : f.estado_especial === 'canje' ? 'Canje' : formatMoney(f.monto);
+
+  // Una liquidación real agrupa por anunciante (no por línea de soporte):
+  // "El Cronista | PPL x 10 + CAJA BACK x 2 | ... | $1.684.800,00" es UNA
+  // fila aunque venga de varias líneas/órdenes distintas con la misma
+  // vigencia. La pantalla de carga queda por línea (así se edita cada
+  // soporte por separado); el agrupado es solo para lo que se exporta.
+  const agruparParaExport = (filasSeccion: LineaLiquidacion[]) => {
+    const grupos = new Map<string, { anunciante: string; vigencia: string; elementos: string[]; monto: number; estados: Set<string> }>();
+    filasSeccion
+      .filter((f) => !f.excluida)
+      .forEach((f) => {
+        const clave = `${f.anunciante}|${f.periodo_desde}|${f.periodo_hasta}`;
+        if (!grupos.has(clave)) {
+          grupos.set(clave, { anunciante: f.anunciante, vigencia: vigenciaTexto(f), elementos: [], monto: 0, estados: new Set() });
+        }
+        const grupo = grupos.get(clave)!;
+        grupo.elementos.push(`${f.tipo_producto} x ${f.cantidad}`);
+        grupo.monto += Number(f.monto) || 0;
+        grupo.estados.add(f.estado_especial || 'monto');
+      });
+    return Array.from(grupos.values()).map((g) => ({
+      anunciante: g.anunciante,
+      vigencia: g.vigencia,
+      elementos: g.elementos.join(' + '),
+      // Si TODAS las líneas del grupo comparten el mismo estado especial, se
+      // informa así en vez de "$0,00"; si están mezcladas con líneas con
+      // monto real, se muestra la suma (las especiales ya suman $0 solas).
+      textoMonto:
+        g.estados.size === 1 && g.estados.has('sin_cargo')
+          ? 'S/c'
+          : g.estados.size === 1 && g.estados.has('canje')
+          ? 'Canje'
+          : formatMoney(g.monto),
+      monto: g.monto,
+    }));
+  };
+
   const nombreArchivoExport = (ext: string) =>
     `liquidacion_${(nombreConcesionario || 'concesionario').replace(/\s+/g, '_')}_${NOMBRES_MES[Number(mes) - 1]}_${ano}.${ext}`;
 
   const handleExportarExcel = async () => {
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('Liquidación');
-    ws.columns = [
-      { header: 'Anunciante / concepto', width: 28 },
-      { header: 'Vigencia', width: 22 },
-      { header: 'Producto', width: 24 },
-      { header: 'Locación', width: 22 },
-      { header: 'Posición', width: 20 },
-      { header: 'Cantidad', width: 10 },
-      { header: 'Monto liquidado', width: 18 },
-    ];
-    (filas || [])
-      .filter((f) => !f.excluida)
-      .forEach((f) => {
-        ws.addRow([f.anunciante, vigenciaTexto(f), f.tipo_producto, f.locacion_nombre, f.punto_instalacion || '—', f.cantidad, f.monto]);
-      });
-    manuales.forEach((m) => {
-      ws.addRow([m.descripcion, '—', '—', '—', '—', '—', m.monto]);
-    });
+    ws.columns = [{ width: 30 }, { width: 30 }, { width: 22 }, { width: 20 }];
+
+    ws.addRow([nombreConcesionario]).font = { bold: true, size: 13 };
+    if (direccionConcesionario) ws.addRow([`Domicilio: ${direccionConcesionario}`]).font = { bold: true };
     ws.addRow([]);
-    ws.addRow(['', '', '', '', '', 'Total declarado', totalDeclarado]);
-    ws.addRow(['', '', '', '', '', 'Canon', `${porcentajeComision}%`]);
-    const filaTotal = ws.addRow(['', '', '', '', '', 'Total a liquidar', totalALiquidar]);
-    filaTotal.font = { bold: true };
-    const headerRow = ws.getRow(1);
-    headerRow.eachCell((cell) => {
-      cell.font = { name: 'Calibri', size: 10 };
-      cell.alignment = { horizontal: 'center', vertical: 'middle' };
-      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFA4C2F4' } };
-    });
+    ws.addRow(['Período:', `${NOMBRES_MES[Number(mes) - 1]} ${ano}`]);
+    if (nota.trim()) ws.addRow(['Nota:', nota.trim()]);
+    ws.addRow([]);
+
     const formatoMoneda = '_-"$"* #,##0.00_-;_-"$"* \\-#,##0.00_-;_-"$"* "-"??_-;_-@';
-    ws.getColumn(7).numFmt = formatoMoneda;
+
+    (['publicidad', 'stand'] as const).forEach((seccionKey) => {
+      const filasSeccion = (filas || []).filter((f) => f.seccion === seccionKey);
+      const grupos = agruparParaExport(filasSeccion);
+      const manualesSeccion = seccionKey === 'publicidad' ? manuales : [];
+      if (grupos.length === 0 && manualesSeccion.length === 0) return;
+
+      ws.addRow([`${SECCION_NOMBRE[seccionKey].toUpperCase()}:`]).font = { bold: true };
+      const headerRow = ws.addRow(['Anunciante', 'Elementos', 'Vigencia', 'Facturación']);
+      headerRow.eachCell((cell) => {
+        cell.font = { bold: true };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFA4C2F4' } };
+      });
+      grupos.forEach((g) => {
+        const fila = ws.addRow([g.anunciante, g.elementos, g.vigencia, g.textoMonto === formatMoney(g.monto) ? g.monto : g.textoMonto]);
+        if (typeof fila.getCell(4).value === 'number') fila.getCell(4).numFmt = formatoMoneda;
+      });
+      manualesSeccion.forEach((m) => {
+        const fila = ws.addRow([m.descripcion, '—', '—', m.monto]);
+        fila.getCell(4).numFmt = formatoMoneda;
+      });
+      const declarado = secciones[seccionKey].declarado;
+      const canon = secciones[seccionKey].canon;
+      const filaTotal = ws.addRow(['', '', 'TOTAL', declarado]);
+      filaTotal.font = { bold: true };
+      filaTotal.getCell(4).numFmt = formatoMoneda;
+      const filaCanon = ws.addRow(['', '', `CANON ${porcentajeComision}%`, canon]);
+      filaCanon.font = { bold: true };
+      filaCanon.getCell(4).numFmt = formatoMoneda;
+      ws.addRow([]);
+    });
+
+    const filaFinal = ws.addRow(['TOTAL FINAL', '', '', totalFinal]);
+    filaFinal.font = { bold: true };
+    filaFinal.getCell(4).numFmt = formatoMoneda;
+    const filaIva = ws.addRow([`IVA (${ivaPorcentaje}%):`, '', '', ivaMonto]);
+    filaIva.getCell(4).numFmt = formatoMoneda;
+    percepcionesCalculadas.forEach((p) => {
+      const filaP = ws.addRow([`${p.nombre} (${p.porcentaje}%):`, '', '', p.monto]);
+      filaP.getCell(4).numFmt = formatoMoneda;
+    });
+    const filaPagar = ws.addRow(['TOTAL A PAGAR', '', '', totalAPagar]);
+    filaPagar.font = { bold: true };
+    filaPagar.getCell(4).numFmt = formatoMoneda;
+
     const buffer = await wb.xlsx.writeBuffer();
     const blob = new Blob([buffer], { type: 'application/octet-stream' });
     const url = URL.createObjectURL(blob);
@@ -299,33 +409,60 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
   };
 
   const handleExportarPDF = () => {
-    const doc = new jsPDF({ orientation: 'landscape' });
-    doc.setFontSize(14);
-    doc.text(`Liquidación — ${nombreConcesionario} — ${NOMBRES_MES[Number(mes) - 1]} ${ano}`, 14, 15);
-    const filasActivas = (filas || []).filter((f) => !f.excluida);
+    const doc = new jsPDF();
+    doc.setFontSize(13);
+    doc.text(nombreConcesionario, 14, 15);
+    doc.setFontSize(10);
+    let y = 22;
+    if (direccionConcesionario) {
+      doc.text(`Domicilio: ${direccionConcesionario}`, 14, y);
+      y += 6;
+    }
+    doc.text(`Período: ${NOMBRES_MES[Number(mes) - 1]} ${ano}`, 14, y);
+    y += 6;
+    if (nota.trim()) {
+      doc.text(`Nota: ${nota.trim()}`, 14, y);
+      y += 6;
+    }
+    y += 2;
+
+    (['publicidad', 'stand'] as const).forEach((seccionKey) => {
+      const filasSeccion = (filas || []).filter((f) => f.seccion === seccionKey);
+      const grupos = agruparParaExport(filasSeccion);
+      const manualesSeccion = seccionKey === 'publicidad' ? manuales : [];
+      if (grupos.length === 0 && manualesSeccion.length === 0) return;
+
+      doc.setFontSize(11);
+      doc.text(`${SECCION_NOMBRE[seccionKey]}:`, 14, y);
+      y += 4;
+      autoTable(doc, {
+        startY: y,
+        head: [['Anunciante', 'Elementos', 'Vigencia', 'Facturación']],
+        body: [
+          ...grupos.map((g) => [g.anunciante, g.elementos, g.vigencia, g.textoMonto]),
+          ...manualesSeccion.map((m) => [m.descripcion, '—', '—', formatMoney(m.monto)]),
+        ],
+        foot: [
+          ['', '', 'TOTAL', formatMoney(secciones[seccionKey].declarado)],
+          ['', '', `CANON ${porcentajeComision}%`, formatMoney(secciones[seccionKey].canon)],
+        ],
+        styles: { fontSize: 8 },
+        headStyles: { fillColor: [232, 24, 56] },
+        footStyles: { fillColor: [240, 240, 240], textColor: [0, 0, 0], fontStyle: 'bold' },
+      });
+      y = (doc as any).lastAutoTable.finalY + 10;
+    });
+
     autoTable(doc, {
-      startY: 22,
-      head: [['Anunciante / concepto', 'Vigencia', 'Producto', 'Locación', 'Posición', 'Cantidad', 'Monto liquidado']],
+      startY: y,
       body: [
-        ...filasActivas.map((f) => [
-          f.anunciante,
-          vigenciaTexto(f),
-          f.tipo_producto,
-          f.locacion_nombre,
-          f.punto_instalacion || '—',
-          String(f.cantidad),
-          formatMoney(f.monto),
-        ]),
-        ...manuales.map((m) => [m.descripcion, '—', '—', '—', '—', '—', formatMoney(m.monto)]),
+        ['TOTAL FINAL', formatMoney(totalFinal)],
+        [`IVA (${ivaPorcentaje}%)`, formatMoney(ivaMonto)],
+        ...percepcionesCalculadas.map((p) => [`${p.nombre} (${p.porcentaje}%)`, formatMoney(p.monto)]),
+        ['TOTAL A PAGAR', formatMoney(totalAPagar)],
       ],
-      foot: [
-        ['', '', '', '', '', 'Total declarado', formatMoney(totalDeclarado)],
-        ['', '', '', '', '', 'Canon', `${porcentajeComision}%`],
-        ['', '', '', '', '', 'Total a liquidar', formatMoney(totalALiquidar)],
-      ],
-      styles: { fontSize: 8 },
-      headStyles: { fillColor: [232, 24, 56] },
-      footStyles: { fillColor: [240, 240, 240], textColor: [0, 0, 0], fontStyle: 'bold' },
+      styles: { fontSize: 9, fontStyle: 'bold' },
+      theme: 'plain',
     });
     doc.save(nombreArchivoExport('pdf'));
   };
@@ -359,247 +496,314 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
         <CondicionesConcesionarioTab token={token} />
       ) : (
         <>
-      <p className="totales-preview" style={{ marginTop: 0 }}>
-        Cantidad, locación y posición se toman de la orden real. El monto NO se calcula de lo que le cobramos al
-        anunciante — no tiene relación fija — se carga a mano por línea y por mes, y queda guardado para siempre en
-        ese período.
-      </p>
-
-      {error && <div className="error-message">{error}</div>}
-
-      <div className="filtros-fila" style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginBottom: '1.2rem' }}>
-        <label>
-          Concesionario
-          <select value={concesionarioId} onChange={(e) => setConcesionarioId(e.target.value)}>
-            <option value="">Elegir...</option>
-            {concesionarios.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.razon_social}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Mes
-          <select value={mes} onChange={(e) => setMes(e.target.value)}>
-            {NOMBRES_MES.map((nombre, i) => (
-              <option key={i + 1} value={i + 1}>
-                {nombre}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Año
-          <select value={ano} onChange={(e) => setAno(e.target.value)}>
-            {anosDisponibles.map((a) => (
-              <option key={a} value={a}>
-                {a}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-
-      {!concesionarioId && <p className="empty-state">Elegí un concesionario para ver sus campañas del período.</p>}
-      {concesionarioId && filas === null && !error && <p className="empty-state">Cargando...</p>}
-      {concesionarioId && filas && filas.length === 0 && manuales.length === 0 && !error && (
-        <p className="empty-state">
-          {nombreConcesionario} no tiene campañas activas en {NOMBRES_MES[Number(mes) - 1]} {ano}.
-        </p>
-      )}
-
-      {filas && (filas.length > 0 || manuales.length > 0) && (
-        <>
-          <div style={{ display: 'flex', gap: '0.6rem', marginBottom: '0.8rem', alignItems: 'center', flexWrap: 'wrap' }}>
-            <button type="button" className="btn-secondary" onClick={handleExportarExcel}>
-              Exportar Excel
-            </button>
-            <button type="button" className="btn-secondary" onClick={handleExportarPDF}>
-              Exportar PDF
-            </button>
-            {filas.some((f) => f.excluida && !f.inicio_tardio) && (
-              <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontWeight: 'normal' }}>
-                <input type="checkbox" checked={mostrarExcluidas} onChange={(e) => setMostrarExcluidas(e.target.checked)} />
-                Mostrar líneas sacadas ({filas.filter((f) => f.excluida && !f.inicio_tardio).length})
-              </label>
-            )}
-          </div>
           <p className="totales-preview" style={{ marginTop: 0 }}>
-            El N° de orden es solo referencia interna (varias órdenes seguidas suelen ser la misma campaña con
-            cortes de fecha) — no sale en lo exportado, ahí se muestra la vigencia en fechas.
+            Cantidad, locación y posición se toman de la orden real. El monto NO se calcula de lo que le cobramos al
+            anunciante — no tiene relación fija — se carga a mano por línea y por mes, y queda guardado para siempre
+            en ese período.
           </p>
-          <table className="data-table" style={{ marginBottom: '1rem' }}>
-            <thead>
-              <tr>
-                <th>Anunciante / concepto</th>
-                <th>N° orden</th>
-                <th>Vigencia</th>
-                <th>Producto</th>
-                <th>Locación</th>
-                <th>Posición</th>
-                <th>Cantidad</th>
-                <th>Monto liquidado</th>
-                {puedeCargar && <th></th>}
-              </tr>
-            </thead>
-            <tbody>
-              {filasVisibles.map((f) => (
-                <Fragment key={f.detalle_id}>
-                  {f.inicio_tardio && (
-                    <tr key={`${f.detalle_id}-aviso`} style={{ background: '#fff8e1' }}>
-                      <td colSpan={puedeCargar ? 9 : 8} style={{ fontSize: '0.85rem', color: '#8a6d00' }}>
-                        ⚠ Esta campaña arrancó el {formatFecha(f.periodo_desde)}, después del corte del día 15 — por
-                        defecto se liquida el mes que viene, no este.
-                        {puedeCargar && (
-                          <label style={{ marginLeft: '1rem', fontWeight: 'normal' }}>
-                            <input
-                              type="checkbox"
-                              checked={!f.excluida}
-                              onChange={(e) => handleToggleIncluirEsteMes(f, e.target.checked)}
-                            />{' '}
-                            Sumar igual a la liquidación de {NOMBRES_MES[Number(mes) - 1]}
-                          </label>
-                        )}
-                      </td>
-                    </tr>
-                  )}
-                  <tr key={f.detalle_id} style={f.excluida ? { opacity: 0.5 } : undefined}>
-                    <td>{f.anunciante}</td>
-                    <td>{f.numero_orden_agencia || f.numero_orden}</td>
-                    <td>{vigenciaTexto(f)}</td>
-                    <td>{f.tipo_producto}</td>
-                    <td>{f.locacion_nombre}</td>
-                    <td>{f.punto_instalacion || '—'}</td>
-                    <td>{f.cantidad}</td>
-                    <td>
-                      {puedeCargar ? (
-                        <InputMiles
-                          value={montosLocal[f.detalle_id] ?? ''}
-                          onChange={(v) => setMontosLocal((actual) => ({ ...actual, [f.detalle_id]: v }))}
-                          onBlur={() => handleGuardarMonto(f.detalle_id)}
-                          style={{ width: '9rem', textAlign: 'right' }}
-                        />
-                      ) : (
-                        formatMoney(f.monto)
-                      )}
-                    </td>
-                    {puedeCargar && (
-                      <td style={{ fontSize: '0.85rem', whiteSpace: 'nowrap' }}>
-                        {f.inicio_tardio ? (
-                          <span style={{ color: 'var(--color-exito, #2e7d32)' }}>
-                            {guardandoId === f.detalle_id ? 'Guardando...' : guardadoId === f.detalle_id ? 'Guardado ✓' : ''}
-                          </span>
-                        ) : f.excluida ? (
-                          <button type="button" className="btn-link" onClick={() => handleRestaurar(f)}>
-                            Restaurar
-                          </button>
-                        ) : (
-                          <>
-                            <span style={{ color: 'var(--color-exito, #2e7d32)', marginRight: '0.5rem' }}>
-                              {guardandoId === f.detalle_id ? 'Guardando...' : guardadoId === f.detalle_id ? 'Guardado ✓' : ''}
-                            </span>
-                            <button type="button" className="btn-link btn-link-danger" onClick={() => handleExcluir(f)}>
-                              Quitar
-                            </button>
-                          </>
-                        )}
-                      </td>
-                    )}
-                  </tr>
-                </Fragment>
-              ))}
-              {manuales.map((m) => (
-                <tr key={m.id} style={{ fontStyle: 'italic' }}>
-                  {editandoManualId === m.id ? (
-                    <>
-                      <td colSpan={6}>
-                        <input
-                          type="text"
-                          value={editManualForm.descripcion}
-                          onChange={(e) => setEditManualForm((f) => ({ ...f, descripcion: e.target.value }))}
-                          placeholder="Descripción"
-                          style={{ width: '100%' }}
-                        />
-                      </td>
-                      <td>
-                        <InputMiles
-                          value={editManualForm.monto}
-                          onChange={(v) => setEditManualForm((f) => ({ ...f, monto: v }))}
-                          style={{ width: '9rem', textAlign: 'right' }}
-                        />
-                      </td>
-                      {puedeCargar && (
-                        <td style={{ whiteSpace: 'nowrap' }}>
-                          <button type="button" className="btn-link" onClick={() => handleGuardarEditarManual(m.id)} style={{ marginRight: '0.5rem' }}>
-                            Guardar
-                          </button>
-                          <button type="button" className="btn-link" onClick={() => setEditandoManualId(null)}>
-                            Cancelar
-                          </button>
-                        </td>
-                      )}
-                    </>
-                  ) : (
-                    <>
-                      <td colSpan={6}>{m.descripcion} (línea manual)</td>
-                      <td>{formatMoney(m.monto)}</td>
-                      {puedeCargar && (
-                        <td style={{ whiteSpace: 'nowrap' }}>
-                          <button type="button" className="btn-link" onClick={() => handleAbrirEditarManual(m)} style={{ marginRight: '0.5rem' }}>
-                            Editar
-                          </button>
-                          <button type="button" className="btn-link btn-link-danger" onClick={() => handleEliminarManual(m)}>
-                            Quitar
-                          </button>
-                        </td>
-                      )}
-                    </>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
 
-          {puedeCargar && (
-            <form onSubmit={handleAgregarManual} className="linea-factura" style={{ gridTemplateColumns: '2fr 1fr auto', marginBottom: '1rem' }}>
-              <input
-                type="text"
-                placeholder="Descripción (ajuste, compensación, lo no cobrado, etc.)"
-                value={manualForm.descripcion}
-                onChange={(e) => setManualForm((f) => ({ ...f, descripcion: e.target.value }))}
-              />
-              <InputMiles
-                placeholder="Monto ($)"
-                value={manualForm.monto}
-                onChange={(v) => setManualForm((f) => ({ ...f, monto: v }))}
-              />
-              <button type="submit" className="btn-secondary" disabled={agregandoManual}>
-                + Agregar línea manual
-              </button>
-            </form>
+          {error && <div className="error-message">{error}</div>}
+
+          <div className="filtros-fila" style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginBottom: '1.2rem' }}>
+            <label>
+              Concesionario
+              <select value={concesionarioId} onChange={(e) => setConcesionarioId(e.target.value)}>
+                <option value="">Elegir...</option>
+                {concesionarios.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.razon_social}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Mes
+              <select value={mes} onChange={(e) => setMes(e.target.value)}>
+                {NOMBRES_MES.map((nombre, i) => (
+                  <option key={i + 1} value={i + 1}>
+                    {nombre}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Año
+              <select value={ano} onChange={(e) => setAno(e.target.value)}>
+                {anosDisponibles.map((a) => (
+                  <option key={a} value={a}>
+                    {a}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          {!concesionarioId && <p className="empty-state">Elegí un concesionario para ver sus campañas del período.</p>}
+          {concesionarioId && filas === null && !error && <p className="empty-state">Cargando...</p>}
+          {concesionarioId && filas && filas.length === 0 && manuales.length === 0 && !error && (
+            <p className="empty-state">
+              {nombreConcesionario} no tiene campañas activas en {NOMBRES_MES[Number(mes) - 1]} {ano}.
+            </p>
           )}
 
-          <p className="totales-preview">
-            Total declarado: <strong>{formatMoney(totalDeclarado)}</strong> · Canon de {nombreConcesionario}:{' '}
-            <strong>{porcentajeComision}%</strong>
-          </p>
-          <p className="totales-preview" style={{ fontWeight: 600 }}>
-            Total a liquidar a {nombreConcesionario} — {NOMBRES_MES[Number(mes) - 1]} {ano}: {formatMoney(totalALiquidar)}
-          </p>
-        </>
-      )}
+          {filas && (filas.length > 0 || manuales.length > 0) && (
+            <>
+              <div style={{ display: 'flex', gap: '0.6rem', marginBottom: '0.8rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                <button type="button" className="btn-secondary" onClick={handleExportarExcel}>
+                  Exportar Excel
+                </button>
+                <button type="button" className="btn-secondary" onClick={handleExportarPDF}>
+                  Exportar PDF
+                </button>
+                {filas.some((f) => f.excluida && !f.inicio_tardio) && (
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontWeight: 'normal' }}>
+                    <input type="checkbox" checked={mostrarExcluidas} onChange={(e) => setMostrarExcluidas(e.target.checked)} />
+                    Mostrar líneas sacadas ({filas.filter((f) => f.excluida && !f.inicio_tardio).length})
+                  </label>
+                )}
+              </div>
+              <label style={{ display: 'block', marginBottom: '0.8rem' }}>
+                Nota para el export (opcional)
+                <input
+                  type="text"
+                  value={nota}
+                  onChange={(e) => setNota(e.target.value)}
+                  placeholder="Se imprime al pie del documento exportado"
+                  style={{ width: '100%' }}
+                />
+              </label>
+              <p className="totales-preview" style={{ marginTop: 0 }}>
+                El N° de orden es solo referencia interna (varias órdenes seguidas suelen ser la misma campaña con
+                cortes de fecha) — no sale en lo exportado, ahí se agrupa por anunciante como en la liquidación real.
+              </p>
+              <table className="data-table" style={{ marginBottom: '1rem' }}>
+                <thead>
+                  <tr>
+                    <th>Anunciante / concepto</th>
+                    <th>N° orden</th>
+                    <th>Sección</th>
+                    <th>Vigencia</th>
+                    <th>Producto</th>
+                    <th>Locación</th>
+                    <th>Posición</th>
+                    <th>Cantidad</th>
+                    <th>Monto liquidado</th>
+                    {puedeCargar && <th></th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filasVisibles.map((f) => (
+                    <Fragment key={f.detalle_id}>
+                      {f.inicio_tardio && (
+                        <tr key={`${f.detalle_id}-aviso`} style={{ background: '#fff8e1' }}>
+                          <td colSpan={puedeCargar ? 10 : 9} style={{ fontSize: '0.85rem', color: '#8a6d00' }}>
+                            ⚠ Esta campaña arrancó el {formatFecha(f.periodo_desde)}, después del corte del día 15 — por
+                            defecto se liquida el mes que viene, no este.
+                            {puedeCargar && (
+                              <label style={{ marginLeft: '1rem', fontWeight: 'normal' }}>
+                                <input
+                                  type="checkbox"
+                                  checked={!f.excluida}
+                                  onChange={(e) => handleToggleIncluirEsteMes(f, e.target.checked)}
+                                />{' '}
+                                Sumar igual a la liquidación de {NOMBRES_MES[Number(mes) - 1]}
+                              </label>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                      <tr key={f.detalle_id} style={f.excluida ? { opacity: 0.5 } : undefined}>
+                        <td>{f.anunciante}</td>
+                        <td>{f.numero_orden_agencia || f.numero_orden}</td>
+                        <td>{SECCION_NOMBRE[f.seccion]}</td>
+                        <td>{vigenciaTexto(f)}</td>
+                        <td>{f.tipo_producto}</td>
+                        <td>{f.locacion_nombre}</td>
+                        <td>{f.punto_instalacion || '—'}</td>
+                        <td>{f.cantidad}</td>
+                        <td>
+                          {puedeCargar ? (
+                            <>
+                              <select
+                                value={f.estado_especial || ''}
+                                onChange={(e) => handleEstadoEspecial(f, (e.target.value || null) as EstadoEspecial)}
+                                style={{ display: 'block', marginBottom: '0.2rem', fontSize: '0.8rem' }}
+                              >
+                                <option value="">$</option>
+                                <option value="sin_cargo">Sin cargo</option>
+                                <option value="canje">Canje</option>
+                              </select>
+                              {!f.estado_especial && (
+                                <InputMiles
+                                  value={montosLocal[f.detalle_id] ?? ''}
+                                  onChange={(v) => setMontosLocal((actual) => ({ ...actual, [f.detalle_id]: v }))}
+                                  onBlur={() => handleGuardarMonto(f.detalle_id)}
+                                  style={{ width: '9rem', textAlign: 'right' }}
+                                />
+                              )}
+                            </>
+                          ) : (
+                            textoMonto(f)
+                          )}
+                        </td>
+                        {puedeCargar && (
+                          <td style={{ fontSize: '0.85rem', whiteSpace: 'nowrap' }}>
+                            {f.inicio_tardio ? (
+                              <span style={{ color: 'var(--color-exito, #2e7d32)' }}>
+                                {guardandoId === f.detalle_id ? 'Guardando...' : guardadoId === f.detalle_id ? 'Guardado ✓' : ''}
+                              </span>
+                            ) : f.excluida ? (
+                              <button type="button" className="btn-link" onClick={() => handleRestaurar(f)}>
+                                Restaurar
+                              </button>
+                            ) : (
+                              <>
+                                <span style={{ color: 'var(--color-exito, #2e7d32)', marginRight: '0.5rem' }}>
+                                  {guardandoId === f.detalle_id ? 'Guardando...' : guardadoId === f.detalle_id ? 'Guardado ✓' : ''}
+                                </span>
+                                <button type="button" className="btn-link btn-link-danger" onClick={() => handleExcluir(f)}>
+                                  Quitar
+                                </button>
+                              </>
+                            )}
+                          </td>
+                        )}
+                      </tr>
+                    </Fragment>
+                  ))}
+                  {manuales.map((m) => (
+                    <tr key={m.id} style={{ fontStyle: 'italic' }}>
+                      {editandoManualId === m.id ? (
+                        <>
+                          <td colSpan={8}>
+                            <input
+                              type="text"
+                              value={editManualForm.descripcion}
+                              onChange={(e) => setEditManualForm((f) => ({ ...f, descripcion: e.target.value }))}
+                              placeholder="Descripción"
+                              style={{ width: '100%' }}
+                            />
+                          </td>
+                          <td>
+                            <InputMiles
+                              value={editManualForm.monto}
+                              onChange={(v) => setEditManualForm((f) => ({ ...f, monto: v }))}
+                              style={{ width: '9rem', textAlign: 'right' }}
+                            />
+                          </td>
+                          {puedeCargar && (
+                            <td style={{ whiteSpace: 'nowrap' }}>
+                              <button type="button" className="btn-link" onClick={() => handleGuardarEditarManual(m.id)} style={{ marginRight: '0.5rem' }}>
+                                Guardar
+                              </button>
+                              <button type="button" className="btn-link" onClick={() => setEditandoManualId(null)}>
+                                Cancelar
+                              </button>
+                            </td>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          <td colSpan={8}>{m.descripcion} (línea manual, Publicidad)</td>
+                          <td>{formatMoney(m.monto)}</td>
+                          {puedeCargar && (
+                            <td style={{ whiteSpace: 'nowrap' }}>
+                              <button type="button" className="btn-link" onClick={() => handleAbrirEditarManual(m)} style={{ marginRight: '0.5rem' }}>
+                                Editar
+                              </button>
+                              <button type="button" className="btn-link btn-link-danger" onClick={() => handleEliminarManual(m)}>
+                                Quitar
+                              </button>
+                            </td>
+                          )}
+                        </>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              {puedeCargar && (
+                <form onSubmit={handleAgregarManual} className="linea-factura" style={{ gridTemplateColumns: '2fr 1fr auto', marginBottom: '1rem' }}>
+                  <input
+                    type="text"
+                    placeholder="Descripción (ajuste, compensación, lo no cobrado, etc.)"
+                    value={manualForm.descripcion}
+                    onChange={(e) => setManualForm((f) => ({ ...f, descripcion: e.target.value }))}
+                  />
+                  <InputMiles
+                    placeholder="Monto ($)"
+                    value={manualForm.monto}
+                    onChange={(v) => setManualForm((f) => ({ ...f, monto: v }))}
+                  />
+                  <button type="submit" className="btn-secondary" disabled={agregandoManual}>
+                    + Agregar línea manual
+                  </button>
+                </form>
+              )}
+
+              <table className="data-table" style={{ maxWidth: '32rem', marginLeft: 'auto' }}>
+                <tbody>
+                  <tr>
+                    <td>Publicidad — Declarado</td>
+                    <td style={{ textAlign: 'right' }}>{formatMoney(secciones.publicidad.declarado)}</td>
+                  </tr>
+                  <tr>
+                    <td>Publicidad — Canon {porcentajeComision}%</td>
+                    <td style={{ textAlign: 'right' }}>{formatMoney(secciones.publicidad.canon)}</td>
+                  </tr>
+                  <tr>
+                    <td>Stand — Declarado</td>
+                    <td style={{ textAlign: 'right' }}>{formatMoney(secciones.stand.declarado)}</td>
+                  </tr>
+                  <tr>
+                    <td>Stand — Canon {porcentajeComision}%</td>
+                    <td style={{ textAlign: 'right' }}>{formatMoney(secciones.stand.canon)}</td>
+                  </tr>
+                  <tr style={{ fontWeight: 600 }}>
+                    <td>Total Final</td>
+                    <td style={{ textAlign: 'right' }}>{formatMoney(totalFinal)}</td>
+                  </tr>
+                  <tr>
+                    <td>IVA ({ivaPorcentaje}%)</td>
+                    <td style={{ textAlign: 'right' }}>{formatMoney(ivaMonto)}</td>
+                  </tr>
+                  {percepcionesCalculadas.map((p) => (
+                    <tr key={p.nombre}>
+                      <td>
+                        {p.nombre} ({p.porcentaje}%)
+                      </td>
+                      <td style={{ textAlign: 'right' }}>{formatMoney(p.monto)}</td>
+                    </tr>
+                  ))}
+                  <tr style={{ fontWeight: 700, fontSize: '1.05rem' }}>
+                    <td>Total a Pagar</td>
+                    <td style={{ textAlign: 'right' }}>{formatMoney(totalAPagar)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </>
+          )}
         </>
       )}
     </>
   );
 }
 
+interface Percepcion {
+  id: string;
+  concesionario_id: string;
+  nombre: string;
+  porcentaje: number;
+}
+
 interface CondicionConcesionario {
   concesionario_id: string;
   razon_social: string;
   porcentaje_comision: number;
+  iva_porcentaje: number;
   notas: string | null;
+  percepciones: Percepcion[];
 }
 
 // Solapa chica dentro de Liquidaciones (no una pantalla aparte) para que el
@@ -614,9 +818,11 @@ interface CondicionConcesionario {
 function CondicionesConcesionarioTab({ token }: { token: string }) {
   const [condiciones, setCondiciones] = useState<CondicionConcesionario[] | null>(null);
   const [error, setError] = useState('');
-  const [valoresLocal, setValoresLocal] = useState<Record<string, string>>({});
+  const [valoresLocal, setValoresLocal] = useState<Record<string, { canon: string; iva: string }>>({});
   const [guardandoId, setGuardandoId] = useState<string | null>(null);
   const [guardadoId, setGuardadoId] = useState<string | null>(null);
+  const [expandidoId, setExpandidoId] = useState<string | null>(null);
+  const [percepcionForm, setPercepcionForm] = useState({ nombre: '', porcentaje: '' });
 
   const cargar = () => {
     setError('');
@@ -626,9 +832,9 @@ function CondicionesConcesionarioTab({ token }: { token: string }) {
       .then((res) => {
         const data: CondicionConcesionario[] = res.data || [];
         setCondiciones(data);
-        const iniciales: Record<string, string> = {};
+        const iniciales: Record<string, { canon: string; iva: string }> = {};
         data.forEach((c) => {
-          iniciales[c.concesionario_id] = String(c.porcentaje_comision);
+          iniciales[c.concesionario_id] = { canon: String(c.porcentaje_comision), iva: String(c.iva_porcentaje) };
         });
         setValoresLocal(iniciales);
       })
@@ -644,32 +850,68 @@ function CondicionesConcesionarioTab({ token }: { token: string }) {
   }, []);
 
   const handleGuardar = async (concesionarioId: string) => {
-    const valor = Number(valoresLocal[concesionarioId]);
-    if (isNaN(valor) || valor < 0) {
-      setError('El % de Canon tiene que ser un número mayor o igual a 0.');
+    const valores = valoresLocal[concesionarioId];
+    const canon = Number(valores?.canon);
+    const iva = Number(valores?.iva);
+    if (isNaN(canon) || canon < 0 || isNaN(iva) || iva < 0) {
+      setError('El % de Canon y el % de IVA tienen que ser números mayores o iguales a 0.');
       return;
     }
     setGuardandoId(concesionarioId);
     setError('');
     try {
-      await axios.put(`/api/liquidaciones/condiciones/${concesionarioId}`, { porcentaje_comision: valor }, authHeaders(token));
-      setCondiciones((actual) =>
-        (actual || []).map((c) => (c.concesionario_id === concesionarioId ? { ...c, porcentaje_comision: valor } : c))
+      await axios.put(
+        `/api/liquidaciones/condiciones/${concesionarioId}`,
+        { porcentaje_comision: canon, iva_porcentaje: iva },
+        authHeaders(token)
       );
       setGuardadoId(concesionarioId);
       setTimeout(() => setGuardadoId((actual) => (actual === concesionarioId ? null : actual)), 1500);
+      cargar();
     } catch (err: any) {
-      setError(mensajeError(err, 'No se pudo guardar el %.'));
+      setError(mensajeError(err, 'No se pudo guardar.'));
     } finally {
       setGuardandoId(null);
+    }
+  };
+
+  const handleAgregarPercepcion = async (e: React.FormEvent, concesionarioId: string) => {
+    e.preventDefault();
+    if (!percepcionForm.nombre.trim()) {
+      setError('El nombre de la percepción es obligatorio.');
+      return;
+    }
+    setError('');
+    try {
+      await axios.post(
+        `/api/liquidaciones/condiciones/${concesionarioId}/percepciones`,
+        { nombre: percepcionForm.nombre, porcentaje: Number(percepcionForm.porcentaje) || 0 },
+        authHeaders(token)
+      );
+      setPercepcionForm({ nombre: '', porcentaje: '' });
+      cargar();
+    } catch (err: any) {
+      setError(mensajeError(err, 'No se pudo agregar la percepción.'));
+    }
+  };
+
+  const handleEliminarPercepcion = async (p: Percepcion) => {
+    if (!window.confirm(`¿Quitar la percepción "${p.nombre}"?`)) return;
+    setError('');
+    try {
+      await axios.delete(`/api/liquidaciones/condiciones/percepciones/${p.id}`, authHeaders(token));
+      cargar();
+    } catch (err: any) {
+      setError(mensajeError(err, 'No se pudo quitar la percepción.'));
     }
   };
 
   return (
     <>
       <p className="totales-preview" style={{ marginTop: 0 }}>
-        El % de Canon de cada concesionario se aplica sobre el total declarado del período (suma de lo cargado a
-        mano en "Liquidar") para dar el total real a liquidar. Sin cargar = 100% (no se descuenta nada).
+        El % de Canon se aplica sobre el total declarado de cada sección (Publicidad/Stand) para dar el Total Final.
+        Sobre ese Total Final se calculan el IVA y las percepciones (ej. IIBB) de cada concesionario, hasta llegar al
+        Total a Pagar. Sin cargar = Canon 100%, IVA 21%, sin percepciones.
       </p>
       {error && <div className="error-message">{error}</div>}
       {condiciones === null && !error && <p className="empty-state">Cargando...</p>}
@@ -682,35 +924,113 @@ function CondicionesConcesionarioTab({ token }: { token: string }) {
             <tr>
               <th>Concesionario</th>
               <th>% de Canon</th>
+              <th>% de IVA</th>
+              <th>Percepciones</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
             {condiciones.map((c) => (
-              <tr key={c.concesionario_id}>
-                <td>{c.razon_social}</td>
-                <td>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={valoresLocal[c.concesionario_id] ?? ''}
-                    onChange={(e) =>
-                      setValoresLocal((actual) => ({ ...actual, [c.concesionario_id]: e.target.value }))
-                    }
-                    style={{ width: '6rem' }}
-                  />{' '}
-                  %
-                </td>
-                <td style={{ fontSize: '0.85rem' }}>
-                  <button type="button" className="btn-link" onClick={() => handleGuardar(c.concesionario_id)}>
-                    Guardar
-                  </button>{' '}
-                  <span style={{ color: 'var(--color-exito, #2e7d32)' }}>
-                    {guardandoId === c.concesionario_id ? 'Guardando...' : guardadoId === c.concesionario_id ? 'Guardado ✓' : ''}
-                  </span>
-                </td>
-              </tr>
+              <Fragment key={c.concesionario_id}>
+                <tr>
+                  <td>{c.razon_social}</td>
+                  <td>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={valoresLocal[c.concesionario_id]?.canon ?? ''}
+                      onChange={(e) =>
+                        setValoresLocal((actual) => ({
+                          ...actual,
+                          [c.concesionario_id]: { ...actual[c.concesionario_id], canon: e.target.value },
+                        }))
+                      }
+                      style={{ width: '5rem' }}
+                    />{' '}
+                    %
+                  </td>
+                  <td>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={valoresLocal[c.concesionario_id]?.iva ?? ''}
+                      onChange={(e) =>
+                        setValoresLocal((actual) => ({
+                          ...actual,
+                          [c.concesionario_id]: { ...actual[c.concesionario_id], iva: e.target.value },
+                        }))
+                      }
+                      style={{ width: '5rem' }}
+                    />{' '}
+                    %
+                  </td>
+                  <td style={{ fontSize: '0.85rem' }}>
+                    {c.percepciones.length === 0 ? (
+                      '—'
+                    ) : (
+                      c.percepciones.map((p) => `${p.nombre} ${p.porcentaje}%`).join(', ')
+                    )}
+                  </td>
+                  <td style={{ fontSize: '0.85rem', whiteSpace: 'nowrap' }}>
+                    <button type="button" className="btn-link" onClick={() => handleGuardar(c.concesionario_id)} style={{ marginRight: '0.5rem' }}>
+                      Guardar
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-link"
+                      onClick={() => setExpandidoId((actual) => (actual === c.concesionario_id ? null : c.concesionario_id))}
+                    >
+                      {expandidoId === c.concesionario_id ? 'Cerrar' : 'Percepciones'}
+                    </button>{' '}
+                    <span style={{ color: 'var(--color-exito, #2e7d32)' }}>
+                      {guardandoId === c.concesionario_id ? 'Guardando...' : guardadoId === c.concesionario_id ? 'Guardado ✓' : ''}
+                    </span>
+                  </td>
+                </tr>
+                {expandidoId === c.concesionario_id && (
+                  <tr>
+                    <td colSpan={5} style={{ background: '#fafafa' }}>
+                      {c.percepciones.length > 0 && (
+                        <ul style={{ margin: '0.4rem 0' }}>
+                          {c.percepciones.map((p) => (
+                            <li key={p.id}>
+                              {p.nombre}: {p.porcentaje}%{' '}
+                              <button type="button" className="btn-link btn-link-danger" onClick={() => handleEliminarPercepcion(p)}>
+                                Quitar
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      <form
+                        onSubmit={(e) => handleAgregarPercepcion(e, c.concesionario_id)}
+                        className="linea-factura"
+                        style={{ gridTemplateColumns: '2fr 1fr auto', maxWidth: '30rem' }}
+                      >
+                        <input
+                          type="text"
+                          placeholder="Nombre (ej. Perc IIBB CABA)"
+                          value={percepcionForm.nombre}
+                          onChange={(e) => setPercepcionForm((f) => ({ ...f, nombre: e.target.value }))}
+                        />
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          placeholder="%"
+                          value={percepcionForm.porcentaje}
+                          onChange={(e) => setPercepcionForm((f) => ({ ...f, porcentaje: e.target.value }))}
+                        />
+                        <button type="submit" className="btn-secondary">
+                          + Agregar
+                        </button>
+                      </form>
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
             ))}
           </tbody>
         </table>

@@ -1088,15 +1088,48 @@ app.get('/api/liquidaciones', autenticacion, requierePermiso('liquidaciones_ver'
     }
     const filas = await LiquidacionesService.listarPeriodo(String(concesionario_id), Number(mes), Number(ano));
     const manuales = await LiquidacionesService.listarManuales(String(concesionario_id), Number(mes), Number(ano));
-    const porcentajeComision = await LiquidacionesService.obtenerPorcentajeComision(String(concesionario_id));
-    // "Total declarado" es la suma de lo cargado a mano (lo que Topview dice
-    // que facturó esa locación) — el concesionario cobra su % sobre eso, no
-    // el total declarado en sí. Ver [[project_modulo_liquidaciones_locatarios]].
-    const totalDeclarado =
-      filas.filter((f) => !f.excluida).reduce((s, f) => s + (Number(f.monto) || 0), 0) +
+    const condicion = await LiquidacionesService.obtenerCondicion(String(concesionario_id));
+
+    // Una liquidación real separa Publicidad de Stand, cada una con su
+    // propio declarado y su propio Canon (visto en una liquidación real:
+    // "TOTAL CANON PUBLICIDAD" y "TOTAL CANON STAND" por separado, sumados
+    // en un "TOTAL FINAL"). Las líneas manuales no tienen sección propia —
+    // van a Publicidad por default.
+    const declaradoPublicidad =
+      filas.filter((f) => !f.excluida && f.seccion === 'publicidad').reduce((s, f) => s + (Number(f.monto) || 0), 0) +
       manuales.reduce((s, m) => s + (Number(m.monto) || 0), 0);
-    const total = totalDeclarado * (porcentajeComision / 100);
-    res.json({ filas, manuales, porcentaje_comision: porcentajeComision, total_declarado: totalDeclarado, total });
+    const declaradoStand = filas
+      .filter((f) => !f.excluida && f.seccion === 'stand')
+      .reduce((s, f) => s + (Number(f.monto) || 0), 0);
+    const canonPublicidad = declaradoPublicidad * (condicion.porcentajeComision / 100);
+    const canonStand = declaradoStand * (condicion.porcentajeComision / 100);
+    const secciones = {
+      publicidad: { declarado: declaradoPublicidad, canon: canonPublicidad },
+      stand: { declarado: declaradoStand, canon: canonStand },
+    };
+
+    const totalDeclarado = declaradoPublicidad + declaradoStand;
+    const totalFinal = canonPublicidad + canonStand;
+    const ivaMonto = totalFinal * (condicion.ivaPorcentaje / 100);
+    const percepcionesCalculadas = condicion.percepciones.map((p) => ({
+      nombre: p.nombre,
+      porcentaje: p.porcentaje,
+      monto: totalFinal * (p.porcentaje / 100),
+    }));
+    const totalAPagar = totalFinal + ivaMonto + percepcionesCalculadas.reduce((s, p) => s + p.monto, 0);
+
+    res.json({
+      filas,
+      manuales,
+      porcentaje_comision: condicion.porcentajeComision,
+      total_declarado: totalDeclarado,
+      total: totalFinal,
+      secciones,
+      iva_porcentaje: condicion.ivaPorcentaje,
+      iva_monto: ivaMonto,
+      percepciones: percepcionesCalculadas,
+      total_a_pagar: totalAPagar,
+    });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -1113,11 +1146,61 @@ app.get('/api/liquidaciones/condiciones', autenticacion, requierePermiso('liquid
 
 app.put('/api/liquidaciones/condiciones/:concesionarioId', autenticacion, requierePermiso('liquidaciones_cargar'), async (req: RequestConUsuario, res: Response) => {
   try {
-    const { porcentaje_comision, notas } = req.body;
+    const { porcentaje_comision, iva_porcentaje, notas } = req.body;
     if (porcentaje_comision === undefined) {
       return res.status(400).json({ error: 'Falta porcentaje_comision.' });
     }
-    await LiquidacionesService.guardarCondicion(req.params.concesionarioId, Number(porcentaje_comision), notas);
+    await LiquidacionesService.guardarCondicion(
+      req.params.concesionarioId,
+      Number(porcentaje_comision),
+      iva_porcentaje === undefined ? 21 : Number(iva_porcentaje),
+      notas
+    );
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/liquidaciones/condiciones/:concesionarioId/percepciones', autenticacion, requierePermiso('liquidaciones_cargar'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const { nombre, porcentaje } = req.body;
+    const percepcion = await LiquidacionesService.agregarPercepcion(req.params.concesionarioId, nombre, Number(porcentaje) || 0);
+    res.json(percepcion);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.put('/api/liquidaciones/condiciones/percepciones/:id', autenticacion, requierePermiso('liquidaciones_cargar'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const { nombre, porcentaje } = req.body;
+    const percepcion = await LiquidacionesService.actualizarPercepcion(req.params.id, nombre, Number(porcentaje) || 0);
+    res.json(percepcion);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.delete('/api/liquidaciones/condiciones/percepciones/:id', autenticacion, requierePermiso('liquidaciones_cargar'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    await LiquidacionesService.eliminarPercepcion(req.params.id);
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.put('/api/liquidaciones/:ordenDetalleId/estado-especial', autenticacion, requierePermiso('liquidaciones_cargar'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const { mes, ano, estado_especial } = req.body;
+    if (!mes || !ano) {
+      return res.status(400).json({ error: 'Faltan mes o año.' });
+    }
+    if (estado_especial !== null && estado_especial !== 'sin_cargo' && estado_especial !== 'canje') {
+      return res.status(400).json({ error: 'estado_especial tiene que ser sin_cargo, canje o null.' });
+    }
+    await LiquidacionesService.marcarEstadoEspecial(req.params.ordenDetalleId, Number(mes), Number(ano), estado_especial);
     res.json({ ok: true });
   } catch (err: any) {
     res.status(400).json({ error: err.message });

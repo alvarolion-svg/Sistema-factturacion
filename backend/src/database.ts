@@ -925,6 +925,33 @@ db.serialize(() => {
       FOREIGN KEY (concesionario_id) REFERENCES proveedores(id)
     )
   `);
+  // IVA propio del concesionario (estándar 21%, pero editable por si alguno
+  // factura distinto) — se aplica sobre el Total Final (suma de canon de
+  // todas las secciones), no sobre cada línea.
+  db.run(`ALTER TABLE condiciones_concesionario ADD COLUMN iva_porcentaje REAL NOT NULL DEFAULT 21`, () => {});
+
+  // Percepciones (IIBB u otras) del concesionario — puede tener varias a la
+  // vez (ej. IIBB Pcia. Buenos Aires 5% + IIBB CABA 1,5% simultáneas, visto
+  // en una liquidación real), cada una con su nombre y %, todas sobre el
+  // Total Final. Tabla aparte porque la cantidad varía por concesionario.
+  db.run(`
+    CREATE TABLE IF NOT EXISTS condiciones_percepciones (
+      id TEXT PRIMARY KEY,
+      concesionario_id TEXT NOT NULL,
+      nombre TEXT NOT NULL,
+      porcentaje REAL NOT NULL DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (concesionario_id) REFERENCES proveedores(id)
+    )
+  `);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_condiciones_percepciones_concesionario ON condiciones_percepciones(concesionario_id)`);
+
+  // Estado especial de una línea de liquidación cuando no hay monto en
+  // pesos: 'sin_cargo' (S/c, no se cobra) o 'canje' (trueque, sin efectivo).
+  // Cuenta como $0 en los totales pero se informa distinto en el export
+  // (visto en una liquidación real: "S/c" y "Canje" en vez de un número).
+  db.run(`ALTER TABLE liquidaciones_detalle ADD COLUMN estado_especial TEXT`, () => {});
 
   // Contactos por Email
   db.run(`
