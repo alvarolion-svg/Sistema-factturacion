@@ -69,8 +69,13 @@ una feature secundaria.
   fija. Guarda una fila por línea de detalle de orden + mes/año (tabla `liquidaciones_detalle`),
   no por orden entera, porque una misma orden puede tener líneas en varias locaciones (hasta 11
   distintas se vieron en los datos reales) y por lo tanto deberle a varios concesionarios a la
-  vez. Cubre el mecanismo base; **todavía no cubre** los casos de terceros colgados de la
-  liquidación de un concesionario (Oxant, Esteban Vivo — ver pendiente 2 abajo).
+  vez. Tiene exportar a Excel/PDF (con la vigencia en fechas de cada campaña en vez del N° de
+  orden, para que no se confunda con varias campañas cuando en realidad es una sola con cortes de
+  fecha), monto con formato de miles al tipear, y ABM básico: se puede sacar una línea de la
+  liquidación sin tocar la orden (ej. el cliente terminó no pagando) y restaurarla después, y
+  agregar una línea manual suelta para compensar ajustes que no vienen de ninguna orden. Cubre el
+  mecanismo base; **todavía no cubre** los casos de terceros colgados de la liquidación de un
+  concesionario (Oxant, Esteban Vivo — ver pendiente 2 abajo).
 - **Producción se despliega fuera de esta Mac**: sin hacer todavía — ver
   [`PENDIENTE-PRODUCCION.md`](./PENDIENTE-PRODUCCION.md) para el relevamiento completo (qué falta
   antes de exponerlo a internet).
@@ -96,10 +101,10 @@ más importantes:
 1. **Concesionarios sin asignar**: solo 3 de 20 locaciones ya (ver arriba) — Bahía Grande
    Nordelta, Chateau Portal Nordelta y Parque Austral. "World Padel Center Pilar" ya se resolvió
    creando el proveedor WFPP SRL con su CUIT real.
-2. **Módulo Liquidaciones a locatarios**: **mecanismo base construido** (Topview →
-   Liquidaciones, ver arriba) — falta el reporte PDF para mandarle al locatario y, sobre todo,
-   los dos casos de terceros que se cuelgan de la liquidación de un concesionario (además del
-   concesionario mismo), que **todavía no están construidos**. Confirmado: que una locación tenga
+2. **Módulo Liquidaciones a locatarios**: **mecanismo base + ABM construido** (Topview →
+   Liquidaciones, ver arriba, con exportar Excel/PDF) — falta, sobre todo, los dos casos de
+   terceros que se cuelgan de la liquidación de un concesionario (además del concesionario
+   mismo), que **todavía no están construidos**. Confirmado: que una locación tenga
    **más de un tercero cobrando de su liquidación** es parte real del negocio de Topview, no una
    excepción rara. Dos casos confirmados hasta ahora, mismo patrón:
    - **OXANT GROUP S.R.L.** cobra un **%** de lo que Topview le liquida a CECNOR SA, World Padel
