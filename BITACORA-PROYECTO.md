@@ -76,10 +76,11 @@ una feature secundaria.
   agregar una línea manual suelta para compensar ajustes que no vienen de ninguna orden. Tiene
   corte del día 15: una campaña que arranca (`periodo_desde`) después del 15 del mes no cuenta por
   defecto para ese mes — se avisa igual en pantalla con un tilde para sumarla si se quiere en vez
-  de esperar al mes que viene. Y tiene solapa **"Condiciones por concesionario"** para cargar el %
-  de comisión propio de cada uno — el monto cargado a mano por línea es lo "declarado", el %
-  determina el "Total a liquidar" real (ej. $220 declarado × 40% = $88 a liquidar), visible en
-  pantalla y en los exports. Cubre el mecanismo base; **todavía no cubre** los casos de terceros
+  de esperar al mes que viene. Y tiene solapa **"Canon por concesionario"** para cargar el % de
+  Canon propio de cada uno (se llama así, no "comisión", para no confundirlo con el módulo de
+  Comisionistas) — el monto cargado a mano por línea es lo "declarado", el % determina el "Total a
+  liquidar" real (ej. $220 declarado × 40% = $88 a liquidar), visible en pantalla y en los
+  exports. Cubre el mecanismo base; **todavía no cubre** los casos de terceros
   colgados de la liquidación de un concesionario (Oxant, Esteban Vivo — ver pendiente 2 abajo).
 - **Producción se despliega fuera de esta Mac**: sin hacer todavía — ver
   [`PENDIENTE-PRODUCCION.md`](./PENDIENTE-PRODUCCION.md) para el relevamiento completo (qué falta
