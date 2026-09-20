@@ -1087,8 +1087,11 @@ app.get('/api/liquidaciones', autenticacion, requierePermiso('liquidaciones_ver'
       return res.status(400).json({ error: 'Faltan concesionario_id, mes o año.' });
     }
     const filas = await LiquidacionesService.listarPeriodo(String(concesionario_id), Number(mes), Number(ano));
-    const total = filas.reduce((s, f) => s + (Number(f.monto) || 0), 0);
-    res.json({ filas, total });
+    const manuales = await LiquidacionesService.listarManuales(String(concesionario_id), Number(mes), Number(ano));
+    const total =
+      filas.filter((f) => !f.excluida).reduce((s, f) => s + (Number(f.monto) || 0), 0) +
+      manuales.reduce((s, m) => s + (Number(m.monto) || 0), 0);
+    res.json({ filas, manuales, total });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -1101,6 +1104,57 @@ app.put('/api/liquidaciones/:ordenDetalleId', autenticacion, requierePermiso('li
       return res.status(400).json({ error: 'Faltan mes, año o monto.' });
     }
     await LiquidacionesService.guardarMonto(req.params.ordenDetalleId, Number(mes), Number(ano), Number(monto));
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.put('/api/liquidaciones/:ordenDetalleId/exclusion', autenticacion, requierePermiso('liquidaciones_cargar'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const { mes, ano, excluida } = req.body;
+    if (!mes || !ano || excluida === undefined) {
+      return res.status(400).json({ error: 'Faltan mes, año o excluida.' });
+    }
+    await LiquidacionesService.marcarExclusion(req.params.ordenDetalleId, Number(mes), Number(ano), !!excluida);
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/liquidaciones/manual', autenticacion, requierePermiso('liquidaciones_cargar'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const { concesionario_id, mes, ano, descripcion, monto } = req.body;
+    if (!concesionario_id || !mes || !ano) {
+      return res.status(400).json({ error: 'Faltan concesionario_id, mes o año.' });
+    }
+    const linea = await LiquidacionesService.agregarLineaManual({
+      concesionario_id,
+      mes: Number(mes),
+      ano: Number(ano),
+      descripcion,
+      monto: Number(monto) || 0,
+    });
+    res.json(linea);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.put('/api/liquidaciones/manual/:id', autenticacion, requierePermiso('liquidaciones_cargar'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const { descripcion, monto } = req.body;
+    const linea = await LiquidacionesService.actualizarLineaManual(req.params.id, { descripcion, monto: Number(monto) || 0 });
+    res.json(linea);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.delete('/api/liquidaciones/manual/:id', autenticacion, requierePermiso('liquidaciones_cargar'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    await LiquidacionesService.eliminarLineaManual(req.params.id);
     res.json({ ok: true });
   } catch (err: any) {
     res.status(400).json({ error: err.message });

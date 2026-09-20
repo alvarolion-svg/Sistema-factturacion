@@ -41,7 +41,9 @@ export class LiquidacionesService {
 
   // Todas las líneas de orden con locación de ese concesionario, activas ese
   // mes/año (según replicaciones_facturacion, el mismo anclaje que usa la
-  // facturación mensual), con el monto ya cargado si existe.
+  // facturación mensual), con el monto ya cargado si existe. Devuelve
+  // también las excluidas (con excluida=true) para poder restaurarlas — el
+  // que llama decide si las muestra.
   static async listarPeriodo(concesionarioId: string, mes: number, ano: number): Promise<any[]> {
     const filas = await this.queryAll(
       `
@@ -59,7 +61,8 @@ export class LiquidacionesService {
         l.id as locacion_id,
         l.nombre as locacion_nombre,
         ld.id as liquidacion_id,
-        COALESCE(ld.monto, 0) as monto
+        COALESCE(ld.monto, 0) as monto,
+        COALESCE(ld.excluida, 0) as excluida
       FROM ordenes_publicidad_detalles d
       JOIN locaciones l ON l.id = d.locacion_id
       JOIN ordenes_publicidad o ON o.id = d.orden_id
@@ -70,12 +73,17 @@ export class LiquidacionesService {
       `,
       [mes, ano, mes, ano, concesionarioId]
     );
-    return filas;
+    return filas.map((f) => ({ ...f, excluida: !!f.excluida }));
   }
 
-  static async totalPeriodo(concesionarioId: string, mes: number, ano: number): Promise<number> {
-    const filas = await this.listarPeriodo(concesionarioId, mes, ano);
-    return filas.reduce((s, f) => s + (Number(f.monto) || 0), 0);
+  // Líneas sueltas cargadas a mano para ese concesionario/período — ajustes,
+  // compensaciones, lo que se facturó pero el cliente terminó no pagando,
+  // etc. No vienen de ninguna orden.
+  static async listarManuales(concesionarioId: string, mes: number, ano: number): Promise<any[]> {
+    return this.queryAll(
+      'SELECT * FROM liquidaciones_manuales WHERE concesionario_id = ? AND mes = ? AND ano = ? ORDER BY created_at',
+      [concesionarioId, mes, ano]
+    );
   }
 
   static async guardarMonto(ordenDetalleId: string, mes: number, ano: number, monto: number): Promise<void> {
@@ -101,5 +109,69 @@ export class LiquidacionesService {
       );
       AuditoriaService.registrarOperacion('liquidaciones_detalle', 'INSERT', id, null, { ordenDetalleId, mes, ano, monto });
     }
+  }
+
+  // Saca (o restaura) una línea auto-generada de la liquidación del período
+  // sin tocar la orden — ej. el cliente terminó no pagando esa campaña.
+  // Conserva el monto que ya estuviera cargado, solo cambia el flag.
+  static async marcarExclusion(ordenDetalleId: string, mes: number, ano: number, excluida: boolean): Promise<void> {
+    const detalle = await this.queryGet('SELECT id FROM ordenes_publicidad_detalles WHERE id = ?', [ordenDetalleId]);
+    if (!detalle || !detalle.id) throw new Error('Esa línea de orden no existe.');
+
+    const existente = await this.queryGet(
+      'SELECT * FROM liquidaciones_detalle WHERE orden_detalle_id = ? AND mes = ? AND ano = ?',
+      [ordenDetalleId, mes, ano]
+    );
+
+    if (existente && existente.id) {
+      await this.runQuery(
+        'UPDATE liquidaciones_detalle SET excluida = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+        [excluida ? 1 : 0, existente.id]
+      );
+      AuditoriaService.registrarOperacion('liquidaciones_detalle', 'UPDATE', existente.id, existente, { excluida });
+    } else {
+      const id = uuid();
+      await this.runQuery(
+        'INSERT INTO liquidaciones_detalle (id, orden_detalle_id, mes, ano, monto, excluida) VALUES (?, ?, ?, ?, 0, ?)',
+        [id, ordenDetalleId, mes, ano, excluida ? 1 : 0]
+      );
+      AuditoriaService.registrarOperacion('liquidaciones_detalle', 'INSERT', id, null, { ordenDetalleId, mes, ano, excluida });
+    }
+  }
+
+  static async agregarLineaManual(datos: {
+    concesionario_id: string;
+    mes: number;
+    ano: number;
+    descripcion: string;
+    monto: number;
+  }): Promise<any> {
+    if (!datos.descripcion || !datos.descripcion.trim()) throw new Error('La descripción es obligatoria.');
+    const id = uuid();
+    await this.runQuery(
+      'INSERT INTO liquidaciones_manuales (id, concesionario_id, mes, ano, descripcion, monto) VALUES (?, ?, ?, ?, ?, ?)',
+      [id, datos.concesionario_id, datos.mes, datos.ano, datos.descripcion.trim(), datos.monto || 0]
+    );
+    AuditoriaService.registrarOperacion('liquidaciones_manuales', 'INSERT', id, null, datos);
+    return this.queryGet('SELECT * FROM liquidaciones_manuales WHERE id = ?', [id]);
+  }
+
+  static async actualizarLineaManual(id: string, datos: { descripcion: string; monto: number }): Promise<any> {
+    const existente = await this.queryGet('SELECT * FROM liquidaciones_manuales WHERE id = ?', [id]);
+    if (!existente || !existente.id) throw new Error('Esa línea manual no existe.');
+    if (!datos.descripcion || !datos.descripcion.trim()) throw new Error('La descripción es obligatoria.');
+    await this.runQuery(
+      'UPDATE liquidaciones_manuales SET descripcion = ?, monto = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [datos.descripcion.trim(), datos.monto || 0, id]
+    );
+    AuditoriaService.registrarOperacion('liquidaciones_manuales', 'UPDATE', id, existente, datos);
+    return this.queryGet('SELECT * FROM liquidaciones_manuales WHERE id = ?', [id]);
+  }
+
+  static async eliminarLineaManual(id: string): Promise<void> {
+    const existente = await this.queryGet('SELECT * FROM liquidaciones_manuales WHERE id = ?', [id]);
+    if (!existente || !existente.id) throw new Error('Esa línea manual no existe.');
+    await this.runQuery('DELETE FROM liquidaciones_manuales WHERE id = ?', [id]);
+    AuditoriaService.registrarOperacion('liquidaciones_manuales', 'DELETE', id, existente, null);
   }
 }

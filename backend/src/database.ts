@@ -882,6 +882,30 @@ db.serialize(() => {
   `);
   db.run(`CREATE INDEX IF NOT EXISTS idx_liquidaciones_detalle_periodo ON liquidaciones_detalle(mes, ano)`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_liquidaciones_detalle_orden_detalle ON liquidaciones_detalle(orden_detalle_id)`);
+  // Permite sacar una línea auto-generada de la liquidación de un período sin
+  // borrar la orden ni el número que ya se cobró — ej. el cliente terminó no
+  // pagando esa campaña puntual. Queda la fila (auditable), simplemente deja
+  // de contar/mostrarse por default.
+  db.run(`ALTER TABLE liquidaciones_detalle ADD COLUMN excluida BOOLEAN DEFAULT 0`, () => {});
+
+  // Líneas sueltas de liquidación que no vienen de ninguna orden — ajustes,
+  // compensaciones de un desfasaje de un mes anterior, etc. Tabla separada
+  // (no una fila más de liquidaciones_detalle) porque no cuelgan de ningún
+  // orden_detalle_id real.
+  db.run(`
+    CREATE TABLE IF NOT EXISTS liquidaciones_manuales (
+      id TEXT PRIMARY KEY,
+      concesionario_id TEXT NOT NULL,
+      mes INTEGER NOT NULL,
+      ano INTEGER NOT NULL,
+      descripcion TEXT NOT NULL,
+      monto REAL NOT NULL DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (concesionario_id) REFERENCES proveedores(id)
+    )
+  `);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_liquidaciones_manuales_periodo ON liquidaciones_manuales(concesionario_id, mes, ano)`);
 
   // Contactos por Email
   db.run(`
