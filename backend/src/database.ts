@@ -907,6 +907,23 @@ db.serialize(() => {
   `);
   db.run(`CREATE INDEX IF NOT EXISTS idx_liquidaciones_manuales_periodo ON liquidaciones_manuales(concesionario_id, mes, ano)`);
 
+  // % de comisión propio de cada concesionario: el total declarado (suma de
+  // lo cargado a mano en liquidaciones_detalle + liquidaciones_manuales) se
+  // multiplica por este % para dar el total real a liquidar — ej. declaramos
+  // $220 entre 3 campañas, el concesionario cobra 40%, se le liquidan $88.
+  // Sin fila acá = 100% (no se descuenta nada) hasta que se cargue.
+  db.run(`
+    CREATE TABLE IF NOT EXISTS condiciones_concesionario (
+      id TEXT PRIMARY KEY,
+      concesionario_id TEXT NOT NULL UNIQUE,
+      porcentaje_comision REAL NOT NULL DEFAULT 100,
+      notas TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (concesionario_id) REFERENCES proveedores(id)
+    )
+  `);
+
   // Contactos por Email
   db.run(`
     CREATE TABLE IF NOT EXISTS contactos_email (

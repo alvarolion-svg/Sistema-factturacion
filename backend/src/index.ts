@@ -1088,12 +1088,39 @@ app.get('/api/liquidaciones', autenticacion, requierePermiso('liquidaciones_ver'
     }
     const filas = await LiquidacionesService.listarPeriodo(String(concesionario_id), Number(mes), Number(ano));
     const manuales = await LiquidacionesService.listarManuales(String(concesionario_id), Number(mes), Number(ano));
-    const total =
+    const porcentajeComision = await LiquidacionesService.obtenerPorcentajeComision(String(concesionario_id));
+    // "Total declarado" es la suma de lo cargado a mano (lo que Topview dice
+    // que facturó esa locación) — el concesionario cobra su % sobre eso, no
+    // el total declarado en sí. Ver [[project_modulo_liquidaciones_locatarios]].
+    const totalDeclarado =
       filas.filter((f) => !f.excluida).reduce((s, f) => s + (Number(f.monto) || 0), 0) +
       manuales.reduce((s, m) => s + (Number(m.monto) || 0), 0);
-    res.json({ filas, manuales, total });
+    const total = totalDeclarado * (porcentajeComision / 100);
+    res.json({ filas, manuales, porcentaje_comision: porcentajeComision, total_declarado: totalDeclarado, total });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/liquidaciones/condiciones', autenticacion, requierePermiso('liquidaciones_ver'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const condiciones = await LiquidacionesService.listarCondiciones();
+    res.json(condiciones);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/liquidaciones/condiciones/:concesionarioId', autenticacion, requierePermiso('liquidaciones_cargar'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const { porcentaje_comision, notas } = req.body;
+    if (porcentaje_comision === undefined) {
+      return res.status(400).json({ error: 'Falta porcentaje_comision.' });
+    }
+    await LiquidacionesService.guardarCondicion(req.params.concesionarioId, Number(porcentaje_comision), notas);
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
   }
 });
 

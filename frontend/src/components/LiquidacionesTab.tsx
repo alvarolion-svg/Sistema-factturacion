@@ -66,6 +66,9 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
   const [editandoManualId, setEditandoManualId] = useState<string | null>(null);
   const [editManualForm, setEditManualForm] = useState(MANUAL_VACIO);
 
+  const [porcentajeComision, setPorcentajeComision] = useState(100);
+  const [vista, setVista] = useState<'liquidar' | 'condiciones'>('liquidar');
+
   useEffect(() => {
     axios
       .get('/api/liquidaciones/concesionarios', authHeaders(token))
@@ -87,6 +90,7 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
         const data: LineaLiquidacion[] = res.data.filas || [];
         setFilas(data);
         setManuales(res.data.manuales || []);
+        setPorcentajeComision(res.data.porcentaje_comision ?? 100);
         const iniciales: Record<string, string> = {};
         data.forEach((f) => {
           iniciales[f.detalle_id] = f.monto ? String(f.monto) : '';
@@ -232,9 +236,13 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
   // exclusión para esconder) — el toggle "mostrar excluidas" es solo para
   // las sacadas a mano por otro motivo (ej. cliente no pagó).
   const filasVisibles = (filas || []).filter((f) => f.inicio_tardio || mostrarExcluidas || !f.excluida);
-  const total =
+  // "Declarado" es la suma de lo cargado a mano por campaña (lo que Topview
+  // dice que facturó esa locación). El concesionario cobra su % sobre eso,
+  // no el declarado en sí — ver la solapa "Condiciones".
+  const totalDeclarado =
     (filas || []).filter((f) => !f.excluida).reduce((s, f) => s + (Number(f.monto) || 0), 0) +
     manuales.reduce((s, m) => s + (Number(m.monto) || 0), 0);
+  const totalALiquidar = totalDeclarado * (porcentajeComision / 100);
   const nombreConcesionario = concesionarios.find((c) => c.id === concesionarioId)?.razon_social || '';
 
   // Varias "órdenes" seguidas en Colppy suelen ser la misma campaña real con
@@ -268,7 +276,10 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
       ws.addRow([m.descripcion, '—', '—', '—', '—', '—', m.monto]);
     });
     ws.addRow([]);
-    ws.addRow(['', '', '', '', '', 'Total', total]);
+    ws.addRow(['', '', '', '', '', 'Total declarado', totalDeclarado]);
+    ws.addRow(['', '', '', '', '', 'Comisión', `${porcentajeComision}%`]);
+    const filaTotal = ws.addRow(['', '', '', '', '', 'Total a liquidar', totalALiquidar]);
+    filaTotal.font = { bold: true };
     const headerRow = ws.getRow(1);
     headerRow.eachCell((cell) => {
       cell.font = { name: 'Calibri', size: 10 };
@@ -307,7 +318,11 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
         ]),
         ...manuales.map((m) => [m.descripcion, '—', '—', '—', '—', '—', formatMoney(m.monto)]),
       ],
-      foot: [['', '', '', '', '', 'Total', formatMoney(total)]],
+      foot: [
+        ['', '', '', '', '', 'Total declarado', formatMoney(totalDeclarado)],
+        ['', '', '', '', '', 'Comisión', `${porcentajeComision}%`],
+        ['', '', '', '', '', 'Total a liquidar', formatMoney(totalALiquidar)],
+      ],
       styles: { fontSize: 8 },
       headStyles: { fillColor: [232, 24, 56] },
       footStyles: { fillColor: [240, 240, 240], textColor: [0, 0, 0], fontStyle: 'bold' },
@@ -322,6 +337,28 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
           Liquidaciones a concesionarios
         </h3>
       </div>
+
+      <div className="reportes-tabs" style={{ marginBottom: '1rem' }}>
+        <button
+          className={`reportes-tab ${vista === 'liquidar' ? 'active' : ''}`}
+          onClick={() => setVista('liquidar')}
+        >
+          Liquidar
+        </button>
+        {puedeCargar && (
+          <button
+            className={`reportes-tab ${vista === 'condiciones' ? 'active' : ''}`}
+            onClick={() => setVista('condiciones')}
+          >
+            Condiciones por concesionario
+          </button>
+        )}
+      </div>
+
+      {vista === 'condiciones' && puedeCargar ? (
+        <CondicionesConcesionarioTab token={token} />
+      ) : (
+        <>
       <p className="totales-preview" style={{ marginTop: 0 }}>
         Cantidad, locación y posición se toman de la orden real. El monto NO se calcula de lo que le cobramos al
         anunciante — no tiene relación fija — se carga a mano por línea y por mes, y queda guardado para siempre en
@@ -543,10 +580,136 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
             </form>
           )}
 
+          <p className="totales-preview">
+            Total declarado: <strong>{formatMoney(totalDeclarado)}</strong> · Comisión de {nombreConcesionario}:{' '}
+            <strong>{porcentajeComision}%</strong>
+          </p>
           <p className="totales-preview" style={{ fontWeight: 600 }}>
-            Total a liquidar a {nombreConcesionario} — {NOMBRES_MES[Number(mes) - 1]} {ano}: {formatMoney(total)}
+            Total a liquidar a {nombreConcesionario} — {NOMBRES_MES[Number(mes) - 1]} {ano}: {formatMoney(totalALiquidar)}
           </p>
         </>
+      )}
+        </>
+      )}
+    </>
+  );
+}
+
+interface CondicionConcesionario {
+  concesionario_id: string;
+  razon_social: string;
+  porcentaje_comision: number;
+  notas: string | null;
+}
+
+// Solapa chica dentro de Liquidaciones (no una pantalla aparte) para que el
+// % de cada concesionario quede bajo el mismo permiso Administrador que el
+// resto de los datos financieros de acá — pedido explícito del usuario:
+// "cada concesionario tiene su propio % de comisión sobre lo que
+// declaramos... debería haber una solapa para cargar las condiciones."
+function CondicionesConcesionarioTab({ token }: { token: string }) {
+  const [condiciones, setCondiciones] = useState<CondicionConcesionario[] | null>(null);
+  const [error, setError] = useState('');
+  const [valoresLocal, setValoresLocal] = useState<Record<string, string>>({});
+  const [guardandoId, setGuardandoId] = useState<string | null>(null);
+  const [guardadoId, setGuardadoId] = useState<string | null>(null);
+
+  const cargar = () => {
+    setError('');
+    setCondiciones(null);
+    axios
+      .get('/api/liquidaciones/condiciones', authHeaders(token))
+      .then((res) => {
+        const data: CondicionConcesionario[] = res.data || [];
+        setCondiciones(data);
+        const iniciales: Record<string, string> = {};
+        data.forEach((c) => {
+          iniciales[c.concesionario_id] = String(c.porcentaje_comision);
+        });
+        setValoresLocal(iniciales);
+      })
+      .catch((err) => {
+        setError(mensajeError(err, 'No se pudieron cargar las condiciones.'));
+        setCondiciones([]);
+      });
+  };
+
+  useEffect(() => {
+    cargar();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleGuardar = async (concesionarioId: string) => {
+    const valor = Number(valoresLocal[concesionarioId]);
+    if (isNaN(valor) || valor < 0) {
+      setError('El % de comisión tiene que ser un número mayor o igual a 0.');
+      return;
+    }
+    setGuardandoId(concesionarioId);
+    setError('');
+    try {
+      await axios.put(`/api/liquidaciones/condiciones/${concesionarioId}`, { porcentaje_comision: valor }, authHeaders(token));
+      setCondiciones((actual) =>
+        (actual || []).map((c) => (c.concesionario_id === concesionarioId ? { ...c, porcentaje_comision: valor } : c))
+      );
+      setGuardadoId(concesionarioId);
+      setTimeout(() => setGuardadoId((actual) => (actual === concesionarioId ? null : actual)), 1500);
+    } catch (err: any) {
+      setError(mensajeError(err, 'No se pudo guardar el %.'));
+    } finally {
+      setGuardandoId(null);
+    }
+  };
+
+  return (
+    <>
+      <p className="totales-preview" style={{ marginTop: 0 }}>
+        El % de cada concesionario se aplica sobre el total declarado del período (suma de lo cargado a mano en
+        "Liquidar") para dar el total real a liquidar. Sin cargar = 100% (no se descuenta nada).
+      </p>
+      {error && <div className="error-message">{error}</div>}
+      {condiciones === null && !error && <p className="empty-state">Cargando...</p>}
+      {condiciones && condiciones.length === 0 && !error && (
+        <p className="empty-state">Todavía no hay concesionarios reales cargados en Locaciones.</p>
+      )}
+      {condiciones && condiciones.length > 0 && (
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>Concesionario</th>
+              <th>% de comisión</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {condiciones.map((c) => (
+              <tr key={c.concesionario_id}>
+                <td>{c.razon_social}</td>
+                <td>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={valoresLocal[c.concesionario_id] ?? ''}
+                    onChange={(e) =>
+                      setValoresLocal((actual) => ({ ...actual, [c.concesionario_id]: e.target.value }))
+                    }
+                    style={{ width: '6rem' }}
+                  />{' '}
+                  %
+                </td>
+                <td style={{ fontSize: '0.85rem' }}>
+                  <button type="button" className="btn-link" onClick={() => handleGuardar(c.concesionario_id)}>
+                    Guardar
+                  </button>{' '}
+                  <span style={{ color: 'var(--color-exito, #2e7d32)' }}>
+                    {guardandoId === c.concesionario_id ? 'Guardando...' : guardadoId === c.concesionario_id ? 'Guardado ✓' : ''}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       )}
     </>
   );

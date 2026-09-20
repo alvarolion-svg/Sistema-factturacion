@@ -39,6 +39,48 @@ export class LiquidacionesService {
     `);
   }
 
+  // % de comisión de cada concesionario para la solapa "Condiciones" — todos
+  // los concesionarios reales, con 100 de default para el que todavía no
+  // tiene nada cargado (no se le descuenta nada hasta que se configure).
+  static async listarCondiciones(): Promise<any[]> {
+    return this.queryAll(`
+      SELECT DISTINCT p.id as concesionario_id, p.razon_social,
+        COALESCE(cc.porcentaje_comision, 100) as porcentaje_comision,
+        cc.notas
+      FROM proveedores p
+      JOIN locaciones l ON l.concesionario_id = p.id
+      LEFT JOIN condiciones_concesionario cc ON cc.concesionario_id = p.id
+      WHERE l.habilitado != 0 OR l.habilitado IS NULL
+      ORDER BY p.razon_social
+    `);
+  }
+
+  static async obtenerPorcentajeComision(concesionarioId: string): Promise<number> {
+    const fila = await this.queryGet(
+      'SELECT porcentaje_comision FROM condiciones_concesionario WHERE concesionario_id = ?',
+      [concesionarioId]
+    );
+    return fila && fila.porcentaje_comision !== undefined ? Number(fila.porcentaje_comision) : 100;
+  }
+
+  static async guardarCondicion(concesionarioId: string, porcentajeComision: number, notas?: string): Promise<void> {
+    const existente = await this.queryGet('SELECT * FROM condiciones_concesionario WHERE concesionario_id = ?', [concesionarioId]);
+    if (existente && existente.id) {
+      await this.runQuery(
+        'UPDATE condiciones_concesionario SET porcentaje_comision = ?, notas = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+        [porcentajeComision, notas || null, existente.id]
+      );
+      AuditoriaService.registrarOperacion('condiciones_concesionario', 'UPDATE', existente.id, existente, { porcentajeComision, notas });
+    } else {
+      const id = uuid();
+      await this.runQuery(
+        'INSERT INTO condiciones_concesionario (id, concesionario_id, porcentaje_comision, notas) VALUES (?, ?, ?, ?)',
+        [id, concesionarioId, porcentajeComision, notas || null]
+      );
+      AuditoriaService.registrarOperacion('condiciones_concesionario', 'INSERT', id, null, { concesionarioId, porcentajeComision, notas });
+    }
+  }
+
   // Todas las líneas de orden con locación de ese concesionario, activas ese
   // mes/año (según replicaciones_facturacion, el mismo anclaje que usa la
   // facturación mensual), con el monto ya cargado si existe. Devuelve
