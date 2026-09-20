@@ -36,16 +36,16 @@ una feature secundaria.
 - **Topview**: Órdenes de publicidad, Órdenes de producción, Agencias, Comisionistas,
   Condiciones, Comisiones en efectivo, Vendedores — todo con datos reales cargados (44 órdenes de
   publicidad, 268 clientes, 506 proveedores).
-- **Catálogo de Locaciones** (`locaciones` + `locaciones_capacidad` + `locaciones_puntos`): 20
+- **Catálogo de Locaciones** (`locaciones` + `locaciones_capacidad` + `locaciones_puntos`): 21
   locaciones reales (el usuario las va sumando/editando en vivo, así que este número crece solo),
   cada una con su inventario de soportes y, opcionalmente, puntos de instalación con nombre propio
   ("posiciones" en la interfaz). Las órdenes ya pueden asociar cada línea de producto a una
   locación + posición real (reemplaza de a poco el texto libre de ubicación viejo, que se conserva
   como respaldo).
-  - **Concesionarios asignados: 17 de 20** — el usuario cargó la gran mayoría en vivo directamente
-    desde la app. Solo faltan 3: **Bahía Grande Nordelta** (bloqueada a propósito, ver el
-    pendiente de "concesionario por punto" — necesita varios, no uno solo), **Chateau Portal
-    Nordelta** y **Parque Austral**.
+  - **Concesionarios asignados: 19 de 21** — el usuario cargó la gran mayoría en vivo directamente
+    desde la app. Solo faltan 2: **Bahía Grande Nordelta** (bloqueada a propósito, ver el
+    pendiente de "concesionario por punto" — necesita varios, no uno solo) y **Chateau Portal
+    Nordelta**.
   - Las 3 órdenes de YPF (2026080187, 2026080296, 2026080245) se usaron como caso de prueba real
     para anotar líneas de orden con locación/soporte/posición — están las tres idénticas en
     soportes, sirven de referencia para seguir cargando el resto.
@@ -98,9 +98,10 @@ una feature secundaria.
 Cada uno tiene su propio detalle en la memoria de Claude (o en este repo, donde se indica). Los
 más importantes:
 
-1. **Concesionarios sin asignar**: solo 3 de 20 locaciones ya (ver arriba) — Bahía Grande
-   Nordelta, Chateau Portal Nordelta y Parque Austral. "World Padel Center Pilar" ya se resolvió
-   creando el proveedor WFPP SRL con su CUIT real.
+1. **Concesionarios sin asignar**: solo 2 de 21 locaciones ya (ver arriba) — Bahía Grande
+   Nordelta y Chateau Portal Nordelta. "World Padel Center Pilar" y "Parque Austral" ya se
+   resolvieron (WFPP SRL creado con su CUIT real; Parque Austral tiene a ASOCIACION CIVIL DE
+   ESTUDIOS SUPERIORES ACES).
 2. **Módulo Liquidaciones a locatarios**: **mecanismo base + ABM construido** (Topview →
    Liquidaciones, ver arriba, con exportar Excel/PDF) — falta, sobre todo, los dos casos de
    terceros que se cuelgan de la liquidación de un concesionario (además del concesionario
