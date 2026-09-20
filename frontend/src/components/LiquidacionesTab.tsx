@@ -277,7 +277,7 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
     });
     ws.addRow([]);
     ws.addRow(['', '', '', '', '', 'Total declarado', totalDeclarado]);
-    ws.addRow(['', '', '', '', '', 'Comisión', `${porcentajeComision}%`]);
+    ws.addRow(['', '', '', '', '', 'Canon', `${porcentajeComision}%`]);
     const filaTotal = ws.addRow(['', '', '', '', '', 'Total a liquidar', totalALiquidar]);
     filaTotal.font = { bold: true };
     const headerRow = ws.getRow(1);
@@ -320,7 +320,7 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
       ],
       foot: [
         ['', '', '', '', '', 'Total declarado', formatMoney(totalDeclarado)],
-        ['', '', '', '', '', 'Comisión', `${porcentajeComision}%`],
+        ['', '', '', '', '', 'Canon', `${porcentajeComision}%`],
         ['', '', '', '', '', 'Total a liquidar', formatMoney(totalALiquidar)],
       ],
       styles: { fontSize: 8 },
@@ -350,7 +350,7 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
             className={`reportes-tab ${vista === 'condiciones' ? 'active' : ''}`}
             onClick={() => setVista('condiciones')}
           >
-            Condiciones por concesionario
+            Canon por concesionario
           </button>
         )}
       </div>
@@ -581,7 +581,7 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
           )}
 
           <p className="totales-preview">
-            Total declarado: <strong>{formatMoney(totalDeclarado)}</strong> · Comisión de {nombreConcesionario}:{' '}
+            Total declarado: <strong>{formatMoney(totalDeclarado)}</strong> · Canon de {nombreConcesionario}:{' '}
             <strong>{porcentajeComision}%</strong>
           </p>
           <p className="totales-preview" style={{ fontWeight: 600 }}>
@@ -607,6 +607,10 @@ interface CondicionConcesionario {
 // resto de los datos financieros de acá — pedido explícito del usuario:
 // "cada concesionario tiene su propio % de comisión sobre lo que
 // declaramos... debería haber una solapa para cargar las condiciones."
+// En pantalla se llama "Canon" (no "Comisión") para no confundirlo con la
+// comisión de los comisionistas/intermediarios, que es otro módulo — el
+// nombre interno (porcentaje_comision, condiciones_concesionario) quedó
+// igual, es solo un cambio de rótulo.
 function CondicionesConcesionarioTab({ token }: { token: string }) {
   const [condiciones, setCondiciones] = useState<CondicionConcesionario[] | null>(null);
   const [error, setError] = useState('');
@@ -642,7 +646,7 @@ function CondicionesConcesionarioTab({ token }: { token: string }) {
   const handleGuardar = async (concesionarioId: string) => {
     const valor = Number(valoresLocal[concesionarioId]);
     if (isNaN(valor) || valor < 0) {
-      setError('El % de comisión tiene que ser un número mayor o igual a 0.');
+      setError('El % de Canon tiene que ser un número mayor o igual a 0.');
       return;
     }
     setGuardandoId(concesionarioId);
@@ -664,8 +668,8 @@ function CondicionesConcesionarioTab({ token }: { token: string }) {
   return (
     <>
       <p className="totales-preview" style={{ marginTop: 0 }}>
-        El % de cada concesionario se aplica sobre el total declarado del período (suma de lo cargado a mano en
-        "Liquidar") para dar el total real a liquidar. Sin cargar = 100% (no se descuenta nada).
+        El % de Canon de cada concesionario se aplica sobre el total declarado del período (suma de lo cargado a
+        mano en "Liquidar") para dar el total real a liquidar. Sin cargar = 100% (no se descuenta nada).
       </p>
       {error && <div className="error-message">{error}</div>}
       {condiciones === null && !error && <p className="empty-state">Cargando...</p>}
@@ -677,7 +681,7 @@ function CondicionesConcesionarioTab({ token }: { token: string }) {
           <thead>
             <tr>
               <th>Concesionario</th>
-              <th>% de comisión</th>
+              <th>% de Canon</th>
               <th></th>
             </tr>
           </thead>

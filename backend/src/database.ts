@@ -907,11 +907,13 @@ db.serialize(() => {
   `);
   db.run(`CREATE INDEX IF NOT EXISTS idx_liquidaciones_manuales_periodo ON liquidaciones_manuales(concesionario_id, mes, ano)`);
 
-  // % de comisión propio de cada concesionario: el total declarado (suma de
-  // lo cargado a mano en liquidaciones_detalle + liquidaciones_manuales) se
-  // multiplica por este % para dar el total real a liquidar — ej. declaramos
-  // $220 entre 3 campañas, el concesionario cobra 40%, se le liquidan $88.
-  // Sin fila acá = 100% (no se descuenta nada) hasta que se cargue.
+  // "Canon" propio de cada concesionario (así lo llama la interfaz, para no
+  // confundirlo con la comisión de comisionistas/intermediarios — el nombre
+  // de columna quedó igual, es solo un cambio de rótulo): el total declarado
+  // (suma de lo cargado a mano en liquidaciones_detalle + liquidaciones_manuales)
+  // se multiplica por este % para dar el total real a liquidar — ej.
+  // declaramos $220 entre 3 campañas, el concesionario cobra 40%, se le
+  // liquidan $88. Sin fila acá = 100% (no se descuenta nada) hasta que se cargue.
   db.run(`
     CREATE TABLE IF NOT EXISTS condiciones_concesionario (
       id TEXT PRIMARY KEY,

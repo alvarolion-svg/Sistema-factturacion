@@ -39,9 +39,10 @@ export class LiquidacionesService {
     `);
   }
 
-  // % de comisión de cada concesionario para la solapa "Condiciones" — todos
-  // los concesionarios reales, con 100 de default para el que todavía no
-  // tiene nada cargado (no se le descuenta nada hasta que se configure).
+  // % de Canon de cada concesionario para la solapa "Canon por concesionario"
+  // — todos los concesionarios reales, con 100 de default para el que
+  // todavía no tiene nada cargado (no se le descuenta nada hasta que se
+  // configure).
   static async listarCondiciones(): Promise<any[]> {
     return this.queryAll(`
       SELECT DISTINCT p.id as concesionario_id, p.razon_social,
