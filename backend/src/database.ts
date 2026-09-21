@@ -906,6 +906,11 @@ db.serialize(() => {
     )
   `);
   db.run(`CREATE INDEX IF NOT EXISTS idx_liquidaciones_manuales_periodo ON liquidaciones_manuales(concesionario_id, mes, ano)`);
+  // 'suma' (ajuste por una diferencia pasada, algo que quedó a favor del
+  // concesionario) o 'resta' (gasto compartido — ej. electricidad — que se
+  // descuenta de lo que se le liquida). El monto se carga siempre positivo,
+  // este flag decide el signo con el que entra al Total.
+  db.run(`ALTER TABLE liquidaciones_manuales ADD COLUMN tipo TEXT NOT NULL DEFAULT 'suma'`, () => {});
 
   // "Canon" propio de cada concesionario (así lo llama la interfaz, para no
   // confundirlo con la comisión de comisionistas/intermediarios — el nombre

@@ -47,6 +47,7 @@ interface LineaManual {
   ano: number;
   descripcion: string;
   monto: number;
+  tipo: 'suma' | 'resta';
 }
 
 interface SeccionResumen {
@@ -60,7 +61,7 @@ interface PercepcionCalculada {
   monto: number;
 }
 
-const MANUAL_VACIO = { descripcion: '', monto: '' };
+const MANUAL_VACIO = { descripcion: '', monto: '', tipo: 'suma' as 'suma' | 'resta' };
 const SECCION_NOMBRE: Record<'publicidad' | 'stand', string> = { publicidad: 'Publicidad', stand: 'Stand' };
 
 function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: boolean }) {
@@ -241,7 +242,14 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
     try {
       await axios.post(
         '/api/liquidaciones/manual',
-        { concesionario_id: concesionarioId, mes: Number(mes), ano: Number(ano), descripcion: manualForm.descripcion, monto: Number(manualForm.monto) || 0 },
+        {
+          concesionario_id: concesionarioId,
+          mes: Number(mes),
+          ano: Number(ano),
+          descripcion: manualForm.descripcion,
+          monto: Number(manualForm.monto) || 0,
+          tipo: manualForm.tipo,
+        },
         authHeaders(token)
       );
       setManualForm(MANUAL_VACIO);
@@ -255,7 +263,7 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
 
   const handleAbrirEditarManual = (m: LineaManual) => {
     setEditandoManualId(m.id);
-    setEditManualForm({ descripcion: m.descripcion, monto: String(m.monto) });
+    setEditManualForm({ descripcion: m.descripcion, monto: String(m.monto), tipo: m.tipo });
   };
 
   const handleGuardarEditarManual = async (id: string) => {
@@ -263,7 +271,7 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
     try {
       await axios.put(
         `/api/liquidaciones/manual/${id}`,
-        { descripcion: editManualForm.descripcion, monto: Number(editManualForm.monto) || 0 },
+        { descripcion: editManualForm.descripcion, monto: Number(editManualForm.monto) || 0, tipo: editManualForm.tipo },
         authHeaders(token)
       );
       setEditandoManualId(null);
@@ -719,6 +727,14 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
                               onChange={(v) => setEditManualForm((f) => ({ ...f, monto: v }))}
                               style={{ width: '9rem', textAlign: 'right' }}
                             />
+                            <label style={{ display: 'block', fontWeight: 'normal', fontSize: '0.8rem' }}>
+                              <input
+                                type="checkbox"
+                                checked={editManualForm.tipo === 'resta'}
+                                onChange={(e) => setEditManualForm((f) => ({ ...f, tipo: e.target.checked ? 'resta' : 'suma' }))}
+                              />{' '}
+                              Resta del Canon
+                            </label>
                           </td>
                           {puedeCargar && (
                             <td style={{ whiteSpace: 'nowrap' }}>
@@ -733,8 +749,13 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
                         </>
                       ) : (
                         <>
-                          <td colSpan={8}>{m.descripcion} (línea manual, Publicidad)</td>
-                          <td>{formatMoney(m.monto)}</td>
+                          <td colSpan={8}>
+                            {m.descripcion} (línea manual, Publicidad{m.tipo === 'resta' ? ' — resta del Canon' : ''})
+                          </td>
+                          <td style={m.tipo === 'resta' ? { color: 'var(--color-peligro, #c62828)' } : undefined}>
+                            {m.tipo === 'resta' ? '−' : ''}
+                            {formatMoney(m.monto)}
+                          </td>
                           {puedeCargar && (
                             <td style={{ whiteSpace: 'nowrap' }}>
                               <button type="button" className="btn-link" onClick={() => handleAbrirEditarManual(m)} style={{ marginRight: '0.5rem' }}>
@@ -753,18 +774,26 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
               </table>
 
               {puedeCargar && (
-                <form onSubmit={handleAgregarManual} className="linea-factura" style={{ gridTemplateColumns: '2fr 1fr auto', marginBottom: '1rem' }}>
+                <form onSubmit={handleAgregarManual} className="linea-factura" style={{ gridTemplateColumns: '2fr 1fr 1fr auto', marginBottom: '1rem', alignItems: 'center' }}>
                   <input
                     type="text"
-                    placeholder="Descripción (ajuste, compensación, lo no cobrado, etc.)"
+                    placeholder="Descripción (ajuste, gasto compartido, diferencia de un mes anterior, etc.)"
                     value={manualForm.descripcion}
                     onChange={(e) => setManualForm((f) => ({ ...f, descripcion: e.target.value }))}
                   />
                   <InputMiles
-                    placeholder="Monto ($)"
+                    placeholder="Monto ($, siempre positivo)"
                     value={manualForm.monto}
                     onChange={(v) => setManualForm((f) => ({ ...f, monto: v }))}
                   />
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontWeight: 'normal' }}>
+                    <input
+                      type="checkbox"
+                      checked={manualForm.tipo === 'resta'}
+                      onChange={(e) => setManualForm((f) => ({ ...f, tipo: e.target.checked ? 'resta' : 'suma' }))}
+                    />
+                    Resta del Canon
+                  </label>
                   <button type="submit" className="btn-secondary" disabled={agregandoManual}>
                     + Agregar línea manual
                   </button>

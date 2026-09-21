@@ -294,24 +294,28 @@ export class LiquidacionesService {
     ano: number;
     descripcion: string;
     monto: number;
+    tipo?: 'suma' | 'resta';
   }): Promise<any> {
     if (!datos.descripcion || !datos.descripcion.trim()) throw new Error('La descripción es obligatoria.');
     const id = uuid();
     await this.runQuery(
-      'INSERT INTO liquidaciones_manuales (id, concesionario_id, mes, ano, descripcion, monto) VALUES (?, ?, ?, ?, ?, ?)',
-      [id, datos.concesionario_id, datos.mes, datos.ano, datos.descripcion.trim(), datos.monto || 0]
+      'INSERT INTO liquidaciones_manuales (id, concesionario_id, mes, ano, descripcion, monto, tipo) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [id, datos.concesionario_id, datos.mes, datos.ano, datos.descripcion.trim(), datos.monto || 0, datos.tipo === 'resta' ? 'resta' : 'suma']
     );
     AuditoriaService.registrarOperacion('liquidaciones_manuales', 'INSERT', id, null, datos);
     return this.queryGet('SELECT * FROM liquidaciones_manuales WHERE id = ?', [id]);
   }
 
-  static async actualizarLineaManual(id: string, datos: { descripcion: string; monto: number }): Promise<any> {
+  static async actualizarLineaManual(
+    id: string,
+    datos: { descripcion: string; monto: number; tipo?: 'suma' | 'resta' }
+  ): Promise<any> {
     const existente = await this.queryGet('SELECT * FROM liquidaciones_manuales WHERE id = ?', [id]);
     if (!existente || !existente.id) throw new Error('Esa línea manual no existe.');
     if (!datos.descripcion || !datos.descripcion.trim()) throw new Error('La descripción es obligatoria.');
     await this.runQuery(
-      'UPDATE liquidaciones_manuales SET descripcion = ?, monto = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-      [datos.descripcion.trim(), datos.monto || 0, id]
+      'UPDATE liquidaciones_manuales SET descripcion = ?, monto = ?, tipo = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [datos.descripcion.trim(), datos.monto || 0, datos.tipo === 'resta' ? 'resta' : 'suma', id]
     );
     AuditoriaService.registrarOperacion('liquidaciones_manuales', 'UPDATE', id, existente, datos);
     return this.queryGet('SELECT * FROM liquidaciones_manuales WHERE id = ?', [id]);
