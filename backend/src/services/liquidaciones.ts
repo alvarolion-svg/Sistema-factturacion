@@ -105,26 +105,31 @@ export class LiquidacionesService {
     }
   }
 
-  static async agregarPercepcion(concesionarioId: string, nombre: string, porcentaje: number): Promise<any> {
+  static async agregarPercepcion(
+    concesionarioId: string,
+    nombre: string,
+    porcentaje: number,
+    tipo?: 'suma' | 'resta'
+  ): Promise<any> {
     if (!nombre || !nombre.trim()) throw new Error('El nombre de la percepción es obligatorio.');
     const id = uuid();
     await this.runQuery(
-      'INSERT INTO condiciones_percepciones (id, concesionario_id, nombre, porcentaje) VALUES (?, ?, ?, ?)',
-      [id, concesionarioId, nombre.trim(), porcentaje || 0]
+      'INSERT INTO condiciones_percepciones (id, concesionario_id, nombre, porcentaje, tipo) VALUES (?, ?, ?, ?, ?)',
+      [id, concesionarioId, nombre.trim(), porcentaje || 0, tipo === 'resta' ? 'resta' : 'suma']
     );
-    AuditoriaService.registrarOperacion('condiciones_percepciones', 'INSERT', id, null, { concesionarioId, nombre, porcentaje });
+    AuditoriaService.registrarOperacion('condiciones_percepciones', 'INSERT', id, null, { concesionarioId, nombre, porcentaje, tipo });
     return this.queryGet('SELECT * FROM condiciones_percepciones WHERE id = ?', [id]);
   }
 
-  static async actualizarPercepcion(id: string, nombre: string, porcentaje: number): Promise<any> {
+  static async actualizarPercepcion(id: string, nombre: string, porcentaje: number, tipo?: 'suma' | 'resta'): Promise<any> {
     const existente = await this.queryGet('SELECT * FROM condiciones_percepciones WHERE id = ?', [id]);
     if (!existente || !existente.id) throw new Error('Esa percepción no existe.');
     if (!nombre || !nombre.trim()) throw new Error('El nombre de la percepción es obligatorio.');
     await this.runQuery(
-      'UPDATE condiciones_percepciones SET nombre = ?, porcentaje = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-      [nombre.trim(), porcentaje || 0, id]
+      'UPDATE condiciones_percepciones SET nombre = ?, porcentaje = ?, tipo = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [nombre.trim(), porcentaje || 0, tipo === 'resta' ? 'resta' : 'suma', id]
     );
-    AuditoriaService.registrarOperacion('condiciones_percepciones', 'UPDATE', id, existente, { nombre, porcentaje });
+    AuditoriaService.registrarOperacion('condiciones_percepciones', 'UPDATE', id, existente, { nombre, porcentaje, tipo });
     return this.queryGet('SELECT * FROM condiciones_percepciones WHERE id = ?', [id]);
   }
 

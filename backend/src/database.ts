@@ -951,6 +951,10 @@ db.serialize(() => {
     )
   `);
   db.run(`CREATE INDEX IF NOT EXISTS idx_condiciones_percepciones_concesionario ON condiciones_percepciones(concesionario_id)`);
+  // 'suma' (percepciones tipo IIBB, que Topview le suma al pago) o 'resta'
+  // (tasas municipales — son % igual, pero descuentan del Canon en vez de
+  // sumarse al Total a Pagar). Mismo campo que liquidaciones_manuales.tipo.
+  db.run(`ALTER TABLE condiciones_percepciones ADD COLUMN tipo TEXT NOT NULL DEFAULT 'suma'`, () => {});
 
   // Estado especial de una línea de liquidación cuando no hay monto en
   // pesos: 'sin_cargo' (S/c, no se cobra) o 'canje' (trueque, sin efectivo).

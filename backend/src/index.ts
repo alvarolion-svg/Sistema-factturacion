@@ -1111,10 +1111,14 @@ app.get('/api/liquidaciones', autenticacion, requierePermiso('liquidaciones_ver'
     const totalDeclarado = declaradoPublicidad + declaradoStand;
     const totalFinal = canonPublicidad + canonStand;
     const ivaMonto = totalFinal * (condicion.ivaPorcentaje / 100);
+    // Las percepciones tipo IIBB suman al Total a Pagar; las tasas
+    // municipales son % igual pero restan del Canon (mismo mecanismo de
+    // signo que liquidaciones_manuales.tipo).
     const percepcionesCalculadas = condicion.percepciones.map((p) => ({
       nombre: p.nombre,
       porcentaje: p.porcentaje,
-      monto: totalFinal * (p.porcentaje / 100),
+      tipo: p.tipo === 'resta' ? 'resta' : 'suma',
+      monto: totalFinal * (p.porcentaje / 100) * (p.tipo === 'resta' ? -1 : 1),
     }));
     const totalAPagar = totalFinal + ivaMonto + percepcionesCalculadas.reduce((s, p) => s + p.monto, 0);
 
@@ -1164,8 +1168,13 @@ app.put('/api/liquidaciones/condiciones/:concesionarioId', autenticacion, requie
 
 app.post('/api/liquidaciones/condiciones/:concesionarioId/percepciones', autenticacion, requierePermiso('liquidaciones_cargar'), async (req: RequestConUsuario, res: Response) => {
   try {
-    const { nombre, porcentaje } = req.body;
-    const percepcion = await LiquidacionesService.agregarPercepcion(req.params.concesionarioId, nombre, Number(porcentaje) || 0);
+    const { nombre, porcentaje, tipo } = req.body;
+    const percepcion = await LiquidacionesService.agregarPercepcion(
+      req.params.concesionarioId,
+      nombre,
+      Number(porcentaje) || 0,
+      tipo === 'resta' ? 'resta' : 'suma'
+    );
     res.json(percepcion);
   } catch (err: any) {
     res.status(400).json({ error: err.message });
@@ -1174,8 +1183,13 @@ app.post('/api/liquidaciones/condiciones/:concesionarioId/percepciones', autenti
 
 app.put('/api/liquidaciones/condiciones/percepciones/:id', autenticacion, requierePermiso('liquidaciones_cargar'), async (req: RequestConUsuario, res: Response) => {
   try {
-    const { nombre, porcentaje } = req.body;
-    const percepcion = await LiquidacionesService.actualizarPercepcion(req.params.id, nombre, Number(porcentaje) || 0);
+    const { nombre, porcentaje, tipo } = req.body;
+    const percepcion = await LiquidacionesService.actualizarPercepcion(
+      req.params.id,
+      nombre,
+      Number(porcentaje) || 0,
+      tipo === 'resta' ? 'resta' : 'suma'
+    );
     res.json(percepcion);
   } catch (err: any) {
     res.status(400).json({ error: err.message });

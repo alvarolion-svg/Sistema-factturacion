@@ -58,6 +58,7 @@ interface SeccionResumen {
 interface PercepcionCalculada {
   nombre: string;
   porcentaje: number;
+  tipo: 'suma' | 'resta';
   monto: number;
 }
 
@@ -403,7 +404,7 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
         if (typeof fila.getCell(4).value === 'number') fila.getCell(4).numFmt = formatoMoneda;
       });
       manualesSeccion.forEach((m) => {
-        const fila = ws.addRow([m.descripcion, '—', '—', m.monto]);
+        const fila = ws.addRow([`${m.descripcion}${m.tipo === 'resta' ? ' (resta)' : ''}`, '—', '—', m.tipo === 'resta' ? -m.monto : m.monto]);
         fila.getCell(4).numFmt = formatoMoneda;
       });
       const declarado = secciones[seccionKey].declarado;
@@ -423,7 +424,7 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
     const filaIva = ws.addRow([`IVA (${ivaPorcentaje}%):`, '', '', ivaMonto]);
     filaIva.getCell(4).numFmt = formatoMoneda;
     percepcionesCalculadas.forEach((p) => {
-      const filaP = ws.addRow([`${p.nombre} (${p.porcentaje}%):`, '', '', p.monto]);
+      const filaP = ws.addRow([`${p.nombre} (${p.porcentaje}%)${p.tipo === 'resta' ? ' (resta)' : ''}:`, '', '', p.monto]);
       filaP.getCell(4).numFmt = formatoMoneda;
     });
     const filaPagar = ws.addRow(['TOTAL A PAGAR', '', '', totalAPagar]);
@@ -472,7 +473,12 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
         head: [['Anunciante', 'Elementos', 'Vigencia', 'Facturación']],
         body: [
           ...grupos.map((g) => [g.anunciante, g.elementos, g.vigencia, g.textoMonto]),
-          ...manualesSeccion.map((m) => [m.descripcion, '—', '—', formatMoney(m.monto)]),
+          ...manualesSeccion.map((m) => [
+            `${m.descripcion}${m.tipo === 'resta' ? ' (resta)' : ''}`,
+            '—',
+            '—',
+            `${m.tipo === 'resta' ? '−' : ''}${formatMoney(m.monto)}`,
+          ]),
         ],
         foot: [
           ['', '', 'TOTAL', formatMoney(secciones[seccionKey].declarado)],
@@ -490,7 +496,10 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
       body: [
         ['TOTAL FINAL', formatMoney(totalFinal)],
         [`IVA (${ivaPorcentaje}%)`, formatMoney(ivaMonto)],
-        ...percepcionesCalculadas.map((p) => [`${p.nombre} (${p.porcentaje}%)`, formatMoney(p.monto)]),
+        ...percepcionesCalculadas.map((p) => [
+          `${p.nombre} (${p.porcentaje}%)${p.tipo === 'resta' ? ' (resta)' : ''}`,
+          `${p.tipo === 'resta' ? '−' : ''}${formatMoney(Math.abs(p.monto))}`,
+        ]),
         ['TOTAL A PAGAR', formatMoney(totalAPagar)],
       ],
       styles: { fontSize: 9, fontStyle: 'bold' },
@@ -829,9 +838,12 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
                   {percepcionesCalculadas.map((p) => (
                     <tr key={p.nombre}>
                       <td>
-                        {p.nombre} ({p.porcentaje}%)
+                        {p.nombre} ({p.porcentaje}%){p.tipo === 'resta' ? ' — resta del Canon' : ''}
                       </td>
-                      <td style={{ textAlign: 'right' }}>{formatMoney(p.monto)}</td>
+                      <td style={{ textAlign: 'right', color: p.tipo === 'resta' ? 'var(--color-peligro, #c62828)' : undefined }}>
+                        {p.tipo === 'resta' ? '−' : ''}
+                        {formatMoney(Math.abs(p.monto))}
+                      </td>
                     </tr>
                   ))}
                   <tr style={{ fontWeight: 700, fontSize: '1.05rem' }}>
@@ -853,6 +865,7 @@ interface Percepcion {
   concesionario_id: string;
   nombre: string;
   porcentaje: number;
+  tipo: 'suma' | 'resta';
 }
 
 interface CondicionConcesionario {
@@ -880,7 +893,7 @@ function CondicionesConcesionarioTab({ token }: { token: string }) {
   const [guardandoId, setGuardandoId] = useState<string | null>(null);
   const [guardadoId, setGuardadoId] = useState<string | null>(null);
   const [expandidoId, setExpandidoId] = useState<string | null>(null);
-  const [percepcionForm, setPercepcionForm] = useState({ nombre: '', porcentaje: '' });
+  const [percepcionForm, setPercepcionForm] = useState({ nombre: '', porcentaje: '', tipo: 'suma' as 'suma' | 'resta' });
 
   const cargar = () => {
     setError('');
@@ -943,10 +956,10 @@ function CondicionesConcesionarioTab({ token }: { token: string }) {
     try {
       await axios.post(
         `/api/liquidaciones/condiciones/${concesionarioId}/percepciones`,
-        { nombre: percepcionForm.nombre, porcentaje: Number(percepcionForm.porcentaje) || 0 },
+        { nombre: percepcionForm.nombre, porcentaje: Number(percepcionForm.porcentaje) || 0, tipo: percepcionForm.tipo },
         authHeaders(token)
       );
-      setPercepcionForm({ nombre: '', porcentaje: '' });
+      setPercepcionForm({ nombre: '', porcentaje: '', tipo: 'suma' });
       cargar();
     } catch (err: any) {
       setError(mensajeError(err, 'No se pudo agregar la percepción.'));
@@ -1025,11 +1038,11 @@ function CondicionesConcesionarioTab({ token }: { token: string }) {
                     %
                   </td>
                   <td style={{ fontSize: '0.85rem' }}>
-                    {c.percepciones.length === 0 ? (
-                      '—'
-                    ) : (
-                      c.percepciones.map((p) => `${p.nombre} ${p.porcentaje}%`).join(', ')
-                    )}
+                    {c.percepciones.length === 0
+                      ? '—'
+                      : c.percepciones
+                          .map((p) => `${p.nombre} ${p.porcentaje}%${p.tipo === 'resta' ? ' (resta)' : ''}`)
+                          .join(', ')}
                   </td>
                   <td style={{ fontSize: '0.85rem', whiteSpace: 'nowrap' }}>
                     <button type="button" className="btn-link" onClick={() => handleGuardar(c.concesionario_id)} style={{ marginRight: '0.5rem' }}>
@@ -1053,8 +1066,8 @@ function CondicionesConcesionarioTab({ token }: { token: string }) {
                       {c.percepciones.length > 0 && (
                         <ul style={{ margin: '0.4rem 0' }}>
                           {c.percepciones.map((p) => (
-                            <li key={p.id}>
-                              {p.nombre}: {p.porcentaje}%{' '}
+                            <li key={p.id} style={p.tipo === 'resta' ? { color: 'var(--color-peligro, #c62828)' } : undefined}>
+                              {p.nombre}: {p.porcentaje}%{p.tipo === 'resta' ? ' (resta del Canon — ej. tasas municipales)' : ' (suma — ej. IIBB)'}{' '}
                               <button type="button" className="btn-link btn-link-danger" onClick={() => handleEliminarPercepcion(p)}>
                                 Quitar
                               </button>
@@ -1065,11 +1078,11 @@ function CondicionesConcesionarioTab({ token }: { token: string }) {
                       <form
                         onSubmit={(e) => handleAgregarPercepcion(e, c.concesionario_id)}
                         className="linea-factura"
-                        style={{ gridTemplateColumns: '2fr 1fr auto', maxWidth: '30rem' }}
+                        style={{ gridTemplateColumns: '2fr 1fr 1fr auto', maxWidth: '38rem', alignItems: 'center' }}
                       >
                         <input
                           type="text"
-                          placeholder="Nombre (ej. Perc IIBB CABA)"
+                          placeholder="Nombre (ej. Perc IIBB CABA, Tasa municipal)"
                           value={percepcionForm.nombre}
                           onChange={(e) => setPercepcionForm((f) => ({ ...f, nombre: e.target.value }))}
                         />
@@ -1081,6 +1094,14 @@ function CondicionesConcesionarioTab({ token }: { token: string }) {
                           value={percepcionForm.porcentaje}
                           onChange={(e) => setPercepcionForm((f) => ({ ...f, porcentaje: e.target.value }))}
                         />
+                        <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontWeight: 'normal', fontSize: '0.85rem' }}>
+                          <input
+                            type="checkbox"
+                            checked={percepcionForm.tipo === 'resta'}
+                            onChange={(e) => setPercepcionForm((f) => ({ ...f, tipo: e.target.checked ? 'resta' : 'suma' }))}
+                          />
+                          Resta del Canon
+                        </label>
                         <button type="submit" className="btn-secondary">
                           + Agregar
                         </button>
