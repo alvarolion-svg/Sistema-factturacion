@@ -89,10 +89,11 @@ una feature secundaria.
   para desactivar el agrupado, igual que el documento real, con encabezado (nombre/domicilio del
   concesionario) y nota libre. Tiene **línea manual con signo**: un tilde "Resta del Canon" para
   gastos compartidos (ej. electricidad) o ajustes por una diferencia pasada, el monto se carga
-  siempre positivo. Cubre el mecanismo base; **todavía no cubre** los casos de terceros colgados de
-  la liquidación de un concesionario (Oxant, Esteban Vivo — ver pendiente 2 abajo), ni el
-  **impuesto municipal** recurrente por concesionario (el usuario pidió que viva en "Canon por
-  concesionario", no confirmado si es % o monto fijo — ver memoria de Claude para el detalle).
+  siempre positivo. También las **percepciones** (dentro de "Canon por concesionario") pueden
+  restar en vez de sumar — mismo tilde — para tasas municipales (% igual que IIBB, pero descuentan
+  del Canon en vez de sumar al Total a Pagar). Cubre el mecanismo base; **todavía no cubre** los
+  casos de terceros colgados de la liquidación de un concesionario (Oxant, Esteban Vivo — ver
+  pendiente 2 abajo).
 - **Producción se despliega fuera de esta Mac**: sin hacer todavía — ver
   [`PENDIENTE-PRODUCCION.md`](./PENDIENTE-PRODUCCION.md) para el relevamiento completo (qué falta
   antes de exponerlo a internet).
