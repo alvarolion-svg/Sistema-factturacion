@@ -84,10 +84,15 @@ una feature secundaria.
   compartió: se sumaron secciones **Publicidad/Stand** (cada una con su propio Canon, clasificado
   por tipo de soporte), estados de línea **"Sin cargo"/"Canje"** (cuentan $0), **IVA + percepciones
   IIBB** (puede haber varias a la vez) calculados sobre el Total Final hasta el **Total a Pagar**
-  real, y el export ahora **agrupa por anunciante + vigencia** con los soportes concatenados
-  ("PPL x 10 + CAJA BACK x 2") igual que el documento real, con encabezado (nombre/domicilio del
-  concesionario) y nota libre. Cubre el mecanismo base; **todavía no cubre** los casos de terceros
-  colgados de la liquidación de un concesionario (Oxant, Esteban Vivo — ver pendiente 2 abajo).
+  real, y el export ahora **agrupa por anunciante** (rango de vigencia completo, soportes
+  deduplicados — no repite si varias campañas del mismo cliente tienen lo mismo) con un checkbox
+  para desactivar el agrupado, igual que el documento real, con encabezado (nombre/domicilio del
+  concesionario) y nota libre. Tiene **línea manual con signo**: un tilde "Resta del Canon" para
+  gastos compartidos (ej. electricidad) o ajustes por una diferencia pasada, el monto se carga
+  siempre positivo. Cubre el mecanismo base; **todavía no cubre** los casos de terceros colgados de
+  la liquidación de un concesionario (Oxant, Esteban Vivo — ver pendiente 2 abajo), ni el
+  **impuesto municipal** recurrente por concesionario (el usuario pidió que viva en "Canon por
+  concesionario", no confirmado si es % o monto fijo — ver memoria de Claude para el detalle).
 - **Producción se despliega fuera de esta Mac**: sin hacer todavía — ver
   [`PENDIENTE-PRODUCCION.md`](./PENDIENTE-PRODUCCION.md) para el relevamiento completo (qué falta
   antes de exponerlo a internet).
