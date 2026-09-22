@@ -76,6 +76,7 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
   const [manuales, setManuales] = useState<LineaManual[]>([]);
   const [error, setError] = useState('');
   const [montosLocal, setMontosLocal] = useState<Record<string, string>>({});
+  const [montosGrupoLocal, setMontosGrupoLocal] = useState<Record<string, string>>({});
   const [guardandoId, setGuardandoId] = useState<string | null>(null);
   const [guardadoId, setGuardadoId] = useState<string | null>(null);
   const [mostrarExcluidas, setMostrarExcluidas] = useState(false);
@@ -132,6 +133,7 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
           iniciales[f.detalle_id] = f.monto ? String(f.monto) : '';
         });
         setMontosLocal(iniciales);
+        setMontosGrupoLocal({});
       })
       .catch((err) => {
         setError(mensajeError(err, 'No se pudo cargar la liquidación de ese período.'));
@@ -154,6 +156,29 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
       setFilas((actual) => (actual || []).map((f) => (f.detalle_id === detalleId ? { ...f, monto: valor } : f)));
       setGuardadoId(detalleId);
       setTimeout(() => setGuardadoId((actual) => (actual === detalleId ? null : actual)), 1500);
+      cargar();
+    } catch (err: any) {
+      setError(mensajeError(err, 'No se pudo guardar el monto.'));
+    } finally {
+      setGuardandoId(null);
+    }
+  };
+
+  // Guarda el monto combinado de un grupo colapsado: todo el valor tipeado
+  // va a la primera línea del grupo, el resto se pone en 0 — el total
+  // declarado (suma de todas las líneas) queda igual, no hace falta tocar
+  // el backend para esto.
+  const handleGuardarMontoGrupo = async (clave: string, lineas: LineaLiquidacion[], valor: number) => {
+    const [primera, ...resto] = lineas;
+    setGuardandoId(primera.detalle_id);
+    setError('');
+    try {
+      await axios.put(`/api/liquidaciones/${primera.detalle_id}`, { mes: Number(mes), ano: Number(ano), monto: valor }, authHeaders(token));
+      for (const l of resto) {
+        await axios.put(`/api/liquidaciones/${l.detalle_id}`, { mes: Number(mes), ano: Number(ano), monto: 0 }, authHeaders(token));
+      }
+      setGuardadoId(primera.detalle_id);
+      setTimeout(() => setGuardadoId((actual) => (actual === primera.detalle_id ? null : actual)), 1500);
       cargar();
     } catch (err: any) {
       setError(mensajeError(err, 'No se pudo guardar el monto.'));
@@ -298,6 +323,43 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
   // exclusión para esconder) — el toggle "mostrar excluidas" es solo para
   // las sacadas a mano por otro motivo (ej. cliente no pagó).
   const filasVisibles = (filas || []).filter((f) => f.inicio_tardio || mostrarExcluidas || !f.excluida);
+
+  // Con "Colapsar" activado, las líneas "limpias" (sin aviso de corte-15,
+  // sin excluir, sin Sin cargo/Canje) del mismo anunciante+sección se
+  // muestran juntas en una sola fila con un solo monto — para informar lo
+  // que ese anunciante paga por todo concepto, no soporte por soporte
+  // (pedido explícito: "el tilde de colapsar también tiene que estar a
+  // nivel de cada línea"). Las líneas que necesitan atención especial
+  // quedan sueltas para no perder sus controles propios.
+  const gruposVisibles = (() => {
+    if (!colapsarPorCliente) return [];
+    const limpias = filasVisibles.filter((f) => !f.inicio_tardio && !f.excluida && !f.estado_especial);
+    const mapa = new Map<string, LineaLiquidacion[]>();
+    limpias.forEach((f) => {
+      const clave = `${f.anunciante}|${f.seccion}`;
+      if (!mapa.has(clave)) mapa.set(clave, []);
+      mapa.get(clave)!.push(f);
+    });
+    return Array.from(mapa.entries())
+      .filter(([, lineas]) => lineas.length > 1)
+      .map(([clave, lineas]) => {
+        const desde = lineas.reduce((min, l) => (l.periodo_desde && l.periodo_desde < min ? l.periodo_desde : min), lineas[0].periodo_desde);
+        const hasta = lineas.reduce((max, l) => (l.periodo_hasta && l.periodo_hasta > max ? l.periodo_hasta : max), lineas[0].periodo_hasta);
+        return {
+          clave,
+          anunciante: lineas[0].anunciante,
+          seccion: lineas[0].seccion,
+          lineas,
+          ordenesTexto: Array.from(new Set(lineas.map((l) => l.numero_orden_agencia || l.numero_orden))).join(', '),
+          vigenciaTexto: `${formatFecha(desde)} – ${formatFecha(hasta)}`,
+          elementosTexto: Array.from(new Set(lineas.map((l) => `${l.tipo_producto} x ${l.cantidad}`))).join(' + '),
+          locacionTexto: Array.from(new Set(lineas.map((l) => l.locacion_nombre))).join(' + '),
+          montoTotal: lineas.reduce((s, l) => s + (Number(l.monto) || 0), 0),
+        };
+      });
+  })();
+  const idsEnGrupos = new Set(gruposVisibles.flatMap((g) => g.lineas.map((l) => l.detalle_id)));
+  const filasIndividuales = filasVisibles.filter((f) => !idsEnGrupos.has(f.detalle_id));
   const nombreConcesionario = concesionarios.find((c) => c.id === concesionarioId)?.razon_social || '';
   const direccionConcesionario = concesionarios.find((c) => c.id === concesionarioId)?.direccion || '';
 
@@ -605,8 +667,9 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
               </div>
               <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.8rem' }}>
                 <input type="checkbox" checked={colapsarPorCliente} onChange={(e) => setColapsarPorCliente(e.target.checked)} />
-                Colapsar campañas del mismo cliente al exportar (junta las órdenes cortadas por fecha en una sola
-                fila, sin repetir soportes)
+                Colapsar campañas del mismo cliente (acá y al exportar) — junta las órdenes cortadas por fecha en
+                una sola fila con un solo monto, sin repetir soportes. Las líneas con aviso de corte-15, excluidas o
+                marcadas Sin cargo/Canje quedan sueltas.
               </label>
               <label style={{ display: 'block', marginBottom: '0.8rem' }}>
                 Nota para el export (opcional)
@@ -638,7 +701,40 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
                   </tr>
                 </thead>
                 <tbody>
-                  {filasVisibles.map((f) => (
+                  {gruposVisibles.map((g) => (
+                    <tr key={g.clave} style={{ background: '#f0f7ff' }}>
+                      <td>{g.anunciante}</td>
+                      <td style={{ fontSize: '0.8rem' }}>{g.ordenesTexto}</td>
+                      <td>{SECCION_NOMBRE[g.seccion]}</td>
+                      <td>{g.vigenciaTexto}</td>
+                      <td>{g.elementosTexto}</td>
+                      <td>{g.locacionTexto}</td>
+                      <td>—</td>
+                      <td>—</td>
+                      <td>
+                        {puedeCargar ? (
+                          <InputMiles
+                            value={montosGrupoLocal[g.clave] ?? String(g.montoTotal || '')}
+                            onChange={(v) => setMontosGrupoLocal((actual) => ({ ...actual, [g.clave]: v }))}
+                            onBlur={() => handleGuardarMontoGrupo(g.clave, g.lineas, Number(montosGrupoLocal[g.clave] ?? g.montoTotal) || 0)}
+                            style={{ width: '9rem', textAlign: 'right' }}
+                          />
+                        ) : (
+                          formatMoney(g.montoTotal)
+                        )}
+                      </td>
+                      {puedeCargar && (
+                        <td style={{ fontSize: '0.85rem', color: 'var(--color-exito, #2e7d32)' }}>
+                          {g.lineas.some((l) => l.detalle_id === guardandoId)
+                            ? 'Guardando...'
+                            : g.lineas.some((l) => l.detalle_id === guardadoId)
+                            ? 'Guardado ✓'
+                            : ''}
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                  {filasIndividuales.map((f) => (
                     <Fragment key={f.detalle_id}>
                       {f.inicio_tardio && (
                         <tr key={`${f.detalle_id}-aviso`} style={{ background: '#fff8e1' }}>
