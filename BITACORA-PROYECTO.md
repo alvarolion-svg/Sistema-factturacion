@@ -84,10 +84,11 @@ una feature secundaria.
   compartió: se sumaron secciones **Publicidad/Stand** (cada una con su propio Canon, clasificado
   por tipo de soporte), estados de línea **"Sin cargo"/"Canje"** (cuentan $0), **IVA + percepciones
   IIBB** (puede haber varias a la vez) calculados sobre el Total Final hasta el **Total a Pagar**
-  real, y el export ahora **agrupa por anunciante** (rango de vigencia completo, soportes
-  deduplicados — no repite si varias campañas del mismo cliente tienen lo mismo) con un checkbox
-  para desactivar el agrupado, igual que el documento real, con encabezado (nombre/domicilio del
-  concesionario) y nota libre. Tiene **línea manual con signo**: un tilde "Resta del Canon" para
+  real, y tanto la pantalla de carga como el export **agrupan por anunciante** (rango de vigencia
+  completo, soportes deduplicados — no repite si varias campañas del mismo cliente tienen lo
+  mismo, con un solo monto combinado) con un checkbox para desactivar el agrupado; las líneas
+  con aviso de corte-15, excluidas o Sin cargo/Canje quedan sueltas con sus controles propios. El
+  export tiene encabezado (nombre/domicilio del concesionario) y nota libre. Tiene **línea manual con signo**: un tilde "Resta del Canon" para
   gastos compartidos (ej. electricidad) o ajustes por una diferencia pasada, el monto se carga
   siempre positivo. También las **percepciones** (dentro de "Canon por concesionario") pueden
   restar en vez de sumar — mismo tilde — para tasas municipales (% igual que IIBB, pero descuentan
@@ -133,6 +134,12 @@ más importantes:
      de campañas con un campo aparte para cargarle a mano cuánto se le paga (monto fijo, no %).
    - Las reglas exactas (el % de Oxant, cómo se define el monto de Esteban Vivo) quedan para más
      adelante — "después vemos las reglas para esos 2 casos."
+   - **Envío por mail**: diseño acordado, no construido — cerrar una liquidación crea una versión
+     numerada con foto congelada de los números (se puede seguir editando después, cada re-cierre
+     suma una versión nueva, con alerta si ya estaba cerrada/enviada), el PDF que ya arma el
+     frontend se manda por mail al concesionario (campo de email propio, no el de Proveedores).
+     Bloqueado en que el usuario consiga una cuenta SMTP real (Gmail o el hosting de la empresa,
+     cualquiera sirve) — `nodemailer` ya está instalado en el backend, sin usar todavía.
 3. **Concesionario por punto, no solo por locación**: algunas locaciones (ej. Bahía Grande
    Nordelta) tienen varios proveedores distintos adentro, cada uno dueño de un cartel/punto
    específico — el modelo actual (`concesionario_id` único en `locaciones`) no alcanza. Diseño ya
