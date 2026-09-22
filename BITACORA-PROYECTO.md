@@ -92,9 +92,12 @@ una feature secundaria.
   gastos compartidos (ej. electricidad) o ajustes por una diferencia pasada, el monto se carga
   siempre positivo. También las **percepciones** (dentro de "Canon por concesionario") pueden
   restar en vez de sumar — mismo tilde — para tasas municipales (% igual que IIBB, pero descuentan
-  del Canon en vez de sumar al Total a Pagar). Cubre el mecanismo base; **todavía no cubre** los
-  casos de terceros colgados de la liquidación de un concesionario (Oxant, Esteban Vivo — ver
-  pendiente 2 abajo).
+  del Canon en vez de sumar al Total a Pagar). Tiene **acceso directo con Órdenes**: el N° de orden
+  en Liquidar abre esa orden, y el detalle de una orden tiene "Ver liquidación de [concesionario]"
+  (uno por cada concesionario distinto que toque, puede ser más de uno) que vuelve directo al
+  concesionario/mes de esa orden. Cubre el mecanismo base; **todavía no cubre** los casos de
+  terceros colgados de la liquidación de un concesionario (Oxant, Esteban Vivo — ver pendiente 2
+  abajo).
 - **Producción se despliega fuera de esta Mac**: sin hacer todavía — ver
   [`PENDIENTE-PRODUCCION.md`](./PENDIENTE-PRODUCCION.md) para el relevamiento completo (qué falta
   antes de exponerlo a internet).
