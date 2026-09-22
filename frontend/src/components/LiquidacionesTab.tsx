@@ -65,7 +65,25 @@ interface PercepcionCalculada {
 const MANUAL_VACIO = { descripcion: '', monto: '', tipo: 'suma' as 'suma' | 'resta' };
 const SECCION_NOMBRE: Record<'publicidad' | 'stand', string> = { publicidad: 'Publicidad', stand: 'Stand' };
 
-function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: boolean }) {
+export interface SeleccionLiquidacion {
+  concesionarioId: string;
+  mes: string;
+  ano: string;
+}
+
+function LiquidacionesTab({
+  token,
+  puedeCargar,
+  seleccionInicial,
+  onSeleccionConsumida,
+  onVerOrden,
+}: {
+  token: string;
+  puedeCargar: boolean;
+  seleccionInicial?: SeleccionLiquidacion | null;
+  onSeleccionConsumida?: () => void;
+  onVerOrden?: (ordenId: string) => void;
+}) {
   const hoy = new Date();
   const [concesionarios, setConcesionarios] = useState<Concesionario[]>([]);
   const [concesionarioId, setConcesionarioId] = useState('');
@@ -146,6 +164,19 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
     cargar();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [concesionarioId, mes, ano]);
+
+  // Acceso directo desde una orden ("Ver liquidación de X"): preselecciona
+  // concesionario/mes/año y avisa para que el padre limpie el pedido.
+  useEffect(() => {
+    if (seleccionInicial) {
+      setVista('liquidar');
+      setConcesionarioId(seleccionInicial.concesionarioId);
+      setMes(seleccionInicial.mes);
+      setAno(seleccionInicial.ano);
+      onSeleccionConsumida?.();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seleccionInicial]);
 
   const handleGuardarMonto = async (detalleId: string) => {
     const valor = Number(montosLocal[detalleId] || 0);
@@ -704,7 +735,20 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
                   {gruposVisibles.map((g) => (
                     <tr key={g.clave} style={{ background: '#f0f7ff' }}>
                       <td>{g.anunciante}</td>
-                      <td style={{ fontSize: '0.8rem' }}>{g.ordenesTexto}</td>
+                      <td style={{ fontSize: '0.8rem' }}>
+                        {onVerOrden
+                          ? Array.from(new Map(g.lineas.map((l) => [l.orden_id, l.numero_orden_agencia || l.numero_orden])).entries()).map(
+                              ([ordenId, numero], i, arr) => (
+                                <span key={ordenId}>
+                                  <button type="button" className="btn-link" onClick={() => onVerOrden(ordenId)}>
+                                    {numero}
+                                  </button>
+                                  {i < arr.length - 1 ? ', ' : ''}
+                                </span>
+                              )
+                            )
+                          : g.ordenesTexto}
+                      </td>
                       <td>{SECCION_NOMBRE[g.seccion]}</td>
                       <td>{g.vigenciaTexto}</td>
                       <td>{g.elementosTexto}</td>
@@ -756,7 +800,15 @@ function LiquidacionesTab({ token, puedeCargar }: { token: string; puedeCargar: 
                       )}
                       <tr key={f.detalle_id} style={f.excluida ? { opacity: 0.5 } : undefined}>
                         <td>{f.anunciante}</td>
-                        <td>{f.numero_orden_agencia || f.numero_orden}</td>
+                        <td>
+                          {onVerOrden ? (
+                            <button type="button" className="btn-link" onClick={() => onVerOrden(f.orden_id)}>
+                              {f.numero_orden_agencia || f.numero_orden}
+                            </button>
+                          ) : (
+                            f.numero_orden_agencia || f.numero_orden
+                          )}
+                        </td>
                         <td>{SECCION_NOMBRE[f.seccion]}</td>
                         <td>{vigenciaTexto(f)}</td>
                         <td>{f.tipo_producto}</td>

@@ -6,7 +6,7 @@ import autoTable from 'jspdf-autotable';
 import { authHeaders, mensajeError, formatMoney, formatFecha, scrollAlFormulario } from '../utils/api';
 import ProduccionTopviewTab from './ProduccionTopviewTab';
 import LocacionesTab from './LocacionesTab';
-import LiquidacionesTab from './LiquidacionesTab';
+import LiquidacionesTab, { SeleccionLiquidacion } from './LiquidacionesTab';
 import { InputMiles, InputPorcentaje } from './CamposMonto';
 
 interface OrdenPublicidad {
@@ -179,6 +179,12 @@ function TopviewView({ token, usuario }: TopviewViewProps) {
     | 'liquidaciones'
   >('ordenes');
 
+  // Acceso directo Órdenes ↔ Liquidaciones: cada uno le pasa al otro qué
+  // abrir, el que recibe lo consume y avisa para limpiarlo (no queda
+  // "pegado" si después el usuario navega por su cuenta).
+  const [ordenIdParaAbrir, setOrdenIdParaAbrir] = useState<string | null>(null);
+  const [liquidacionParaAbrir, setLiquidacionParaAbrir] = useState<SeleccionLiquidacion | null>(null);
+
   return (
     <section className="view-card">
       <div className="view-header">
@@ -251,7 +257,18 @@ function TopviewView({ token, usuario }: TopviewViewProps) {
       </div>
 
       {seccion === 'ordenes' && (
-        <OrdenesTab token={token} puedeCrear={puedeCrear} puedeEditar={puedeEditar} />
+        <OrdenesTab
+          token={token}
+          puedeCrear={puedeCrear}
+          puedeEditar={puedeEditar}
+          puedeVerLiquidaciones={puedeVerLiquidaciones}
+          ordenIdParaAbrir={ordenIdParaAbrir}
+          onOrdenAbierta={() => setOrdenIdParaAbrir(null)}
+          onVerLiquidacion={(concesionarioId, mesSel, anoSel) => {
+            setLiquidacionParaAbrir({ concesionarioId, mes: mesSel, ano: anoSel });
+            setSeccion('liquidaciones');
+          }}
+        />
       )}
       {seccion === 'produccion' && (
         <ProduccionTopviewTab token={token} puedeCrear={puedeCrear} puedeEditar={puedeEditar} />
@@ -276,7 +293,16 @@ function TopviewView({ token, usuario }: TopviewViewProps) {
         <VendedoresTab token={token} puedeCrear={puedeGestionarVendedores} />
       )}
       {seccion === 'liquidaciones' && puedeVerLiquidaciones && (
-        <LiquidacionesTab token={token} puedeCargar={puedeCargarLiquidaciones} />
+        <LiquidacionesTab
+          token={token}
+          puedeCargar={puedeCargarLiquidaciones}
+          seleccionInicial={liquidacionParaAbrir}
+          onSeleccionConsumida={() => setLiquidacionParaAbrir(null)}
+          onVerOrden={(ordenId) => {
+            setOrdenIdParaAbrir(ordenId);
+            setSeccion('ordenes');
+          }}
+        />
       )}
     </section>
   );
@@ -286,10 +312,18 @@ function OrdenesTab({
   token,
   puedeCrear,
   puedeEditar,
+  puedeVerLiquidaciones,
+  ordenIdParaAbrir,
+  onOrdenAbierta,
+  onVerLiquidacion,
 }: {
   token: string;
   puedeCrear: boolean;
   puedeEditar: boolean;
+  puedeVerLiquidaciones?: boolean;
+  ordenIdParaAbrir?: string | null;
+  onOrdenAbierta?: () => void;
+  onVerLiquidacion?: (concesionarioId: string, mes: string, ano: string) => void;
 }) {
   const [ordenes, setOrdenes] = useState<OrdenPublicidad[] | null>(null);
   const [error, setError] = useState('');
@@ -1238,6 +1272,16 @@ function OrdenesTab({
       .finally(() => setCargandoDetalle(false));
   };
 
+  // Acceso directo desde Liquidaciones: si llega un id (vía "Ver orden" en
+  // esa pantalla), lo abre acá y avisa para que el padre limpie el pedido.
+  useEffect(() => {
+    if (ordenIdParaAbrir) {
+      cargarDetalle(ordenIdParaAbrir);
+      onOrdenAbierta?.();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ordenIdParaAbrir]);
+
   const handleGenerarFacturas = async () => {
     if (!detalleId) return;
     setGenerandoFacturas(true);
@@ -1322,9 +1366,27 @@ function OrdenesTab({
     const replicaciones = detalle?.replicaciones || [];
     const pendientes = replicaciones.filter((r: any) => r.estado === 'Pendiente').length;
 
+    // Una orden puede tener líneas en varias locaciones de distintos
+    // concesionarios (hasta 11 se vieron en los datos reales) — se ofrece
+    // un acceso directo por cada concesionario distinto que aparezca acá,
+    // no uno solo. El mes usado es el de ingreso de la orden (o el de
+    // inicio del período si no hay mes de ingreso cargado).
+    const concesionariosDeLaOrden: { id: string; nombre: string }[] = detalle
+      ? Array.from(
+          new Map<string, { id: string; nombre: string }>(
+            (detalle.detalles || [])
+              .filter((d: any) => d.concesionario_id)
+              .map((d: any) => [d.concesionario_id, { id: d.concesionario_id, nombre: d.concesionario_nombre }])
+          ).values()
+        )
+      : [];
+    const [anoPeriodo, mesPeriodo] = detalle?.periodo_desde ? detalle.periodo_desde.split('-') : [];
+    const mesLiquidacion = detalle?.mes_ingreso ? String(detalle.mes_ingreso) : mesPeriodo;
+    const anoLiquidacion = detalle?.ano_ingreso ? String(detalle.ano_ingreso) : anoPeriodo;
+
     return (
       <>
-        <div className="view-header">
+        <div className="view-header" style={{ flexWrap: 'wrap', gap: '0.5rem' }}>
           <button className="btn-link" onClick={() => setDetalleId(null)}>
             ‹ Volver a la lista
           </button>
@@ -1333,6 +1395,19 @@ function OrdenesTab({
               Editar orden
             </button>
           )}
+          {puedeVerLiquidaciones &&
+            onVerLiquidacion &&
+            mesLiquidacion &&
+            anoLiquidacion &&
+            concesionariosDeLaOrden.map((c) => (
+              <button
+                key={c.id}
+                className="btn-link"
+                onClick={() => onVerLiquidacion(c.id, mesLiquidacion, anoLiquidacion)}
+              >
+                Ver liquidación de {c.nombre}
+              </button>
+            ))}
         </div>
 
         {cargandoDetalle && <p className="empty-state">Cargando orden...</p>}

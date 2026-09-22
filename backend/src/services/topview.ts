@@ -712,8 +712,10 @@ export class TopviewService {
 
     const [detalles, documentos, contactos, replicaciones, arreglos, intermediarios] = await Promise.all([
       this.queryAll(
-        `SELECT d.*, l.nombre as locacion_nombre FROM ordenes_publicidad_detalles d
+        `SELECT d.*, l.nombre as locacion_nombre, l.concesionario_id, p.razon_social as concesionario_nombre
+         FROM ordenes_publicidad_detalles d
          LEFT JOIN locaciones l ON l.id = d.locacion_id
+         LEFT JOIN proveedores p ON p.id = l.concesionario_id
          WHERE d.orden_id = ?`,
         [ordenId]
       ),
