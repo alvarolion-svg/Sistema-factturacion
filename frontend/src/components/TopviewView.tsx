@@ -1076,22 +1076,19 @@ function OrdenesTab({
   // 'base': cada comisionista cobra su % directo del mismo monto final (varios
   // actores en paralelo, ej. comisión con factura + comisión en efectivo, que no
   // se descuentan entre sí). 'cascada': cada nivel cobra su % sobre lo que va
-  // quedando después del nivel anterior. El neto percibido siempre resta TODAS
-  // las comisiones (de ambos tipos), aunque sólo las 'cascada' reducen la base
-  // del siguiente nivel en cascada.
+  // quedando después de TODOS los niveles anteriores (sean 'cascada' o 'base') —
+  // un nivel 'base' también resta de ese remanente para el siguiente en cascada,
+  // solo que su propio % se calcula sobre el monto final fijo, no sobre el
+  // remanente. Validado contra el caso real IPG/AMEX: LatamNet 15% base + Pupy
+  // 5% base + Juan 5% cascada sobre el remanente de los dos anteriores (no
+  // sobre el monto final entero) — mismo cálculo que TopviewService en el
+  // backend, para que la previsualización nunca diverja del monto guardado.
   const comisiones = lineasIntermediarios.reduce((acc, inter, idx) => {
     const pct = Number(inter.porcentaje_comision) / 100 || 0;
     const montoActualCascada = idx === 0 ? montoFinal : acc[idx - 1].montoActualCascada;
     const montoAcumuladoPrevio = idx === 0 ? 0 : acc[idx - 1].montoAcumuladoComisiones;
-    let montoComision: number;
-    let montoActualCascadaNuevo: number;
-    if (inter.tipo_calculo === 'base') {
-      montoComision = montoFinal * pct;
-      montoActualCascadaNuevo = montoActualCascada;
-    } else {
-      montoComision = montoActualCascada * pct;
-      montoActualCascadaNuevo = montoActualCascada - montoComision;
-    }
+    const montoComision = inter.tipo_calculo === 'base' ? montoFinal * pct : montoActualCascada * pct;
+    const montoActualCascadaNuevo = montoActualCascada - montoComision;
     acc.push({ montoComision, montoActualCascada: montoActualCascadaNuevo, montoAcumuladoComisiones: montoAcumuladoPrevio + montoComision });
     return acc;
   }, [] as Array<{ montoComision: number; montoActualCascada: number; montoAcumuladoComisiones: number }>);

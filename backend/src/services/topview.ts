@@ -117,10 +117,16 @@ export class TopviewService {
         const montoNetoBlanco = datos.monto_neto - descuentoMonto - descuentoFacturasMonto;
 
         // Comisiones a comisionistas: 'cascada' aplica sobre lo que va quedando
-        // (cada nivel sobre el remanente del anterior); 'base' aplica directo sobre
-        // el mismo neto blanco (varios comisionistas cobrando cada uno su % directo
-        // del bruto, sin descontarse entre sí — ej. un comisionista con factura +
-        // otro en efectivo, cobrando 15%+25% en paralelo, no 15% y luego 25% del resto).
+        // DESPUÉS de todas las comisiones anteriores (sean cascada o base) — un
+        // nivel "base" también resta de ese remanente, solo que su propio % se
+        // calcula sobre el neto blanco fijo, no sobre el remanente. 'base' sirve
+        // para comisionistas que cobran cada uno su % directo del mismo neto
+        // blanco, en paralelo entre sí (ej. GCBA/YPF: comisionista 15% + 25%,
+        // ambos sobre el mismo neto, sin descontarse uno a otro). Un tercer nivel
+        // en cascada después de dos "base" cobra sobre lo que quedó después de
+        // restar ambos — validado contra el caso real IPG/AMEX (LatamNet 15%
+        // base + Pupy 5% base + Juan 5% cascada sobre el remanente de los dos
+        // anteriores, no sobre el neto blanco entero).
         // Se calcula una sola vez acá y se reutiliza tanto para persistir monto_final
         // como para las filas de ordenes_intermediarios, para que nunca diverjan.
         const comisionesCalculadas: Array<{
@@ -135,13 +141,11 @@ export class TopviewService {
           let montoActual = montoNetoBlanco;
           (intermediariosConFacturaFormal || []).forEach((inter) => {
             const tipoCalculo = inter.tipo_calculo || 'cascada';
-            let montoComision: number;
-            if (tipoCalculo === 'base') {
-              montoComision = montoNetoBlanco * (inter.porcentaje_comision / 100);
-            } else {
-              montoComision = montoActual * (inter.porcentaje_comision / 100);
-              montoActual -= montoComision;
-            }
+            const montoComision =
+              tipoCalculo === 'base'
+                ? montoNetoBlanco * (inter.porcentaje_comision / 100)
+                : montoActual * (inter.porcentaje_comision / 100);
+            montoActual -= montoComision;
             montoFinal -= montoComision;
             comisionesCalculadas.push({ ...inter, tipo_calculo: tipoCalculo, monto_comision: montoComision });
           });
@@ -358,6 +362,8 @@ export class TopviewService {
     const montoNetoAplicado = datos.monto_neto - descuentoMonto;
     const montoNetoBlanco = datos.monto_neto - descuentoMonto - descuentoFacturasMonto;
 
+    // Ver el comentario equivalente en crearOrden: 'cascada' cobra sobre el
+    // remanente después de TODAS las comisiones anteriores (cascada o base).
     const comisionesCalculadas: Array<{
       intermediario_id: string;
       porcentaje_comision: number;
@@ -370,13 +376,11 @@ export class TopviewService {
       let montoActual = montoNetoBlanco;
       intermediariosConFacturaFormal.forEach((inter) => {
         const tipoCalculo = inter.tipo_calculo || 'cascada';
-        let montoComision: number;
-        if (tipoCalculo === 'base') {
-          montoComision = montoNetoBlanco * (inter.porcentaje_comision / 100);
-        } else {
-          montoComision = montoActual * (inter.porcentaje_comision / 100);
-          montoActual -= montoComision;
-        }
+        const montoComision =
+          tipoCalculo === 'base'
+            ? montoNetoBlanco * (inter.porcentaje_comision / 100)
+            : montoActual * (inter.porcentaje_comision / 100);
+        montoActual -= montoComision;
         montoFinal -= montoComision;
         comisionesCalculadas.push({ ...inter, tipo_calculo: tipoCalculo, monto_comision: montoComision });
       });
