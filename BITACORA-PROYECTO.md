@@ -51,8 +51,12 @@ una feature secundaria.
     soportes, sirven de referencia para seguir cargando el resto.
 - **Clientes, Proveedores, Gastos, Facturas, Productos, Tesorería, Usuarios, Auditoría,
   Reportes**: pantallas completas, CRUD funcionando.
-- **Reportes → Topview** tiene gráficos de facturación bruta (mensual y por tipo de anunciante) y
-  un desglose de netos post-comisión (monto final, ganancia, comisión por comisionista con/sin
+- **Reportes → Topview** tiene DOS gráficos mensuales, cada uno con su propia fecha: **"Venta
+  mensual"** agrupa por `mes_ingreso`/`ano_ingreso` (el mes comercial en que se cargó la pauta) y
+  **"Facturación bruta mensual"** agrupa por `fecha_facturacion` — una orden vendida en agosto pero
+  facturada recién en septiembre antes partía el total del mes en el gráfico de facturación; ahora
+  "Venta mensual" la muestra entera en el mes real de venta. También por tipo de anunciante, y un
+  desglose de netos post-comisión (monto final, ganancia, comisión por comisionista con/sin
   factura) que **solo ve Administrador** — el backend directamente no manda esos campos a nadie
   más, no es un tema de ocultar en pantalla (permiso `topview_netos_ver`).
 - **Topview → Comisionistas** (ambas tablas — "Cuánto traccionan las ventas" y "Ficha de
