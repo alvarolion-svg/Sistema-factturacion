@@ -731,13 +731,29 @@ function OrdenesTab({
   // marcadas como no facturables, y mezclarlas en un mismo total confunde.
   const [filtroFacturado, setFiltroFacturado] = useState('');
   const [filtroTipoAnunciante, setFiltroTipoAnunciante] = useState('');
+  // El mes/año de arriba puede filtrar por "Fecha de facturación" (cuándo se
+  // factura) o por "Mes de ingreso (venta)" (cuándo se cargó/vendió la
+  // pauta) — son preguntas distintas: una orden vendida en agosto puede
+  // facturarse recién en septiembre. Default: facturación, igual que
+  // siempre. Mismo criterio que separa "Venta mensual" de "Facturación
+  // bruta mensual" en Reportes → Topview.
+  const [filtroMesTipo, setFiltroMesTipo] = useState<'facturacion' | 'ingreso'>('facturacion');
+
+  // Mes/año de ingreso resuelto igual que al guardar la orden: si no se
+  // cargó a mano, se toma el mes/año de "Período desde".
+  const mesAnoIngresoDe = (o: OrdenPublicidad): [number, number] => {
+    const [anoDesde, mesDesde] = o.periodo_desde.split('-').map(Number);
+    return [o.ano_ingreso || anoDesde, o.mes_ingreso || mesDesde];
+  };
 
   const anosDisponibles = Array.from(
     new Set(
-      (ordenes || [])
-        .map((o) => o.fecha_facturacion)
-        .filter((f): f is string => !!f)
-        .map((f) => f.split('-')[0])
+      filtroMesTipo === 'ingreso'
+        ? (ordenes || []).map((o) => mesAnoIngresoDe(o)[0])
+        : (ordenes || [])
+            .map((o) => o.fecha_facturacion)
+            .filter((f): f is string => !!f)
+            .map((f) => Number(f.split('-')[0]))
     )
   ).sort((a, b) => Number(b) - Number(a));
 
@@ -758,6 +774,12 @@ function OrdenesTab({
   const ordenesFiltradasBase = (ordenes || [])
     .filter((o) => {
       if (!filtroMes && !filtroAno) return true;
+      if (filtroMesTipo === 'ingreso') {
+        const [ano, mes] = mesAnoIngresoDe(o);
+        if (filtroMes && mes !== Number(filtroMes)) return false;
+        if (filtroAno && ano !== Number(filtroAno)) return false;
+        return true;
+      }
       if (!o.fecha_facturacion) return false;
       const [ano, mes] = o.fecha_facturacion.split('-');
       if (filtroMes && Number(mes) !== Number(filtroMes)) return false;
@@ -2453,16 +2475,28 @@ function OrdenesTab({
               value={busqueda}
               onChange={(e) => setBusqueda(e.target.value)}
               placeholder="Cliente, anunciante, N° de orden..."
-              style={{ width: '14rem' }}
+              style={{ width: '13rem' }}
             />
           </div>
           <div className="form-group" style={{ margin: 0 }}>
-            <label htmlFor="filtro_mes">Filtrar por mes de facturación</label>
+            <label htmlFor="filtro_mes_tipo">Filtrar por</label>
+            <select
+              id="filtro_mes_tipo"
+              value={filtroMesTipo}
+              onChange={(e) => setFiltroMesTipo(e.target.value as 'facturacion' | 'ingreso')}
+              style={{ width: '9.5rem' }}
+            >
+              <option value="facturacion">Fecha de facturación</option>
+              <option value="ingreso">Mes de ingreso (venta)</option>
+            </select>
+          </div>
+          <div className="form-group" style={{ margin: 0 }}>
+            <label htmlFor="filtro_mes">Mes</label>
             <select
               id="filtro_mes"
               value={filtroMes}
               onChange={(e) => setFiltroMes(e.target.value)}
-              style={{ width: '10rem' }}
+              style={{ width: '9rem' }}
             >
               <option value="">Todos los meses</option>
               {NOMBRES_MES.map((nombre, i) => (
@@ -2478,7 +2512,7 @@ function OrdenesTab({
               id="filtro_ano"
               value={filtroAno}
               onChange={(e) => setFiltroAno(e.target.value)}
-              style={{ width: '7.5rem' }}
+              style={{ width: '7rem' }}
             >
               <option value="">Todos los años</option>
               {anosDisponibles.map((ano) => (
@@ -2494,7 +2528,7 @@ function OrdenesTab({
               id="filtro_facturado"
               value={filtroFacturado}
               onChange={(e) => setFiltroFacturado(e.target.value)}
-              style={{ width: '11rem' }}
+              style={{ width: '10rem' }}
             >
               <option value="">Todas</option>
               <option value="si">Solo registradas (facturables)</option>
@@ -2507,7 +2541,7 @@ function OrdenesTab({
               id="filtro_tipo_anunciante"
               value={filtroTipoAnunciante}
               onChange={(e) => setFiltroTipoAnunciante(e.target.value)}
-              style={{ width: '11rem' }}
+              style={{ width: '10rem' }}
             >
               <option value="">Todos</option>
               {TIPOS_ANUNCIANTE.map((tipo) => (
@@ -2517,7 +2551,7 @@ function OrdenesTab({
               ))}
             </select>
           </div>
-          {(filtroMes || filtroAno || busqueda || filtroFacturado || filtroTipoAnunciante) && (
+          {(filtroMes || filtroAno || busqueda || filtroFacturado || filtroTipoAnunciante || filtroMesTipo !== 'facturacion') && (
             <button
               type="button"
               className="btn-link"
@@ -2527,6 +2561,7 @@ function OrdenesTab({
                 setBusqueda('');
                 setFiltroFacturado('');
                 setFiltroTipoAnunciante('');
+                setFiltroMesTipo('facturacion');
               }}
             >
               Limpiar filtro
