@@ -58,7 +58,11 @@ una feature secundaria.
   "Venta mensual" la muestra entera en el mes real de venta. También por tipo de anunciante, y un
   desglose de netos post-comisión (monto final, ganancia, comisión por comisionista con/sin
   factura) que **solo ve Administrador** — el backend directamente no manda esos campos a nadie
-  más, no es un tema de ocultar en pantalla (permiso `topview_netos_ver`).
+  más, no es un tema de ocultar en pantalla (permiso `topview_netos_ver`). La misma distinción
+  (venta vs. facturación) existe como filtro en la lista de **Topview → Órdenes**: el selector
+  "Filtrar por" al lado de Mes/Año elige si el mes filtra por fecha de facturación (default, no
+  cambia el comportamiento de siempre) o por mes de ingreso — necesario para reconciliar contra
+  planillas externas de "ingreso de órdenes", que trackean venta, no facturación.
 - **Topview → Comisionistas** (ambas tablas — "Cuánto traccionan las ventas" y "Ficha de
   comisionistas") es **Administrador únicamente** (permiso `topview_comisionistas_ver`, sacado de
   Gerente). El reporte de comisiones tiene filtro por mes/año/tipo (Tipo 1 con factura, Tipo 2
