@@ -730,6 +730,7 @@ function OrdenesTab({
   // historial real de facturación pueden tener también órdenes sueltas
   // marcadas como no facturables, y mezclarlas en un mismo total confunde.
   const [filtroFacturado, setFiltroFacturado] = useState('');
+  const [filtroTipoAnunciante, setFiltroTipoAnunciante] = useState('');
 
   const anosDisponibles = Array.from(
     new Set(
@@ -778,6 +779,7 @@ function OrdenesTab({
       ];
       return campos.some((c) => (c || '').toLowerCase().includes(q));
     })
+    .filter((o) => !filtroTipoAnunciante || o.tipo_anunciante === filtroTipoAnunciante)
     // Mismo orden que en el armado de la pauta (Pequeños Anunciantes, Pautas
     // Estado, Pautas Anuales, Pautas Mensuales, Pautas en dólares); dentro de
     // cada tipo, las no registradas van al final — sigue el mismo correlato
@@ -2484,7 +2486,22 @@ function OrdenesTab({
               <option value="no">Solo no registradas</option>
             </select>
           </div>
-          {(filtroMes || filtroAno || busqueda || filtroFacturado) && (
+          <div className="form-group" style={{ margin: 0 }}>
+            <label htmlFor="filtro_tipo_anunciante">Tipo de anunciante</label>
+            <select
+              id="filtro_tipo_anunciante"
+              value={filtroTipoAnunciante}
+              onChange={(e) => setFiltroTipoAnunciante(e.target.value)}
+            >
+              <option value="">Todos</option>
+              {TIPOS_ANUNCIANTE.map((tipo) => (
+                <option key={tipo} value={tipo}>
+                  {tipo}
+                </option>
+              ))}
+            </select>
+          </div>
+          {(filtroMes || filtroAno || busqueda || filtroFacturado || filtroTipoAnunciante) && (
             <button
               type="button"
               className="btn-link"
@@ -2493,6 +2510,7 @@ function OrdenesTab({
                 setFiltroAno('');
                 setBusqueda('');
                 setFiltroFacturado('');
+                setFiltroTipoAnunciante('');
               }}
             >
               Limpiar filtro
