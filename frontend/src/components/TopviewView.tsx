@@ -2141,146 +2141,6 @@ function OrdenesTab({
             </div>
           </div>
 
-          <div className="form-group form-group-checkbox">
-            <label htmlFor="orden_facturado">
-              <input
-                id="orden_facturado"
-                type="checkbox"
-                checked={ordenForm.facturado}
-                onChange={(e) => handleChangeOrden('facturado', e.target.checked)}
-                disabled={guardando}
-              />
-              {' '}Esta orden genera facturación
-            </label>
-          </div>
-
-          <div className="lineas-factura" style={{ gridColumn: '1 / -1' }}>
-            <label>Montos y descuentos en cascada</label>
-
-            <div className="linea-factura" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
-              <InputMiles
-                placeholder="Monto neto (vacío = suma de líneas)"
-                value={ordenForm.monto_neto}
-                onChange={(v) => handleChangeOrden('monto_neto', v)}
-                disabled={guardando}
-              />
-              <InputPorcentaje
-                placeholder="Descuento comercial (NC)"
-                value={ordenForm.descuento_porcentaje}
-                onChange={(v) => handleChangeOrden('descuento_porcentaje', v)}
-                disabled={guardando}
-              />
-              <InputPorcentaje
-                placeholder="Descuento facturas (FC)"
-                value={ordenForm.descuento_facturas_porcentaje}
-                onChange={(v) => handleChangeOrden('descuento_facturas_porcentaje', v)}
-                disabled={guardando}
-              />
-            </div>
-            <small style={{ color: '#666' }}>
-              "Monto neto" es solo la exhibición. La producción (impresión, colocación, cambio o reposición de
-              gráfica) se carga como su propia orden en "Órdenes de Producción", no acá. Si lo dejás vacío, se arma
-              solo sumando el precio de cada línea en "Productos / soportes" de abajo.
-            </small>
-
-            <label htmlFor="orden_desc_cascada" style={{ fontWeight: 'normal', marginTop: '0.5rem', display: 'block' }}>
-              <input
-                id="orden_desc_cascada"
-                type="checkbox"
-                checked={ordenForm.descuento_en_cascada}
-                onChange={(e) => handleChangeOrden('descuento_en_cascada', e.target.checked)}
-                disabled={guardando}
-              />
-              {' '}Descuento comercial en cascada (reduce la base antes de calcular el de facturas — solo importa si además el de facturas está en cascada más abajo; si no, da lo mismo tildado o no)
-            </label>
-
-            <label htmlFor="orden_desc_facturas_cascada" style={{ fontWeight: 'normal', marginTop: '0.5rem', display: 'block' }}>
-              <input
-                id="orden_desc_facturas_cascada"
-                type="checkbox"
-                checked={ordenForm.descuento_facturas_en_cascada}
-                onChange={(e) => handleChangeOrden('descuento_facturas_en_cascada', e.target.checked)}
-                disabled={guardando}
-              />
-              {' '}Descuento de facturas en cascada sobre el remanente (si no, se calcula directo sobre el mismo neto que el descuento comercial — depende de lo negociado con cada agencia/cliente)
-            </label>
-
-            <p className="totales-preview">
-              Monto neto: {formatMoney(montoNeto)} · Menos desc. comercial: -{formatMoney(descuentoMonto)} · Menos
-              desc. facturas: -{formatMoney(descuentoFacturasMonto)} · Monto final:{' '}
-              <strong>{formatMoney(montoFinal)}</strong>
-            </p>
-          </div>
-
-          <div className="lineas-factura" style={{ gridColumn: '1 / -1' }}>
-            <label>Comisionistas</label>
-            {lineasIntermediarios.map((linea, i) => (
-              <div className="linea-factura" key={i} style={{ gridTemplateColumns: '2fr 1fr 1fr 1fr auto' }}>
-                <select
-                  value={linea.intermediario_id}
-                  onChange={(e) => handleChangeIntermediario(i, 'intermediario_id', e.target.value)}
-                  disabled={guardando}
-                >
-                  <option value="">Elegir comisionista</option>
-                  {intermediarios.map((int) => (
-                    <option key={int.id} value={int.id}>
-                      {int.nombre}
-                    </option>
-                  ))}
-                </select>
-                <input
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="0.01"
-                  placeholder="% comisión"
-                  value={linea.porcentaje_comision}
-                  onChange={(e) => handleChangeIntermediario(i, 'porcentaje_comision', e.target.value)}
-                  disabled={guardando}
-                />
-                <select
-                  value={linea.tipo_calculo}
-                  onChange={(e) => handleChangeIntermediario(i, 'tipo_calculo', e.target.value)}
-                  disabled={guardando}
-                >
-                  <option value="cascada">Cascada</option>
-                  <option value="base">Directo</option>
-                </select>
-                <select
-                  value={linea.factura_formal ? 'tipo1' : 'tipo2'}
-                  onChange={(e) => handleChangeFacturaFormalIntermediario(i, e.target.value === 'tipo1')}
-                  disabled={guardando}
-                >
-                  <option value="tipo1">Tipo 1 — Con factura</option>
-                  <option value="tipo2">Tipo 2 — En efectivo</option>
-                </select>
-                <button
-                  type="button"
-                  className="btn-link btn-link-danger"
-                  onClick={() => handleQuitarIntermediario(i)}
-                  disabled={guardando}
-                >
-                  Quitar
-                </button>
-              </div>
-            ))}
-            <button type="button" className="btn-link" onClick={handleAgregarIntermediario} disabled={guardando}>
-              + Agregar comisionista
-            </button>
-
-            {comisiones.length > 0 && (
-              <p className="totales-preview">
-                {comisiones.map((c, i) => (
-                  <span key={i}>
-                    Comisión {i + 1}: {formatMoney(c.montoComision)}
-                    {i < comisiones.length - 1 ? ' · ' : ' · '}
-                  </span>
-                ))}
-                Neto percibido: <strong>{formatMoney(montoPercibido)}</strong>
-              </p>
-            )}
-          </div>
-
           <div className="lineas-factura" style={{ gridColumn: '1 / -1' }}>
             <label>Productos / soportes *</label>
             {lineasProductos.map((linea, i) => {
@@ -2372,6 +2232,146 @@ function OrdenesTab({
             <button type="button" className="btn-link" onClick={handleAgregarProducto} disabled={guardando}>
               + Agregar producto
             </button>
+          </div>
+
+          <div className="form-group form-group-checkbox">
+            <label htmlFor="orden_facturado">
+              <input
+                id="orden_facturado"
+                type="checkbox"
+                checked={ordenForm.facturado}
+                onChange={(e) => handleChangeOrden('facturado', e.target.checked)}
+                disabled={guardando}
+              />
+              {' '}Esta orden genera facturación
+            </label>
+          </div>
+
+          <div className="lineas-factura" style={{ gridColumn: '1 / -1' }}>
+            <label>Comisionistas</label>
+            {lineasIntermediarios.map((linea, i) => (
+              <div className="linea-factura" key={i} style={{ gridTemplateColumns: '2fr 1fr 1fr 1fr auto' }}>
+                <select
+                  value={linea.intermediario_id}
+                  onChange={(e) => handleChangeIntermediario(i, 'intermediario_id', e.target.value)}
+                  disabled={guardando}
+                >
+                  <option value="">Elegir comisionista</option>
+                  {intermediarios.map((int) => (
+                    <option key={int.id} value={int.id}>
+                      {int.nombre}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.01"
+                  placeholder="% comisión"
+                  value={linea.porcentaje_comision}
+                  onChange={(e) => handleChangeIntermediario(i, 'porcentaje_comision', e.target.value)}
+                  disabled={guardando}
+                />
+                <select
+                  value={linea.tipo_calculo}
+                  onChange={(e) => handleChangeIntermediario(i, 'tipo_calculo', e.target.value)}
+                  disabled={guardando}
+                >
+                  <option value="cascada">Cascada</option>
+                  <option value="base">Directo</option>
+                </select>
+                <select
+                  value={linea.factura_formal ? 'tipo1' : 'tipo2'}
+                  onChange={(e) => handleChangeFacturaFormalIntermediario(i, e.target.value === 'tipo1')}
+                  disabled={guardando}
+                >
+                  <option value="tipo1">Tipo 1 — Con factura</option>
+                  <option value="tipo2">Tipo 2 — En efectivo</option>
+                </select>
+                <button
+                  type="button"
+                  className="btn-link btn-link-danger"
+                  onClick={() => handleQuitarIntermediario(i)}
+                  disabled={guardando}
+                >
+                  Quitar
+                </button>
+              </div>
+            ))}
+            <button type="button" className="btn-link" onClick={handleAgregarIntermediario} disabled={guardando}>
+              + Agregar comisionista
+            </button>
+
+            {comisiones.length > 0 && (
+              <p className="totales-preview">
+                {comisiones.map((c, i) => (
+                  <span key={i}>
+                    Comisión {i + 1}: {formatMoney(c.montoComision)}
+                    {i < comisiones.length - 1 ? ' · ' : ' · '}
+                  </span>
+                ))}
+                Neto percibido: <strong>{formatMoney(montoPercibido)}</strong>
+              </p>
+            )}
+          </div>
+
+          <div className="lineas-factura" style={{ gridColumn: '1 / -1' }}>
+            <label>Montos y descuentos en cascada</label>
+
+            <div className="linea-factura" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
+              <InputMiles
+                placeholder="Monto neto (vacío = suma de líneas)"
+                value={ordenForm.monto_neto}
+                onChange={(v) => handleChangeOrden('monto_neto', v)}
+                disabled={guardando}
+              />
+              <InputPorcentaje
+                placeholder="Descuento comercial (NC)"
+                value={ordenForm.descuento_porcentaje}
+                onChange={(v) => handleChangeOrden('descuento_porcentaje', v)}
+                disabled={guardando}
+              />
+              <InputPorcentaje
+                placeholder="Descuento facturas (FC)"
+                value={ordenForm.descuento_facturas_porcentaje}
+                onChange={(v) => handleChangeOrden('descuento_facturas_porcentaje', v)}
+                disabled={guardando}
+              />
+            </div>
+            <small style={{ color: '#666' }}>
+              "Monto neto" es solo la exhibición. La producción (impresión, colocación, cambio o reposición de
+              gráfica) se carga como su propia orden en "Órdenes de Producción", no acá. Si lo dejás vacío, se arma
+              solo sumando el precio de cada línea en "Productos / soportes" de arriba.
+            </small>
+
+            <label htmlFor="orden_desc_cascada" style={{ fontWeight: 'normal', marginTop: '0.5rem', display: 'block' }}>
+              <input
+                id="orden_desc_cascada"
+                type="checkbox"
+                checked={ordenForm.descuento_en_cascada}
+                onChange={(e) => handleChangeOrden('descuento_en_cascada', e.target.checked)}
+                disabled={guardando}
+              />
+              {' '}Descuento comercial en cascada (reduce la base antes de calcular el de facturas — solo importa si además el de facturas está en cascada más abajo; si no, da lo mismo tildado o no)
+            </label>
+
+            <label htmlFor="orden_desc_facturas_cascada" style={{ fontWeight: 'normal', marginTop: '0.5rem', display: 'block' }}>
+              <input
+                id="orden_desc_facturas_cascada"
+                type="checkbox"
+                checked={ordenForm.descuento_facturas_en_cascada}
+                onChange={(e) => handleChangeOrden('descuento_facturas_en_cascada', e.target.checked)}
+                disabled={guardando}
+              />
+              {' '}Descuento de facturas en cascada sobre el remanente (si no, se calcula directo sobre el mismo neto que el descuento comercial — depende de lo negociado con cada agencia/cliente)
+            </label>
+
+            <p className="totales-preview">
+              Monto neto: {formatMoney(montoNeto)} · Menos desc. comercial: -{formatMoney(descuentoMonto)} · Menos
+              desc. facturas: -{formatMoney(descuentoFacturasMonto)} · Monto final:{' '}
+              <strong>{formatMoney(montoFinal)}</strong>
+            </p>
           </div>
 
           <div className="lineas-factura" style={{ gridColumn: '1 / -1' }}>
