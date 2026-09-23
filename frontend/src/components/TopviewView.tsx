@@ -2453,12 +2453,17 @@ function OrdenesTab({
               value={busqueda}
               onChange={(e) => setBusqueda(e.target.value)}
               placeholder="Cliente, anunciante, N° de orden..."
-              style={{ width: '16rem' }}
+              style={{ width: '14rem' }}
             />
           </div>
           <div className="form-group" style={{ margin: 0 }}>
             <label htmlFor="filtro_mes">Filtrar por mes de facturación</label>
-            <select id="filtro_mes" value={filtroMes} onChange={(e) => setFiltroMes(e.target.value)}>
+            <select
+              id="filtro_mes"
+              value={filtroMes}
+              onChange={(e) => setFiltroMes(e.target.value)}
+              style={{ width: '10rem' }}
+            >
               <option value="">Todos los meses</option>
               {NOMBRES_MES.map((nombre, i) => (
                 <option key={nombre} value={i + 1}>
@@ -2469,7 +2474,12 @@ function OrdenesTab({
           </div>
           <div className="form-group" style={{ margin: 0 }}>
             <label htmlFor="filtro_ano">Año</label>
-            <select id="filtro_ano" value={filtroAno} onChange={(e) => setFiltroAno(e.target.value)}>
+            <select
+              id="filtro_ano"
+              value={filtroAno}
+              onChange={(e) => setFiltroAno(e.target.value)}
+              style={{ width: '7.5rem' }}
+            >
               <option value="">Todos los años</option>
               {anosDisponibles.map((ano) => (
                 <option key={ano} value={ano}>
@@ -2480,7 +2490,12 @@ function OrdenesTab({
           </div>
           <div className="form-group" style={{ margin: 0 }}>
             <label htmlFor="filtro_facturado">Facturación</label>
-            <select id="filtro_facturado" value={filtroFacturado} onChange={(e) => setFiltroFacturado(e.target.value)}>
+            <select
+              id="filtro_facturado"
+              value={filtroFacturado}
+              onChange={(e) => setFiltroFacturado(e.target.value)}
+              style={{ width: '11rem' }}
+            >
               <option value="">Todas</option>
               <option value="si">Solo registradas (facturables)</option>
               <option value="no">Solo no registradas</option>
@@ -2492,6 +2507,7 @@ function OrdenesTab({
               id="filtro_tipo_anunciante"
               value={filtroTipoAnunciante}
               onChange={(e) => setFiltroTipoAnunciante(e.target.value)}
+              style={{ width: '11rem' }}
             >
               <option value="">Todos</option>
               {TIPOS_ANUNCIANTE.map((tipo) => (
@@ -2516,14 +2532,17 @@ function OrdenesTab({
               Limpiar filtro
             </button>
           )}
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.5rem' }}>
-            <button type="button" className="btn-secondary" onClick={handleExportarExcel} disabled={ordenesFiltradas.length === 0}>
-              Exportar Excel
-            </button>
-            <button type="button" className="btn-secondary" onClick={handleExportarPDF} disabled={ordenesFiltradas.length === 0}>
-              Exportar PDF
-            </button>
-          </div>
+        </div>
+      )}
+
+      {ordenes && ordenes.length > 0 && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginBottom: '1rem' }}>
+          <button type="button" className="btn-secondary" onClick={handleExportarExcel} disabled={ordenesFiltradas.length === 0}>
+            Exportar Excel
+          </button>
+          <button type="button" className="btn-secondary" onClick={handleExportarPDF} disabled={ordenesFiltradas.length === 0}>
+            Exportar PDF
+          </button>
         </div>
       )}
 
