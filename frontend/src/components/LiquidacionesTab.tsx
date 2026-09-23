@@ -988,22 +988,34 @@ function LiquidacionesTab({
 
               <table className="data-table" style={{ maxWidth: '32rem', marginLeft: 'auto' }}>
                 <tbody>
-                  <tr>
-                    <td>Publicidad — Declarado</td>
-                    <td style={{ textAlign: 'right' }}>{formatMoney(secciones.publicidad.declarado)}</td>
-                  </tr>
-                  <tr>
-                    <td>Publicidad — Canon {porcentajeComision}%</td>
-                    <td style={{ textAlign: 'right' }}>{formatMoney(secciones.publicidad.canon)}</td>
-                  </tr>
-                  <tr>
-                    <td>Stand — Declarado</td>
-                    <td style={{ textAlign: 'right' }}>{formatMoney(secciones.stand.declarado)}</td>
-                  </tr>
-                  <tr>
-                    <td>Stand — Canon {porcentajeComision}%</td>
-                    <td style={{ textAlign: 'right' }}>{formatMoney(secciones.stand.canon)}</td>
-                  </tr>
+                  {/* Publicidad y Stand se muestran por separado solo cuando la
+                      liquidación realmente tiene líneas de esa sección — si no
+                      hay Stand, mostrar "Stand — Declarado $0,00" es ruido que
+                      no corresponde a ningún concepto real de esta liquidación. */}
+                  {((filas && filas.some((f) => f.seccion === 'publicidad')) || manuales.length > 0) && (
+                    <>
+                      <tr>
+                        <td>Publicidad — Declarado</td>
+                        <td style={{ textAlign: 'right' }}>{formatMoney(secciones.publicidad.declarado)}</td>
+                      </tr>
+                      <tr>
+                        <td>Publicidad — Canon {porcentajeComision}%</td>
+                        <td style={{ textAlign: 'right' }}>{formatMoney(secciones.publicidad.canon)}</td>
+                      </tr>
+                    </>
+                  )}
+                  {filas && filas.some((f) => f.seccion === 'stand') && (
+                    <>
+                      <tr>
+                        <td>Stand — Declarado</td>
+                        <td style={{ textAlign: 'right' }}>{formatMoney(secciones.stand.declarado)}</td>
+                      </tr>
+                      <tr>
+                        <td>Stand — Canon {porcentajeComision}%</td>
+                        <td style={{ textAlign: 'right' }}>{formatMoney(secciones.stand.canon)}</td>
+                      </tr>
+                    </>
+                  )}
                   <tr style={{ fontWeight: 600 }}>
                     <td>Total Final</td>
                     <td style={{ textAlign: 'right' }}>{formatMoney(totalFinal)}</td>
