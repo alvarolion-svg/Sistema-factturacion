@@ -87,8 +87,12 @@ una feature secundaria.
   real, y tanto la pantalla de carga como el export **agrupan por anunciante** (rango de vigencia
   completo, soportes deduplicados — no repite si varias campañas del mismo cliente tienen lo
   mismo, con un solo monto combinado) con un checkbox para desactivar el agrupado; las líneas
-  con aviso de corte-15, excluidas o Sin cargo/Canje quedan sueltas con sus controles propios. El
-  export tiene encabezado (nombre/domicilio del concesionario) y nota libre. Tiene **línea manual con signo**: un tilde "Resta del Canon" para
+  excluidas o Sin cargo/Canje quedan sueltas con sus controles propios. El
+  export tiene encabezado (nombre/domicilio del concesionario) y nota libre. **Las campañas de
+  corte-15 tienen su propia solapa** ("Después del día 15", con contador) separada de "Liquidar",
+  para no ensuciar la vista principal — se agrupan igual que las demás (una orden real con varios
+  soportes es una sola fila, no una por soporte) y en cuanto se tilda "Incluir" pasan solas a la
+  solapa Liquidar como una línea más. Tiene **línea manual con signo**: un tilde "Resta del Canon" para
   gastos compartidos (ej. electricidad) o ajustes por una diferencia pasada, el monto se carga
   siempre positivo. También las **percepciones** (dentro de "Canon por concesionario") pueden
   restar en vez de sumar — mismo tilde — para tasas municipales (% igual que IIBB, pero descuentan
