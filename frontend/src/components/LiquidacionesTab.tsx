@@ -116,7 +116,7 @@ function LiquidacionesTab({
   const [percepcionesCalculadas, setPercepcionesCalculadas] = useState<PercepcionCalculada[]>([]);
   const [totalFinal, setTotalFinal] = useState(0);
   const [totalAPagar, setTotalAPagar] = useState(0);
-  const [vista, setVista] = useState<'liquidar' | 'condiciones'>('liquidar');
+  const [vista, setVista] = useState<'liquidar' | 'tardias' | 'condiciones'>('liquidar');
 
   useEffect(() => {
     axios
@@ -270,6 +270,25 @@ function LiquidacionesTab({
     }
   };
 
+  // Mismo tilde que arriba pero para un grupo colapsado de campañas
+  // después del día 15 — aplica la misma decisión (incluir/dejar para el
+  // mes que viene) a todas las líneas del grupo de una vez.
+  const handleToggleIncluirGrupoTardio = async (lineas: LineaLiquidacion[], incluir: boolean) => {
+    setError('');
+    try {
+      for (const l of lineas) {
+        await axios.put(
+          `/api/liquidaciones/${l.detalle_id}/exclusion`,
+          { mes: Number(mes), ano: Number(ano), excluida: !incluir },
+          authHeaders(token)
+        );
+      }
+      cargar();
+    } catch (err: any) {
+      setError(mensajeError(err, 'No se pudo guardar la decisión de este mes.'));
+    }
+  };
+
   // "Sin cargo" (S/c) y "Canje" — vistos en una liquidación real en vez de un
   // número de pesos. Cuentan como $0 en los totales, pero se muestran
   // distinto en pantalla y en los exports.
@@ -350,47 +369,69 @@ function LiquidacionesTab({
   };
 
   const anosDisponibles = Array.from({ length: 5 }, (_, i) => hoy.getFullYear() - 2 + i);
-  // Las de inicio tardío se muestran siempre (son un aviso explícito, no una
-  // exclusión para esconder) — el toggle "mostrar excluidas" es solo para
-  // las sacadas a mano por otro motivo (ej. cliente no pagó).
-  const filasVisibles = (filas || []).filter((f) => f.inicio_tardio || mostrarExcluidas || !f.excluida);
 
-  // Con "Colapsar" activado, las líneas "limpias" (sin aviso de corte-15,
-  // sin excluir, sin Sin cargo/Canje) del mismo anunciante+sección se
-  // muestran juntas en una sola fila con un solo monto — para informar lo
-  // que ese anunciante paga por todo concepto, no soporte por soporte
-  // (pedido explícito: "el tilde de colapsar también tiene que estar a
-  // nivel de cada línea"). Las líneas que necesitan atención especial
-  // quedan sueltas para no perder sus controles propios.
-  const gruposVisibles = (() => {
-    if (!colapsarPorCliente) return [];
-    const limpias = filasVisibles.filter((f) => !f.inicio_tardio && !f.excluida && !f.estado_especial);
+  // Agrupa un conjunto de líneas por anunciante+sección en una sola fila
+  // (mismo anunciante, misma orden real partida por fecha o por soporte).
+  // Reutilizado tanto para las líneas "limpias" de la solapa Liquidar como
+  // para las de "corte del día 15" en su propia solapa.
+  const agruparLineas = (lineas: LineaLiquidacion[]) => {
     const mapa = new Map<string, LineaLiquidacion[]>();
-    limpias.forEach((f) => {
+    lineas.forEach((f) => {
       const clave = `${f.anunciante}|${f.seccion}`;
       if (!mapa.has(clave)) mapa.set(clave, []);
       mapa.get(clave)!.push(f);
     });
     return Array.from(mapa.entries())
-      .filter(([, lineas]) => lineas.length > 1)
-      .map(([clave, lineas]) => {
-        const desde = lineas.reduce((min, l) => (l.periodo_desde && l.periodo_desde < min ? l.periodo_desde : min), lineas[0].periodo_desde);
-        const hasta = lineas.reduce((max, l) => (l.periodo_hasta && l.periodo_hasta > max ? l.periodo_hasta : max), lineas[0].periodo_hasta);
+      .filter(([, ls]) => ls.length > 1)
+      .map(([clave, ls]) => {
+        const desde = ls.reduce((min, l) => (l.periodo_desde && l.periodo_desde < min ? l.periodo_desde : min), ls[0].periodo_desde);
+        const hasta = ls.reduce((max, l) => (l.periodo_hasta && l.periodo_hasta > max ? l.periodo_hasta : max), ls[0].periodo_hasta);
         return {
           clave,
-          anunciante: lineas[0].anunciante,
-          seccion: lineas[0].seccion,
-          lineas,
-          ordenesTexto: Array.from(new Set(lineas.map((l) => l.numero_orden_agencia || l.numero_orden))).join(', '),
+          anunciante: ls[0].anunciante,
+          seccion: ls[0].seccion,
+          lineas: ls,
+          ordenesTexto: Array.from(new Set(ls.map((l) => l.numero_orden_agencia || l.numero_orden))).join(', '),
           vigenciaTexto: `${formatFecha(desde)} – ${formatFecha(hasta)}`,
-          elementosTexto: Array.from(new Set(lineas.map((l) => `${l.tipo_producto} x ${l.cantidad}`))).join(' + '),
-          locacionTexto: Array.from(new Set(lineas.map((l) => l.locacion_nombre))).join(' + '),
-          montoTotal: lineas.reduce((s, l) => s + (Number(l.monto) || 0), 0),
+          elementosTexto: Array.from(new Set(ls.map((l) => `${l.tipo_producto} x ${l.cantidad}`))).join(' + '),
+          locacionTexto: Array.from(new Set(ls.map((l) => l.locacion_nombre))).join(' + '),
+          montoTotal: ls.reduce((s, l) => s + (Number(l.monto) || 0), 0),
         };
       });
-  })();
+  };
+
+  // Una línea de corte-15 "pendiente" (inicio_tardio && excluida, el default)
+  // vive en la solapa nueva. En cuanto se tilda "incluir este mes" pasa a
+  // excluida=false y automáticamente se vuelve una línea más acá — no queda
+  // separada para siempre, solo mientras la decisión está pendiente.
+  const esPendienteCorte15 = (f: LineaLiquidacion) => f.inicio_tardio && f.excluida;
+
+  // Solapa "Liquidar": las pendientes de corte-15 no aparecen acá (tienen su
+  // propia solapa). "mostrar excluidas" sigue siendo solo para las sacadas a
+  // mano por otro motivo (ej. cliente no pagó).
+  const filasVisibles = (filas || []).filter((f) => !esPendienteCorte15(f) && (mostrarExcluidas || !f.excluida));
+
+  // Con "Colapsar" activado, las líneas "limpias" (sin excluir, sin Sin
+  // cargo/Canje) del mismo anunciante+sección se muestran juntas en una
+  // sola fila con un solo monto — para informar lo que ese anunciante paga
+  // por todo concepto, no soporte por soporte (pedido explícito: "el tilde
+  // de colapsar también tiene que estar a nivel de cada línea"). Las
+  // líneas que necesitan atención especial quedan sueltas para no perder
+  // sus controles propios.
+  const gruposVisibles = colapsarPorCliente
+    ? agruparLineas(filasVisibles.filter((f) => !f.excluida && !f.estado_especial))
+    : [];
   const idsEnGrupos = new Set(gruposVisibles.flatMap((g) => g.lineas.map((l) => l.detalle_id)));
   const filasIndividuales = filasVisibles.filter((f) => !idsEnGrupos.has(f.detalle_id));
+
+  // Solapa "Campañas después del día 15": solo las que siguen pendientes de
+  // decisión. Se agrupan igual que arriba (misma orden real partida en 2
+  // soportes = 1 fila).
+  const filasTardias = (filas || []).filter(esPendienteCorte15);
+  const gruposTardios = agruparLineas(filasTardias.filter((f) => !f.estado_especial));
+  const idsEnGruposTardios = new Set(gruposTardios.flatMap((g) => g.lineas.map((l) => l.detalle_id)));
+  const filasTardiasIndividuales = filasTardias.filter((f) => !idsEnGruposTardios.has(f.detalle_id));
+
   const nombreConcesionario = concesionarios.find((c) => c.id === concesionarioId)?.razon_social || '';
   const direccionConcesionario = concesionarios.find((c) => c.id === concesionarioId)?.direccion || '';
 
@@ -616,6 +657,12 @@ function LiquidacionesTab({
         >
           Liquidar
         </button>
+        <button
+          className={`reportes-tab ${vista === 'tardias' ? 'active' : ''}`}
+          onClick={() => setVista('tardias')}
+        >
+          Después del día 15{filas ? ` (${filasTardias.length})` : ''}
+        </button>
         {puedeCargar && (
           <button
             className={`reportes-tab ${vista === 'condiciones' ? 'active' : ''}`}
@@ -631,9 +678,9 @@ function LiquidacionesTab({
       ) : (
         <>
           <p className="totales-preview" style={{ marginTop: 0 }}>
-            Cantidad, locación y posición se toman de la orden real. El monto NO se calcula de lo que le cobramos al
-            anunciante — no tiene relación fija — se carga a mano por línea y por mes, y queda guardado para siempre
-            en ese período.
+            {vista === 'tardias'
+              ? 'Campañas cuyo inicio real fue después del día 15 del mes — por defecto quedan para la liquidación del mes que viene. Tildá "Incluir" si corresponde sumarlas igual a este período; en cuanto se incluyen pasan a la solapa Liquidar como una línea más.'
+              : 'Cantidad, locación y posición se toman de la orden real. El monto NO se calcula de lo que le cobramos al anunciante — no tiene relación fija — se carga a mano por línea y por mes, y queda guardado para siempre en ese período.'}
           </p>
 
           {error && <div className="error-message">{error}</div>}
@@ -674,13 +721,19 @@ function LiquidacionesTab({
 
           {!concesionarioId && <p className="empty-state">Elegí un concesionario para ver sus campañas del período.</p>}
           {concesionarioId && filas === null && !error && <p className="empty-state">Cargando...</p>}
-          {concesionarioId && filas && filas.length === 0 && manuales.length === 0 && !error && (
+          {concesionarioId && filas && vista === 'liquidar' && filasVisibles.length === 0 && manuales.length === 0 && !error && (
             <p className="empty-state">
               {nombreConcesionario} no tiene campañas activas en {NOMBRES_MES[Number(mes) - 1]} {ano}.
             </p>
           )}
+          {concesionarioId && filas && vista === 'tardias' && filasTardias.length === 0 && !error && (
+            <p className="empty-state">
+              {nombreConcesionario} no tiene campañas pendientes de decisión después del día 15 en{' '}
+              {NOMBRES_MES[Number(mes) - 1]} {ano}.
+            </p>
+          )}
 
-          {filas && (filas.length > 0 || manuales.length > 0) && (
+          {vista === 'liquidar' && filas && (filasVisibles.length > 0 || manuales.length > 0) && (
             <>
               <div style={{ display: 'flex', gap: '0.6rem', marginBottom: '0.8rem', alignItems: 'center', flexWrap: 'wrap' }}>
                 <button type="button" className="btn-secondary" onClick={handleExportarExcel}>
@@ -699,8 +752,8 @@ function LiquidacionesTab({
               <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.8rem' }}>
                 <input type="checkbox" checked={colapsarPorCliente} onChange={(e) => setColapsarPorCliente(e.target.checked)} />
                 Colapsar campañas del mismo cliente (acá y al exportar) — junta las órdenes cortadas por fecha en
-                una sola fila con un solo monto, sin repetir soportes. Las líneas con aviso de corte-15, excluidas o
-                marcadas Sin cargo/Canje quedan sueltas.
+                una sola fila con un solo monto, sin repetir soportes. Las líneas excluidas o marcadas Sin
+                cargo/Canje quedan sueltas.
               </label>
               <label style={{ display: 'block', marginBottom: '0.8rem' }}>
                 Nota para el export (opcional)
@@ -779,26 +832,7 @@ function LiquidacionesTab({
                     </tr>
                   ))}
                   {filasIndividuales.map((f) => (
-                    <Fragment key={f.detalle_id}>
-                      {f.inicio_tardio && (
-                        <tr key={`${f.detalle_id}-aviso`} style={{ background: '#fff8e1' }}>
-                          <td colSpan={puedeCargar ? 10 : 9} style={{ fontSize: '0.85rem', color: '#8a6d00' }}>
-                            ⚠ Esta campaña arrancó el {formatFecha(f.periodo_desde)}, después del corte del día 15 — por
-                            defecto se liquida el mes que viene, no este.
-                            {puedeCargar && (
-                              <label style={{ marginLeft: '1rem', fontWeight: 'normal' }}>
-                                <input
-                                  type="checkbox"
-                                  checked={!f.excluida}
-                                  onChange={(e) => handleToggleIncluirEsteMes(f, e.target.checked)}
-                                />{' '}
-                                Sumar igual a la liquidación de {NOMBRES_MES[Number(mes) - 1]}
-                              </label>
-                            )}
-                          </td>
-                        </tr>
-                      )}
-                      <tr key={f.detalle_id} style={f.excluida ? { opacity: 0.5 } : undefined}>
+                    <tr key={f.detalle_id} style={f.excluida ? { opacity: 0.5 } : undefined}>
                         <td>{f.anunciante}</td>
                         <td>
                           {onVerOrden ? (
@@ -842,11 +876,7 @@ function LiquidacionesTab({
                         </td>
                         {puedeCargar && (
                           <td style={{ fontSize: '0.85rem', whiteSpace: 'nowrap' }}>
-                            {f.inicio_tardio ? (
-                              <span style={{ color: 'var(--color-exito, #2e7d32)' }}>
-                                {guardandoId === f.detalle_id ? 'Guardando...' : guardadoId === f.detalle_id ? 'Guardado ✓' : ''}
-                              </span>
-                            ) : f.excluida ? (
+                            {f.excluida ? (
                               <button type="button" className="btn-link" onClick={() => handleRestaurar(f)}>
                                 Restaurar
                               </button>
@@ -863,7 +893,6 @@ function LiquidacionesTab({
                           </td>
                         )}
                       </tr>
-                    </Fragment>
                   ))}
                   {manuales.map((m) => (
                     <tr key={m.id} style={{ fontStyle: 'italic' }}>
@@ -1001,6 +1030,133 @@ function LiquidacionesTab({
                 </tbody>
               </table>
             </>
+          )}
+
+          {vista === 'tardias' && filas && filasTardias.length > 0 && (
+            <table className="data-table" style={{ marginBottom: '1rem' }}>
+              <thead>
+                <tr>
+                  <th>Anunciante / concepto</th>
+                  <th>N° orden</th>
+                  <th>Sección</th>
+                  <th>Vigencia</th>
+                  <th>Producto</th>
+                  <th>Locación</th>
+                  <th>Posición</th>
+                  <th>Cantidad</th>
+                  <th>Monto liquidado</th>
+                  {puedeCargar && <th>Incluir en {NOMBRES_MES[Number(mes) - 1]}</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {gruposTardios.map((g) => (
+                  <tr key={g.clave} style={{ background: '#fff8e1' }}>
+                    <td>{g.anunciante}</td>
+                    <td style={{ fontSize: '0.8rem' }}>
+                      {onVerOrden
+                        ? Array.from(new Map(g.lineas.map((l) => [l.orden_id, l.numero_orden_agencia || l.numero_orden])).entries()).map(
+                            ([ordenId, numero], i, arr) => (
+                              <span key={ordenId}>
+                                <button type="button" className="btn-link" onClick={() => onVerOrden(ordenId)}>
+                                  {numero}
+                                </button>
+                                {i < arr.length - 1 ? ', ' : ''}
+                              </span>
+                            )
+                          )
+                        : g.ordenesTexto}
+                    </td>
+                    <td>{SECCION_NOMBRE[g.seccion]}</td>
+                    <td>{g.vigenciaTexto}</td>
+                    <td>{g.elementosTexto}</td>
+                    <td>{g.locacionTexto}</td>
+                    <td>—</td>
+                    <td>—</td>
+                    <td>
+                      {puedeCargar ? (
+                        <InputMiles
+                          value={montosGrupoLocal[g.clave] ?? String(g.montoTotal || '')}
+                          onChange={(v) => setMontosGrupoLocal((actual) => ({ ...actual, [g.clave]: v }))}
+                          onBlur={() => handleGuardarMontoGrupo(g.clave, g.lineas, Number(montosGrupoLocal[g.clave] ?? g.montoTotal) || 0)}
+                          style={{ width: '9rem', textAlign: 'right' }}
+                        />
+                      ) : (
+                        formatMoney(g.montoTotal)
+                      )}
+                    </td>
+                    {puedeCargar && (
+                      <td style={{ fontSize: '0.85rem' }}>
+                        <label style={{ fontWeight: 'normal' }}>
+                          <input
+                            type="checkbox"
+                            checked={g.lineas.every((l) => !l.excluida)}
+                            onChange={(e) => handleToggleIncluirGrupoTardio(g.lineas, e.target.checked)}
+                          />{' '}
+                          Incluir
+                        </label>
+                      </td>
+                    )}
+                  </tr>
+                ))}
+                {filasTardiasIndividuales.map((f) => (
+                  <tr key={f.detalle_id}>
+                    <td>{f.anunciante}</td>
+                    <td>
+                      {onVerOrden ? (
+                        <button type="button" className="btn-link" onClick={() => onVerOrden(f.orden_id)}>
+                          {f.numero_orden_agencia || f.numero_orden}
+                        </button>
+                      ) : (
+                        f.numero_orden_agencia || f.numero_orden
+                      )}
+                    </td>
+                    <td>{SECCION_NOMBRE[f.seccion]}</td>
+                    <td>{vigenciaTexto(f)}</td>
+                    <td>{f.tipo_producto}</td>
+                    <td>{f.locacion_nombre}</td>
+                    <td>{f.punto_instalacion || '—'}</td>
+                    <td>{f.cantidad}</td>
+                    <td>
+                      {puedeCargar ? (
+                        <>
+                          <select
+                            value={f.estado_especial || ''}
+                            onChange={(e) => handleEstadoEspecial(f, (e.target.value || null) as EstadoEspecial)}
+                            style={{ display: 'block', marginBottom: '0.2rem', fontSize: '0.8rem' }}
+                          >
+                            <option value="">$</option>
+                            <option value="sin_cargo">Sin cargo</option>
+                            <option value="canje">Canje</option>
+                          </select>
+                          {!f.estado_especial && (
+                            <InputMiles
+                              value={montosLocal[f.detalle_id] ?? ''}
+                              onChange={(v) => setMontosLocal((actual) => ({ ...actual, [f.detalle_id]: v }))}
+                              onBlur={() => handleGuardarMonto(f.detalle_id)}
+                              style={{ width: '9rem', textAlign: 'right' }}
+                            />
+                          )}
+                        </>
+                      ) : (
+                        textoMonto(f)
+                      )}
+                    </td>
+                    {puedeCargar && (
+                      <td style={{ fontSize: '0.85rem' }}>
+                        <label style={{ fontWeight: 'normal' }}>
+                          <input
+                            type="checkbox"
+                            checked={!f.excluida}
+                            onChange={(e) => handleToggleIncluirEsteMes(f, e.target.checked)}
+                          />{' '}
+                          Incluir
+                        </label>
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           )}
         </>
       )}
