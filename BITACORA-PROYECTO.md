@@ -68,7 +68,11 @@ una feature secundaria.
   Gerente). El reporte de comisiones tiene filtro por mes/año/tipo (Tipo 1 con factura, Tipo 2
   efectivo, o ambas), detalle expandible por comisionista con las campañas/clientes que la
   conforman, marca de "sin órdenes" cuando no hubo actividad en el período filtrado, y exportar a
-  Excel/PDF.
+  Excel/PDF. **Bug real corregido (2026-09-23)**: con 3+ comisionistas encadenados mezclando
+  'cascada' y 'base' en la misma orden, el nivel en cascada no restaba lo que dejaban los niveles
+  'base' anteriores (calculaba de más). Verificado exacto contra la planilla real de referencia
+  (caso AMEX/IPG, 3 niveles) — antes el usuario tenía que "trampear" el % de un comisionista a mano
+  para que el resultado cerrara.
 - **Topview → Liquidaciones** (nuevo, **Administrador únicamente** — `liquidaciones_ver`/
   `liquidaciones_cargar`): elegís concesionario + mes/año y lista automáticamente todas las líneas
   de orden con locación de ese concesionario activas ese período (cantidad/locación/posición de
