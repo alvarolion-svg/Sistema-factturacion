@@ -1302,6 +1302,28 @@ export class TopviewService {
       ORDER BY mes
     `);
 
+    // Venta real por mes (según mes/año de ingreso — el mes comercial en el
+    // que se cargó/informó la pauta), distinto de la facturación de arriba:
+    // una orden puede venderse en un mes y facturarse recién el siguiente
+    // ("Mes de ingreso (venta)" vs "Fecha de facturación" en el form de
+    // Órdenes). mes_ingreso/ano_ingreso quedan siempre completos al guardar
+    // una orden (por defecto, el mes/año de periodo_desde si no se cargan a
+    // mano — ver TopviewService.crearOrden), pero las órdenes creadas antes
+    // de que existiera esta columna pueden tenerla en NULL, así que se repite
+    // acá el mismo fallback a periodo_desde por las dudas.
+    const porMesVenta = await this.queryAll(`
+      SELECT printf('%04d-%02d',
+          COALESCE(ano_ingreso, CAST(strftime('%Y', periodo_desde) AS INTEGER)),
+          COALESCE(mes_ingreso, CAST(strftime('%m', periodo_desde) AS INTEGER))
+        ) as mes,
+        SUM(monto_neto) as monto_neto_total,
+        SUM(monto_final) as monto_final_total
+      FROM ordenes_publicidad
+      WHERE (habilitado != 0 OR habilitado IS NULL)
+      GROUP BY mes
+      ORDER BY mes
+    `);
+
     // Mix de soportes vendidos (excluye el placeholder de servicio genérico).
     const porSoporte = await this.queryAll(`
       SELECT p.nombre as producto, SUM(d.cantidad) as cantidad
@@ -1353,11 +1375,15 @@ export class TopviewService {
     const porMesFiltrado = (porMes || []).map((m: any) =>
       incluirNetos ? m : { mes: m.mes, monto_neto_total: m.monto_neto_total }
     );
+    const porMesVentaFiltrado = (porMesVenta || []).map((m: any) =>
+      incluirNetos ? m : { mes: m.mes, monto_neto_total: m.monto_neto_total }
+    );
 
     return {
       por_anunciante: analisisFiltrado,
       totales: totalesFiltrados,
       por_mes: porMesFiltrado,
+      por_mes_venta: porMesVentaFiltrado,
       por_soporte: porSoporte || [],
       top_clientes: topClientes || [],
       por_comisionista_tipo: porComisionistaTipo,

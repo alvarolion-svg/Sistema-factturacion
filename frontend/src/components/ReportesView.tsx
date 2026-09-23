@@ -509,6 +509,7 @@ function ReporteTopview({ datos }: { datos: any }) {
   const porAnunciante = datos.por_anunciante || [];
   const totales = datos.totales || {};
   const porMes = (datos.por_mes || []).map((m: any) => ({ ...m, mesLabel: formatMesCorto(m.mes) }));
+  const porMesVenta = (datos.por_mes_venta || []).map((m: any) => ({ ...m, mesLabel: formatMesCorto(m.mes) }));
   const porSoporte = datos.por_soporte || [];
   const topClientes = datos.top_clientes || [];
 
@@ -544,6 +545,25 @@ function ReporteTopview({ datos }: { datos: any }) {
         )}
       </div>
 
+      {porMesVenta.length > 0 && (
+        <>
+          <h3 className="reportes-subtitulo">Venta mensual (todas las órdenes, según mes de ingreso)</h3>
+          <p className="totales-preview" style={{ marginTop: 0 }}>
+            Agrupa por "Mes de ingreso (venta)" de cada orden — el mes comercial en que se cargó la pauta, no
+            cuándo se termina facturando (eso está abajo, en "Facturación bruta mensual").
+          </p>
+          <ResponsiveContainer width="100%" height={280}>
+            <BarChart data={porMesVenta}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="mesLabel" />
+              <YAxis tickFormatter={(v) => formatMoney(v)} width={90} />
+              <Tooltip formatter={(v: any) => formatMoney(Number(v))} />
+              <Bar dataKey="monto_neto_total" name="Venta" fill={COLORES_GRAFICO[0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </>
+      )}
+
       {porMes.length > 0 && (
         <>
           <h3 className="reportes-subtitulo">Facturación bruta mensual (todas las órdenes, según fecha de facturación)</h3>
@@ -553,7 +573,7 @@ function ReporteTopview({ datos }: { datos: any }) {
               <XAxis dataKey="mesLabel" />
               <YAxis tickFormatter={(v) => formatMoney(v)} width={90} />
               <Tooltip formatter={(v: any) => formatMoney(Number(v))} />
-              <Bar dataKey="monto_neto_total" name="Facturación bruta" fill={COLORES_GRAFICO[0]} />
+              <Bar dataKey="monto_neto_total" name="Facturación bruta" fill={COLORES_GRAFICO[1]} />
             </BarChart>
           </ResponsiveContainer>
         </>
