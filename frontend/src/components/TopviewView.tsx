@@ -966,14 +966,34 @@ function OrdenesTab({
   };
 
   const handleExportarPDF = () => {
-    const columnas = columnasExport(productosSoportes);
-    const filas = ordenesFiltradas.map((o) => filaExport(o, productosSoportes, false));
-    const doc = new jsPDF({ orientation: 'landscape' });
+    const soportes = productosSoportes;
+    const columnas = columnasExport(soportes);
+    const filas = ordenesFiltradas.map((o) => filaExport(o, soportes, false));
+
+    // Con ~23 columnas, una A4 landscape le da tan poco ancho a cada una que
+    // autoTable termina cortando palabras letra por letra en vez de ajustar
+    // por palabra ("Anunciant/e", "Pautas M/ensuales"). Se pasa a A3
+    // landscape (más ancho real) y se les da un ancho fijo angosto a las
+    // columnas de cantidad por soporte y a los % (solo llevan un número
+    // corto o "-"), para que el resto de las columnas de texto tengan más
+    // aire y el ajuste vuelva a ser por palabra.
+    const idxSoportesStart = 8;
+    const idxSoportesEnd = idxSoportesStart + soportes.length - 1;
+    const idxNeto = idxSoportesEnd + 1;
+    const idxNC = idxNeto + 1;
+    const idxFC = idxNC + 1;
+    const columnStyles: Record<number, { cellWidth: number }> = {};
+    for (let i = idxSoportesStart; i <= idxSoportesEnd; i++) columnStyles[i] = { cellWidth: 8 };
+    columnStyles[idxNC] = { cellWidth: 10 };
+    columnStyles[idxFC] = { cellWidth: 10 };
+
+    const doc = new jsPDF({ orientation: 'landscape', format: 'a3' });
     autoTable(doc, {
       head: [columnas],
       body: filas as any,
-      styles: { fontSize: 6, cellPadding: 1.5 },
+      styles: { fontSize: 6, cellPadding: 1.5, overflow: 'linebreak' },
       headStyles: { fillColor: [232, 24, 56] },
+      columnStyles,
     });
     doc.save(nombreArchivoExport('pdf'));
   };
