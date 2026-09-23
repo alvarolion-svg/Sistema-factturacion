@@ -1399,15 +1399,39 @@ function OrdenesTab({
             onVerLiquidacion &&
             mesLiquidacion &&
             anoLiquidacion &&
-            concesionariosDeLaOrden.map((c) => (
+            concesionariosDeLaOrden.length === 1 && (
               <button
-                key={c.id}
                 className="btn-link"
-                onClick={() => onVerLiquidacion(c.id, mesLiquidacion, anoLiquidacion)}
+                onClick={() => onVerLiquidacion(concesionariosDeLaOrden[0].id, mesLiquidacion, anoLiquidacion)}
               >
-                Ver liquidación de {c.nombre}
+                Ver liquidación de {concesionariosDeLaOrden[0].nombre}
               </button>
-            ))}
+            )}
+          {/* Una orden puede tocar muchos concesionarios a la vez (hasta 11 en
+              datos reales) — con más de uno, un botón por cada uno rompía el
+              layout del encabezado, así que se junta en un desplegable. */}
+          {puedeVerLiquidaciones &&
+            onVerLiquidacion &&
+            mesLiquidacion &&
+            anoLiquidacion &&
+            concesionariosDeLaOrden.length > 1 && (
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontWeight: 'normal' }}>
+                Ver liquidación de
+                <select
+                  value=""
+                  onChange={(e) => {
+                    if (e.target.value) onVerLiquidacion(e.target.value, mesLiquidacion, anoLiquidacion);
+                  }}
+                >
+                  <option value="">Elegir concesionario ({concesionariosDeLaOrden.length})...</option>
+                  {concesionariosDeLaOrden.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.nombre}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
         </div>
 
         {cargandoDetalle && <p className="empty-state">Cargando orden...</p>}
