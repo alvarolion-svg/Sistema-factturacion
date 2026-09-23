@@ -82,7 +82,8 @@ una feature secundaria.
   liquidar" real (ej. $220 declarado × 40% = $88 a liquidar), visible en pantalla y en los
   exports. **Validado contra una liquidación real** (Centro Comercial Nordelta) que el usuario
   compartió: se sumaron secciones **Publicidad/Stand** (cada una con su propio Canon, clasificado
-  por tipo de soporte), estados de línea **"Sin cargo"/"Canje"** (cuentan $0), **IVA + percepciones
+  por tipo de soporte, solo se muestra en el resumen si esa liquidación tiene alguna línea de esa
+  sección), estados de línea **"Sin cargo"/"Canje"** (cuentan $0), **IVA + percepciones
   IIBB** (puede haber varias a la vez) calculados sobre el Total Final hasta el **Total a Pagar**
   real, y tanto la pantalla de carga como el export **agrupan por anunciante** (rango de vigencia
   completo, soportes deduplicados — no repite si varias campañas del mismo cliente tienen lo
