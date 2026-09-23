@@ -98,8 +98,9 @@ una feature secundaria.
   restar en vez de sumar — mismo tilde — para tasas municipales (% igual que IIBB, pero descuentan
   del Canon en vez de sumar al Total a Pagar). Tiene **acceso directo con Órdenes**: el N° de orden
   en Liquidar abre esa orden, y el detalle de una orden tiene "Ver liquidación de [concesionario]"
-  (uno por cada concesionario distinto que toque, puede ser más de uno) que vuelve directo al
-  concesionario/mes de esa orden. Cubre el mecanismo base; **todavía no cubre** los casos de
+  — con un solo concesionario es un botón directo; con más de uno (una orden real de YPF llegó a
+  tocar 10 a la vez) es un desplegable, para no romper el layout del encabezado. Cubre el mecanismo
+  base; **todavía no cubre** los casos de
   terceros colgados de la liquidación de un concesionario (Oxant, Esteban Vivo — ver pendiente 2
   abajo).
 - **Producción se despliega fuera de esta Mac**: sin hacer todavía — ver
