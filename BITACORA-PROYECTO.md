@@ -131,7 +131,11 @@ una feature secundaria.
   IVA propio de Oxant`, total a pagar = comisión + IVA. Verificado exacto contra una liquidación
   real de Oxant. Por sumar varios concesionarios, es una **pantalla propia** dentro de
   Liquidaciones ("Oxant", solo mes/año, sin selector de concesionario), con export Excel/PDF
-  también aislado del resto. El % de comisión y el % de IVA son editables ahí mismo.
+  también aislado del resto. El % de comisión y el % de IVA **se editan en "Canon por
+  concesionario"** (mismo criterio que Esteban Vivo) — como es una condición única compartida por
+  los 3, la sección editable aparece en las 3 filas (CECNOR SA, WFPP SRL, PILAR SHOPS S.A.) y
+  guardar desde cualquiera actualiza la misma condición global; la solapa "Oxant" quedó de solo
+  cálculo y export.
 - **Producción se despliega fuera de esta Mac**: sin hacer todavía — ver
   [`PENDIENTE-PRODUCCION.md`](./PENDIENTE-PRODUCCION.md) para el relevamiento completo (qué falta
   antes de exponerlo a internet).
