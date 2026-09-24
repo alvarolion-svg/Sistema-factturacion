@@ -67,6 +67,14 @@ export class LiquidacionesService {
     const vivoRows = await this.queryAll('SELECT * FROM condiciones_esteban_vivo');
     const vivoPorConcesionario = new Map<string, any>();
     vivoRows.forEach((v) => vivoPorConcesionario.set(v.concesionario_id, v));
+    // Oxant es una condición ÚNICA compartida por los 3 concesionarios que
+    // trae (CECNOR SA, WFPP SRL, PILAR SHOPS S.A.) — no una por concesionario
+    // como Esteban Vivo. Se edita desde cualquiera de esas 3 filas en "Canon
+    // por concesionario" y actualiza la misma fila global de condiciones_oxant.
+    const oxantConcesionarioIds = new Set(
+      (await this.queryAll('SELECT concesionario_id FROM oxant_concesionarios')).map((r) => r.concesionario_id)
+    );
+    const oxantCondicion = await this.obtenerCondicionOxant();
     return concesionarios.map((c) => {
       const vivo = vivoPorConcesionario.get(c.concesionario_id);
       return {
@@ -79,6 +87,9 @@ export class LiquidacionesService {
               porcentaje_gastos_top: Number(vivo.porcentaje_gastos_top),
               porcentaje_vivo: Number(vivo.porcentaje_vivo),
             }
+          : null,
+        oxant: oxantConcesionarioIds.has(c.concesionario_id)
+          ? { porcentaje_comision: oxantCondicion.porcentajeComision, iva_porcentaje: oxantCondicion.ivaPorcentaje }
           : null,
       };
     });

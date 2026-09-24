@@ -1394,6 +1394,11 @@ interface CondicionEstebanVivo {
   porcentaje_vivo: number;
 }
 
+interface CondicionOxant {
+  porcentaje_comision: number;
+  iva_porcentaje: number;
+}
+
 interface CondicionConcesionario {
   concesionario_id: string;
   razon_social: string;
@@ -1402,6 +1407,7 @@ interface CondicionConcesionario {
   notas: string | null;
   percepciones: Percepcion[];
   esteban_vivo: CondicionEstebanVivo | null;
+  oxant: CondicionOxant | null;
 }
 
 // Solapa chica dentro de Liquidaciones (no una pantalla aparte) para que el
@@ -1424,6 +1430,11 @@ function CondicionesConcesionarioTab({ token }: { token: string }) {
   const [vivoLocal, setVivoLocal] = useState<Record<string, { comisionVendedor: string; canon: string; gastosTop: string; vivo: string }>>({});
   const [guardandoVivoId, setGuardandoVivoId] = useState<string | null>(null);
   const [guardadoVivoId, setGuardadoVivoId] = useState<string | null>(null);
+  // Oxant es una única condición global (no por concesionario) — se edita
+  // igual desde cualquiera de sus 3 filas, pero hay un solo estado local.
+  const [oxantLocal, setOxantLocal] = useState({ comision: '', iva: '' });
+  const [guardandoOxant, setGuardandoOxant] = useState(false);
+  const [guardadoOxant, setGuardadoOxant] = useState(false);
 
   const cargar = () => {
     setError('');
@@ -1448,6 +1459,10 @@ function CondicionesConcesionarioTab({ token }: { token: string }) {
         });
         setValoresLocal(iniciales);
         setVivoLocal(inicialesVivo);
+        const conOxant = data.find((c) => c.oxant);
+        if (conOxant && conOxant.oxant) {
+          setOxantLocal({ comision: String(conOxant.oxant.porcentaje_comision), iva: String(conOxant.oxant.iva_porcentaje) });
+        }
       })
       .catch((err) => {
         setError(mensajeError(err, 'No se pudieron cargar las condiciones.'));
@@ -1528,6 +1543,25 @@ function CondicionesConcesionarioTab({ token }: { token: string }) {
       setError(mensajeError(err, 'No se pudieron guardar los % de Esteban Vivo.'));
     } finally {
       setGuardandoVivoId(null);
+    }
+  };
+
+  const handleGuardarOxant = async () => {
+    setGuardandoOxant(true);
+    setError('');
+    try {
+      await axios.put(
+        '/api/liquidaciones/condiciones/oxant',
+        { porcentaje_comision: Number(oxantLocal.comision) || 0, iva_porcentaje: Number(oxantLocal.iva) || 0 },
+        authHeaders(token)
+      );
+      setGuardadoOxant(true);
+      setTimeout(() => setGuardadoOxant(false), 1500);
+      cargar();
+    } catch (err: any) {
+      setError(mensajeError(err, 'No se pudieron guardar los % de Oxant.'));
+    } finally {
+      setGuardandoOxant(false);
     }
   };
 
@@ -1618,7 +1652,13 @@ function CondicionesConcesionarioTab({ token }: { token: string }) {
                       className="btn-link"
                       onClick={() => setExpandidoId((actual) => (actual === c.concesionario_id ? null : c.concesionario_id))}
                     >
-                      {expandidoId === c.concesionario_id ? 'Cerrar' : c.esteban_vivo ? 'Percepciones / Esteban Vivo' : 'Percepciones'}
+                      {expandidoId === c.concesionario_id
+                        ? 'Cerrar'
+                        : c.esteban_vivo
+                        ? 'Percepciones / Esteban Vivo'
+                        : c.oxant
+                        ? 'Percepciones / Oxant'
+                        : 'Percepciones'}
                     </button>{' '}
                     <span style={{ color: 'var(--color-exito, #2e7d32)' }}>
                       {guardandoId === c.concesionario_id ? 'Guardando...' : guardadoId === c.concesionario_id ? 'Guardado ✓' : ''}
@@ -1730,6 +1770,41 @@ function CondicionesConcesionarioTab({ token }: { token: string }) {
                           </p>
                         </div>
                       )}
+
+                      {c.oxant && (
+                        <div style={{ marginTop: '1rem', paddingTop: '0.8rem', borderTop: '1px solid #ddd' }}>
+                          <label style={{ display: 'block', marginBottom: '0.4rem' }}>
+                            Oxant — comisión única, compartida con CECNOR SA / WFPP SRL / PILAR SHOPS S.A.
+                          </label>
+                          <div
+                            className="linea-factura"
+                            style={{ gridTemplateColumns: '1fr 1fr auto auto', maxWidth: '30rem', alignItems: 'center' }}
+                          >
+                            <InputPorcentaje
+                              placeholder="% Comisión Oxant"
+                              value={oxantLocal.comision}
+                              onChange={(v) => setOxantLocal((f) => ({ ...f, comision: v }))}
+                              disabled={guardandoOxant}
+                            />
+                            <InputPorcentaje
+                              placeholder="% IVA"
+                              value={oxantLocal.iva}
+                              onChange={(v) => setOxantLocal((f) => ({ ...f, iva: v }))}
+                              disabled={guardandoOxant}
+                            />
+                            <button type="button" className="btn-secondary" onClick={handleGuardarOxant} disabled={guardandoOxant}>
+                              {guardandoOxant ? 'Guardando...' : 'Guardar'}
+                            </button>
+                            <span style={{ color: 'var(--color-exito, #2e7d32)', fontSize: '0.85rem' }}>
+                              {guardadoOxant ? 'Guardado ✓' : ''}
+                            </span>
+                          </div>
+                          <p className="totales-preview" style={{ marginTop: '0.4rem', marginBottom: 0, fontSize: '0.8rem' }}>
+                            Un único % de comisión sobre la suma del Canon de los 3 (editarlo acá lo cambia para los 3), más el
+                            IVA propio de la factura de Oxant. Se ve calculado en la solapa "Oxant".
+                          </p>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 )}
@@ -1767,16 +1842,15 @@ interface OxantData {
 // el IVA propio de la factura de Oxant (21%) sobre la comisión — sin
 // relación con el IVA/percepciones que cada concesionario le cobra a
 // Topview por su lado. Export propio y aislado, mismo criterio que Esteban
-// Vivo: "ninguno ve lo del otro".
+// Vivo: "ninguno ve lo del otro". Los % se editan en "Canon por
+// concesionario" (misma reubicación que se hizo con Esteban Vivo) — acá
+// solo se calcula y se exporta.
 function OxantTab({ token }: { token: string }) {
   const hoy = new Date();
   const [mes, setMes] = useState(String(hoy.getMonth() + 1));
   const [ano, setAno] = useState(String(hoy.getFullYear()));
   const [data, setData] = useState<OxantData | null>(null);
   const [error, setError] = useState('');
-  const [condicionForm, setCondicionForm] = useState({ comision: '', iva: '' });
-  const [guardando, setGuardando] = useState(false);
-  const [guardado, setGuardado] = useState(false);
 
   const anosDisponibles = Array.from({ length: 5 }, (_, i) => hoy.getFullYear() - 2 + i);
 
@@ -1785,10 +1859,7 @@ function OxantTab({ token }: { token: string }) {
     setData(null);
     axios
       .get('/api/liquidaciones/oxant', { ...authHeaders(token), params: { mes, ano } })
-      .then((res) => {
-        setData(res.data);
-        setCondicionForm({ comision: String(res.data.porcentaje_comision), iva: String(res.data.iva_porcentaje) });
-      })
+      .then((res) => setData(res.data))
       .catch((err) => setError(mensajeError(err, 'No se pudo calcular la liquidación de Oxant de ese período.')));
   };
 
@@ -1796,25 +1867,6 @@ function OxantTab({ token }: { token: string }) {
     cargar();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mes, ano]);
-
-  const handleGuardarCondicion = async () => {
-    setGuardando(true);
-    setError('');
-    try {
-      await axios.put(
-        '/api/liquidaciones/condiciones/oxant',
-        { porcentaje_comision: Number(condicionForm.comision) || 0, iva_porcentaje: Number(condicionForm.iva) || 0 },
-        authHeaders(token)
-      );
-      setGuardado(true);
-      setTimeout(() => setGuardado(false), 1500);
-      cargar();
-    } catch (err: any) {
-      setError(mensajeError(err, 'No se pudieron guardar los % de Oxant.'));
-    } finally {
-      setGuardando(false);
-    }
-  };
 
   const nombreArchivo = (ext: string) => `oxant_${NOMBRES_MES[Number(mes) - 1]}_${ano}.${ext}`;
 
@@ -1885,7 +1937,8 @@ function OxantTab({ token }: { token: string }) {
       <p className="totales-preview" style={{ marginTop: 0 }}>
         Oxant cobra un % sobre la suma del Canon (antes de IVA/percepciones) de los concesionarios que trae —
         hoy CECNOR SA, WFPP SRL y PILAR SHOPS S.A. — más el IVA propio de su factura sobre esa comisión. Sección
-        aislada: no se mezcla con lo que se le liquida a cada concesionario ni con lo de Esteban Vivo.
+        aislada: no se mezcla con lo que se le liquida a cada concesionario ni con lo de Esteban Vivo. Los % se
+        editan en "Canon por concesionario" (en la fila de cualquiera de los 3).
       </p>
       {error && <div className="error-message">{error}</div>}
 
@@ -1910,28 +1963,6 @@ function OxantTab({ token }: { token: string }) {
             ))}
           </select>
         </label>
-      </div>
-
-      <div
-        className="linea-factura"
-        style={{ gridTemplateColumns: '1fr 1fr auto auto', maxWidth: '30rem', marginBottom: '1.2rem', alignItems: 'center' }}
-      >
-        <InputPorcentaje
-          placeholder="% Comisión Oxant"
-          value={condicionForm.comision}
-          onChange={(v) => setCondicionForm((f) => ({ ...f, comision: v }))}
-          disabled={guardando}
-        />
-        <InputPorcentaje
-          placeholder="% IVA"
-          value={condicionForm.iva}
-          onChange={(v) => setCondicionForm((f) => ({ ...f, iva: v }))}
-          disabled={guardando}
-        />
-        <button type="button" className="btn-secondary" onClick={handleGuardarCondicion} disabled={guardando}>
-          {guardando ? 'Guardando...' : 'Guardar'}
-        </button>
-        <span style={{ color: 'var(--color-exito, #2e7d32)', fontSize: '0.85rem' }}>{guardado ? 'Guardado ✓' : ''}</span>
       </div>
 
       {data === null && !error && <p className="empty-state">Calculando...</p>}
