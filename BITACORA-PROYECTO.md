@@ -119,11 +119,13 @@ una feature secundaria.
   base y **ya cubre uno de los dos terceros colgados de una liquidación: Esteban Vivo**
   (construido 2026-09-24) — cobra su propia comisión sobre las liquidaciones de Parque C.
   Avellaneda y Pueblo Caamaño, con una cascada propia de 4 pasos (Comisión Vendedor 10% → Canon
-  30% → Gastos Top 20% → Com Vivo 25%, todos editables), calculada por orden real (no por nombre
+  30% → Gastos Top 20% → Com Vivo 25%), calculada por orden real (no por nombre
   de anunciante), en una sección aparte debajo del resumen del concesionario, con export Excel/PDF
   propio y completamente aislado — nunca mezclado con lo del concesionario ni con lo de Oxant, que
   **todavía no está construido** (mismo patrón visual, % distinto, sobre CECNOR SA / World Padel
-  Pilar / Hey Add Center).
+  Pilar / Hey Add Center). Los 4 % se editan en **"Canon por concesionario"** (junto con
+  Canon/IVA/percepciones, no dentro de "Liquidar") — los concesionarios que tienen la condición
+  muestran "Percepciones / Esteban Vivo" al expandir la fila.
 - **Producción se despliega fuera de esta Mac**: sin hacer todavía — ver
   [`PENDIENTE-PRODUCCION.md`](./PENDIENTE-PRODUCCION.md) para el relevamiento completo (qué falta
   antes de exponerlo a internet).
