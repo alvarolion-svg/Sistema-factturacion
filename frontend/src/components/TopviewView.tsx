@@ -2239,7 +2239,20 @@ function OrdenesTab({
               const soporteEnLocacion = (locacionElegida?.soportes || []).find((s: any) => s.producto_id === linea.producto_id);
               const puntosDisponibles = soporteEnLocacion?.puntos || [];
               return (
-              <div className="linea-factura" key={i} style={{ gridTemplateColumns: '1.8fr 70px 1.3fr 1.2fr 1fr 1.6fr auto' }}>
+              <div className="linea-factura" key={i} style={{ gridTemplateColumns: '1.3fr 1.8fr 70px 1.2fr 1fr 1.6fr auto' }}>
+                <select
+                  value={linea.locacion_id}
+                  onChange={(e) => handleChangeProducto(i, 'locacion_id', e.target.value)}
+                  disabled={guardando}
+                  title="Locación (catálogo)"
+                >
+                  <option value="">Sin locación</option>
+                  {locaciones.map((loc) => (
+                    <option key={loc.id} value={loc.id}>
+                      {loc.nombre}
+                    </option>
+                  ))}
+                </select>
                 <select
                   value={linea.producto_id}
                   onChange={(e) => handleChangeProducto(i, 'producto_id', e.target.value)}
@@ -2268,19 +2281,6 @@ function OrdenesTab({
                   onChange={(e) => handleChangeProducto(i, 'cantidad', e.target.value)}
                   disabled={guardando}
                 />
-                <select
-                  value={linea.locacion_id}
-                  onChange={(e) => handleChangeProducto(i, 'locacion_id', e.target.value)}
-                  disabled={guardando}
-                  title="Locación (catálogo)"
-                >
-                  <option value="">Sin locación</option>
-                  {locaciones.map((loc) => (
-                    <option key={loc.id} value={loc.id}>
-                      {loc.nombre}
-                    </option>
-                  ))}
-                </select>
                 <select
                   value={linea.punto_instalacion}
                   onChange={(e) => handleChangeProducto(i, 'punto_instalacion', e.target.value)}
