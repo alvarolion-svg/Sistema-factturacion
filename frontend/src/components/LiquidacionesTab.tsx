@@ -4,7 +4,7 @@ import ExcelJS from 'exceljs';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { authHeaders, mensajeError, formatMoney, formatFecha } from '../utils/api';
-import { InputMiles } from './CamposMonto';
+import { InputMiles, InputPorcentaje } from './CamposMonto';
 
 const NOMBRES_MES = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -62,6 +62,25 @@ interface PercepcionCalculada {
   monto: number;
 }
 
+interface LineaEstebanVivo {
+  anunciante: string;
+  numero_orden: string;
+  declarado: number;
+  comision_vendedor: number;
+  neto1: number;
+  canon: number;
+  neto2: number;
+  gastos_top: number;
+  neto3: number;
+  com_vivo: number;
+}
+
+interface EstebanVivo {
+  porcentajes: { comision_vendedor: number; canon: number; gastos_top: number; vivo: number };
+  lineas: LineaEstebanVivo[];
+  total_a_pagar: number;
+}
+
 const MANUAL_VACIO = { descripcion: '', monto: '', tipo: 'suma' as 'suma' | 'resta' };
 const SECCION_NOMBRE: Record<'publicidad' | 'stand', string> = { publicidad: 'Publicidad', stand: 'Stand' };
 
@@ -116,6 +135,17 @@ function LiquidacionesTab({
   const [percepcionesCalculadas, setPercepcionesCalculadas] = useState<PercepcionCalculada[]>([]);
   const [totalFinal, setTotalFinal] = useState(0);
   const [totalAPagar, setTotalAPagar] = useState(0);
+  // Esteban Vivo: solo llega no-null cuando el concesionario elegido tiene
+  // la condición cargada (hoy, Parque C. Avellaneda / Pueblo Caamaño) — ver
+  // [[project_esteban_vivo_comisiona_no_comisionista]]. Es plata que se le
+  // paga a un tercero distinto del concesionario, con su propia cascada —
+  // se muestra en su propia sección/export, nunca mezclado con lo de arriba
+  // (ni con Oxant si algún día se construye) porque son comunicaciones
+  // separadas: cada uno cobra el suyo sin ver el del otro.
+  const [estebanVivo, setEstebanVivo] = useState<EstebanVivo | null>(null);
+  const [editandoVivo, setEditandoVivo] = useState(false);
+  const [vivoForm, setVivoForm] = useState({ comisionVendedor: '', canon: '', gastosTop: '', vivo: '' });
+  const [guardandoVivo, setGuardandoVivo] = useState(false);
   const [vista, setVista] = useState<'liquidar' | 'tardias' | 'condiciones'>('liquidar');
 
   useEffect(() => {
@@ -146,6 +176,7 @@ function LiquidacionesTab({
         setPercepcionesCalculadas(res.data.percepciones || []);
         setTotalFinal(res.data.total ?? 0);
         setTotalAPagar(res.data.total_a_pagar ?? 0);
+        setEstebanVivo(res.data.esteban_vivo || null);
         const iniciales: Record<string, string> = {};
         data.forEach((f) => {
           iniciales[f.detalle_id] = f.monto ? String(f.monto) : '';
@@ -304,6 +335,40 @@ function LiquidacionesTab({
       cargar();
     } catch (err: any) {
       setError(mensajeError(err, 'No se pudo guardar el estado de la línea.'));
+    }
+  };
+
+  const handleAbrirEditarVivo = () => {
+    if (!estebanVivo) return;
+    setVivoForm({
+      comisionVendedor: String(estebanVivo.porcentajes.comision_vendedor),
+      canon: String(estebanVivo.porcentajes.canon),
+      gastosTop: String(estebanVivo.porcentajes.gastos_top),
+      vivo: String(estebanVivo.porcentajes.vivo),
+    });
+    setEditandoVivo(true);
+  };
+
+  const handleGuardarVivo = async () => {
+    setError('');
+    setGuardandoVivo(true);
+    try {
+      await axios.put(
+        `/api/liquidaciones/condiciones/${concesionarioId}/esteban-vivo`,
+        {
+          porcentaje_comision_vendedor: Number(vivoForm.comisionVendedor) || 0,
+          porcentaje_canon: Number(vivoForm.canon) || 0,
+          porcentaje_gastos_top: Number(vivoForm.gastosTop) || 0,
+          porcentaje_vivo: Number(vivoForm.vivo) || 0,
+        },
+        authHeaders(token)
+      );
+      setEditandoVivo(false);
+      cargar();
+    } catch (err: any) {
+      setError(mensajeError(err, 'No se pudieron guardar los % de Esteban Vivo.'));
+    } finally {
+      setGuardandoVivo(false);
     }
   };
 
@@ -640,6 +705,107 @@ function LiquidacionesTab({
       theme: 'plain',
     });
     doc.save(nombreArchivoExport('pdf'));
+  };
+
+  // Exports de Esteban Vivo van SIEMPRE aparte de los de arriba — nombre de
+  // archivo propio, nada del concesionario ni de otro tercero mezclado, para
+  // que la comunicación con él quede aislada del resto.
+  const nombreArchivoVivo = (ext: string) => `esteban_vivo_${NOMBRES_MES[Number(mes) - 1]}_${ano}.${ext}`;
+
+  const handleExportarVivoExcel = async () => {
+    if (!estebanVivo) return;
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Esteban Vivo');
+    ws.columns = [
+      { header: 'Anunciante', width: 22 },
+      { header: 'N° orden', width: 18 },
+      { header: 'Declarado', width: 16 },
+      { header: `Com. Vendedor ${estebanVivo.porcentajes.comision_vendedor}%`, width: 18 },
+      { header: 'Neto 1', width: 16 },
+      { header: `Canon ${estebanVivo.porcentajes.canon}%`, width: 16 },
+      { header: 'Neto 2', width: 16 },
+      { header: `Gastos Top ${estebanVivo.porcentajes.gastos_top}%`, width: 16 },
+      { header: 'Neto 3', width: 16 },
+      { header: `Com Vivo ${estebanVivo.porcentajes.vivo}%`, width: 16 },
+    ];
+    const formatoMoneda = '_-"$"* #,##0.00_-;_-"$"* \\-#,##0.00_-;_-"$"* "-"??_-;_-@';
+    const headerRow = ws.getRow(1);
+    headerRow.font = { bold: true };
+    headerRow.eachCell((cell) => {
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFA4C2F4' } };
+    });
+    estebanVivo.lineas.forEach((l) => {
+      const fila = ws.addRow([
+        l.anunciante,
+        l.numero_orden,
+        l.declarado,
+        l.comision_vendedor,
+        l.neto1,
+        l.canon,
+        l.neto2,
+        l.gastos_top,
+        l.neto3,
+        l.com_vivo,
+      ]);
+      for (let i = 3; i <= 10; i++) fila.getCell(i).numFmt = formatoMoneda;
+    });
+    const filaTotal = ws.addRow(['TOTAL A PAGAR', '', '', '', '', '', '', '', '', estebanVivo.total_a_pagar]);
+    filaTotal.font = { bold: true };
+    filaTotal.getCell(10).numFmt = formatoMoneda;
+
+    const buffer = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = nombreArchivoVivo('xlsx');
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportarVivoPDF = () => {
+    if (!estebanVivo) return;
+    const doc = new jsPDF({ orientation: 'landscape' });
+    doc.setFontSize(13);
+    doc.text('Esteban Vivo', 14, 15);
+    doc.setFontSize(10);
+    doc.text(`Período: ${NOMBRES_MES[Number(mes) - 1]} ${ano}`, 14, 22);
+    autoTable(doc, {
+      startY: 28,
+      head: [
+        [
+          'Anunciante',
+          'N° orden',
+          'Declarado',
+          `Com. Vendedor ${estebanVivo.porcentajes.comision_vendedor}%`,
+          'Neto 1',
+          `Canon ${estebanVivo.porcentajes.canon}%`,
+          'Neto 2',
+          `Gastos Top ${estebanVivo.porcentajes.gastos_top}%`,
+          'Neto 3',
+          `Com Vivo ${estebanVivo.porcentajes.vivo}%`,
+        ],
+      ],
+      body: [
+        ...estebanVivo.lineas.map((l) => [
+          l.anunciante,
+          l.numero_orden,
+          formatMoney(l.declarado),
+          formatMoney(l.comision_vendedor),
+          formatMoney(l.neto1),
+          formatMoney(l.canon),
+          formatMoney(l.neto2),
+          formatMoney(l.gastos_top),
+          formatMoney(l.neto3),
+          formatMoney(l.com_vivo),
+        ]),
+      ],
+      foot: [['', '', '', '', '', '', '', '', 'TOTAL A PAGAR', formatMoney(estebanVivo.total_a_pagar)]],
+      styles: { fontSize: 8 },
+      headStyles: { fillColor: [232, 24, 56] },
+      footStyles: { fillColor: [240, 240, 240], textColor: [0, 0, 0], fontStyle: 'bold' },
+    });
+    doc.save(nombreArchivoVivo('pdf'));
   };
 
   return (
@@ -1041,6 +1207,115 @@ function LiquidacionesTab({
                   </tr>
                 </tbody>
               </table>
+
+              {estebanVivo && (
+                <div style={{ marginTop: '2.5rem', paddingTop: '1.5rem', borderTop: '3px double #ccc' }}>
+                  <h3 className="reportes-subtitulo">Esteban Vivo</h3>
+                  <p className="totales-preview" style={{ marginTop: 0 }}>
+                    Comisión propia de Esteban Vivo sobre esta liquidación — cascada independiente del Canon de
+                    arriba (Comisión Vendedor {estebanVivo.porcentajes.comision_vendedor}% → Canon{' '}
+                    {estebanVivo.porcentajes.canon}% → Gastos Top {estebanVivo.porcentajes.gastos_top}% → Com Vivo{' '}
+                    {estebanVivo.porcentajes.vivo}%). Esta sección es solo para él: no forma parte de lo que se le
+                    liquida al concesionario y no se le muestra a nadie más.
+                  </p>
+
+                  {puedeCargar && !editandoVivo && (
+                    <button type="button" className="btn-link" onClick={handleAbrirEditarVivo} style={{ marginBottom: '0.8rem' }}>
+                      Editar %
+                    </button>
+                  )}
+                  {puedeCargar && editandoVivo && (
+                    <div
+                      className="linea-factura"
+                      style={{ gridTemplateColumns: '1fr 1fr 1fr 1fr auto auto', marginBottom: '0.8rem', maxWidth: '40rem' }}
+                    >
+                      <InputPorcentaje
+                        placeholder="Com. Vendedor %"
+                        value={vivoForm.comisionVendedor}
+                        onChange={(v) => setVivoForm((f) => ({ ...f, comisionVendedor: v }))}
+                        disabled={guardandoVivo}
+                      />
+                      <InputPorcentaje
+                        placeholder="Canon %"
+                        value={vivoForm.canon}
+                        onChange={(v) => setVivoForm((f) => ({ ...f, canon: v }))}
+                        disabled={guardandoVivo}
+                      />
+                      <InputPorcentaje
+                        placeholder="Gastos Top %"
+                        value={vivoForm.gastosTop}
+                        onChange={(v) => setVivoForm((f) => ({ ...f, gastosTop: v }))}
+                        disabled={guardandoVivo}
+                      />
+                      <InputPorcentaje
+                        placeholder="Com Vivo %"
+                        value={vivoForm.vivo}
+                        onChange={(v) => setVivoForm((f) => ({ ...f, vivo: v }))}
+                        disabled={guardandoVivo}
+                      />
+                      <button type="button" className="btn-secondary" onClick={handleGuardarVivo} disabled={guardandoVivo}>
+                        {guardandoVivo ? 'Guardando...' : 'Guardar'}
+                      </button>
+                      <button type="button" className="btn-link" onClick={() => setEditandoVivo(false)} disabled={guardandoVivo}>
+                        Cancelar
+                      </button>
+                    </div>
+                  )}
+
+                  {estebanVivo.lineas.length === 0 ? (
+                    <p className="empty-state">Sin campañas declaradas en este período.</p>
+                  ) : (
+                    <>
+                      <div style={{ display: 'flex', gap: '0.6rem', marginBottom: '0.8rem' }}>
+                        <button type="button" className="btn-secondary" onClick={handleExportarVivoExcel}>
+                          Exportar Excel (Esteban Vivo)
+                        </button>
+                        <button type="button" className="btn-secondary" onClick={handleExportarVivoPDF}>
+                          Exportar PDF (Esteban Vivo)
+                        </button>
+                      </div>
+                      <table className="data-table" style={{ marginBottom: '1rem' }}>
+                        <thead>
+                          <tr>
+                            <th>Anunciante</th>
+                            <th>N° orden</th>
+                            <th>Declarado</th>
+                            <th>Com. Vendedor {estebanVivo.porcentajes.comision_vendedor}%</th>
+                            <th>Neto 1</th>
+                            <th>Canon {estebanVivo.porcentajes.canon}%</th>
+                            <th>Neto 2</th>
+                            <th>Gastos Top {estebanVivo.porcentajes.gastos_top}%</th>
+                            <th>Neto 3</th>
+                            <th>Com Vivo {estebanVivo.porcentajes.vivo}%</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {estebanVivo.lineas.map((l) => (
+                            <tr key={`${l.numero_orden}-${l.anunciante}`}>
+                              <td>{l.anunciante}</td>
+                              <td>{l.numero_orden}</td>
+                              <td style={{ textAlign: 'right' }}>{formatMoney(l.declarado)}</td>
+                              <td style={{ textAlign: 'right' }}>{formatMoney(l.comision_vendedor)}</td>
+                              <td style={{ textAlign: 'right' }}>{formatMoney(l.neto1)}</td>
+                              <td style={{ textAlign: 'right' }}>{formatMoney(l.canon)}</td>
+                              <td style={{ textAlign: 'right' }}>{formatMoney(l.neto2)}</td>
+                              <td style={{ textAlign: 'right' }}>{formatMoney(l.gastos_top)}</td>
+                              <td style={{ textAlign: 'right' }}>{formatMoney(l.neto3)}</td>
+                              <td style={{ textAlign: 'right', fontWeight: 600 }}>{formatMoney(l.com_vivo)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr style={{ fontWeight: 700, fontSize: '1.05rem' }}>
+                            <td colSpan={9}>Total a Pagar a Esteban Vivo</td>
+                            <td style={{ textAlign: 'right' }}>{formatMoney(estebanVivo.total_a_pagar)}</td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </>
+                  )}
+                </div>
+              )}
             </>
           )}
 

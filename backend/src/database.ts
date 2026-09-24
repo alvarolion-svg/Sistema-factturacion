@@ -962,6 +962,38 @@ db.serialize(() => {
   // (visto en una liquidación real: "S/c" y "Canje" en vez de un número).
   db.run(`ALTER TABLE liquidaciones_detalle ADD COLUMN estado_especial TEXT`, () => {});
 
+  // Esteban Vivo: tercero que trajo los concesionarios de Parque C.
+  // Avellaneda (ARGENTIMO S.A.) y Pueblo Caamaño (FIDEICOMISO CENTRO
+  // COMERCIAL PUEBLO CAAMAÑO) — cobra su propia comisión sobre lo declarado
+  // en esas liquidaciones, con una cascada propia e independiente del Canon
+  // real del concesionario (que puede no tener % configurado todavía, o
+  // tener uno distinto — no están relacionados):
+  //   Neto 1 = declarado − % comisión vendedor
+  //   Neto 2 = Neto 1 − % canon (propio de este cálculo, no el Canon real)
+  //   Neto 3 = Neto 2 − % gastos de representación comercial
+  //   Com Vivo = Neto 3 × % vivo  ← lo que efectivamente cobra
+  // Confirmado contra una liquidación real de agosto 2026 (planilla del
+  // usuario): 10% / 30% / 20% / 25%. Igual que condiciones_concesionario,
+  // sin fila acá = la sección no se muestra (no aplica a ese concesionario).
+  db.run(`
+    CREATE TABLE IF NOT EXISTS condiciones_esteban_vivo (
+      id TEXT PRIMARY KEY,
+      concesionario_id TEXT NOT NULL UNIQUE,
+      porcentaje_comision_vendedor REAL NOT NULL DEFAULT 10,
+      porcentaje_canon REAL NOT NULL DEFAULT 30,
+      porcentaje_gastos_top REAL NOT NULL DEFAULT 20,
+      porcentaje_vivo REAL NOT NULL DEFAULT 25,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (concesionario_id) REFERENCES proveedores(id)
+    )
+  `);
+  db.run(`
+    INSERT OR IGNORE INTO condiciones_esteban_vivo (id, concesionario_id)
+    SELECT lower(hex(randomblob(16))), id FROM proveedores
+    WHERE razon_social IN ('ARGENTIMO S.A.', 'FIDEICOMISO CENTRO COMERCIAL PUEBLO CAAMAÑO')
+  `, () => {});
+
   // Contactos por Email
   db.run(`
     CREATE TABLE IF NOT EXISTS contactos_email (

@@ -105,6 +105,51 @@ export class LiquidacionesService {
     }
   }
 
+  // Condición de Esteban Vivo para un concesionario (null si no aplica —
+  // solo Parque C. Avellaneda / Pueblo Caamaño la tienen cargada hoy, ver
+  // [[project_esteban_vivo_comisiona_no_comisionista]]). Es una cascada
+  // propia, sin relación con el Canon real del concesionario.
+  static async obtenerCondicionEstebanVivo(concesionarioId: string): Promise<{
+    porcentajeComisionVendedor: number;
+    porcentajeCanon: number;
+    porcentajeGastosTop: number;
+    porcentajeVivo: number;
+  } | null> {
+    const fila = await this.queryGet('SELECT * FROM condiciones_esteban_vivo WHERE concesionario_id = ?', [concesionarioId]);
+    if (!fila) return null;
+    return {
+      porcentajeComisionVendedor: Number(fila.porcentaje_comision_vendedor),
+      porcentajeCanon: Number(fila.porcentaje_canon),
+      porcentajeGastosTop: Number(fila.porcentaje_gastos_top),
+      porcentajeVivo: Number(fila.porcentaje_vivo),
+    };
+  }
+
+  static async guardarCondicionEstebanVivo(
+    concesionarioId: string,
+    datos: { porcentajeComisionVendedor: number; porcentajeCanon: number; porcentajeGastosTop: number; porcentajeVivo: number }
+  ): Promise<void> {
+    const existente = await this.queryGet('SELECT * FROM condiciones_esteban_vivo WHERE concesionario_id = ?', [concesionarioId]);
+    if (existente && existente.id) {
+      await this.runQuery(
+        `UPDATE condiciones_esteban_vivo
+         SET porcentaje_comision_vendedor = ?, porcentaje_canon = ?, porcentaje_gastos_top = ?, porcentaje_vivo = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [datos.porcentajeComisionVendedor, datos.porcentajeCanon, datos.porcentajeGastosTop, datos.porcentajeVivo, existente.id]
+      );
+      AuditoriaService.registrarOperacion('condiciones_esteban_vivo', 'UPDATE', existente.id, existente, datos);
+    } else {
+      const id = uuid();
+      await this.runQuery(
+        `INSERT INTO condiciones_esteban_vivo
+         (id, concesionario_id, porcentaje_comision_vendedor, porcentaje_canon, porcentaje_gastos_top, porcentaje_vivo)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [id, concesionarioId, datos.porcentajeComisionVendedor, datos.porcentajeCanon, datos.porcentajeGastosTop, datos.porcentajeVivo]
+      );
+      AuditoriaService.registrarOperacion('condiciones_esteban_vivo', 'INSERT', id, null, { concesionarioId, ...datos });
+    }
+  }
+
   static async agregarPercepcion(
     concesionarioId: string,
     nombre: string,
@@ -169,6 +214,7 @@ export class LiquidacionesService {
         o.numero_orden,
         o.numero_orden_agencia,
         o.razon_social as anunciante,
+        o.nombre_anunciante,
         o.periodo_desde,
         o.periodo_hasta,
         d.tipo_producto,
