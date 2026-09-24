@@ -994,6 +994,47 @@ db.serialize(() => {
     WHERE razon_social IN ('ARGENTIMO S.A.', 'FIDEICOMISO CENTRO COMERCIAL PUEBLO CAAMAÑO')
   `, () => {});
 
+  // Oxant: a diferencia de Esteban Vivo (1 tercero por concesionario), Oxant
+  // cobra UNA comisión sobre la SUMA del Canon (Total Final, antes de IVA y
+  // percepciones) de VARIOS concesionarios a la vez — hoy CECNOR SA, WFPP
+  // SRL (World Padel Pilar) y PILAR SHOPS S.A. (Hey Add Center). Confirmado
+  // contra una liquidación real de Oxant de agosto 2026: 6% de la suma de
+  // los 3 Canon, más el IVA propio de la factura de Oxant (21%) sobre esa
+  // comisión — no tiene relación con el IVA/percepciones que cada
+  // concesionario le cobra a Topview por su lado.
+  // Fila única (no hay concesionario_id — es una comisión de Oxant, no una
+  // condición de cada concesionario individual); qué concesionarios entran
+  // en la suma vive en `oxant_concesionarios`, no hardcodeado en el código,
+  // por si el negocio suma o saca alguno más adelante.
+  db.run(`
+    CREATE TABLE IF NOT EXISTS condiciones_oxant (
+      id TEXT PRIMARY KEY,
+      porcentaje_comision REAL NOT NULL DEFAULT 6,
+      iva_porcentaje REAL NOT NULL DEFAULT 21,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  db.run(`
+    INSERT OR IGNORE INTO condiciones_oxant (id)
+    SELECT lower(hex(randomblob(16)))
+    WHERE NOT EXISTS (SELECT 1 FROM condiciones_oxant)
+  `, () => {});
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS oxant_concesionarios (
+      id TEXT PRIMARY KEY,
+      concesionario_id TEXT NOT NULL UNIQUE,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (concesionario_id) REFERENCES proveedores(id)
+    )
+  `);
+  db.run(`
+    INSERT OR IGNORE INTO oxant_concesionarios (id, concesionario_id)
+    SELECT lower(hex(randomblob(16))), id FROM proveedores
+    WHERE razon_social IN ('CECNOR SA', 'WFPP SRL', 'PILAR SHOPS S.A.')
+  `, () => {});
+
   // Contactos por Email
   db.run(`
     CREATE TABLE IF NOT EXISTS contactos_email (

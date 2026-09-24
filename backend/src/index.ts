@@ -1241,6 +1241,32 @@ app.put('/api/liquidaciones/condiciones/:concesionarioId/esteban-vivo', autentic
   }
 });
 
+app.get('/api/liquidaciones/oxant', autenticacion, requierePermiso('liquidaciones_ver'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const { mes, ano } = req.query;
+    if (!mes || !ano) {
+      return res.status(400).json({ error: 'Faltan mes o año.' });
+    }
+    const resultado = await LiquidacionesService.calcularOxant(Number(mes), Number(ano));
+    res.json(resultado);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/liquidaciones/condiciones/oxant', autenticacion, requierePermiso('liquidaciones_cargar'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const { porcentaje_comision, iva_porcentaje } = req.body;
+    await LiquidacionesService.guardarCondicionOxant({
+      porcentajeComision: Number(porcentaje_comision) || 0,
+      ivaPorcentaje: Number(iva_porcentaje) || 0,
+    });
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 app.post('/api/liquidaciones/condiciones/:concesionarioId/percepciones', autenticacion, requierePermiso('liquidaciones_cargar'), async (req: RequestConUsuario, res: Response) => {
   try {
     const { nombre, porcentaje, tipo } = req.body;

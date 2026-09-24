@@ -143,7 +143,7 @@ function LiquidacionesTab({
   // (ni con Oxant si algún día se construye) porque son comunicaciones
   // separadas: cada uno cobra el suyo sin ver el del otro.
   const [estebanVivo, setEstebanVivo] = useState<EstebanVivo | null>(null);
-  const [vista, setVista] = useState<'liquidar' | 'tardias' | 'condiciones'>('liquidar');
+  const [vista, setVista] = useState<'liquidar' | 'tardias' | 'condiciones' | 'oxant'>('liquidar');
 
   useEffect(() => {
     axios
@@ -800,10 +800,17 @@ function LiquidacionesTab({
             Canon por concesionario
           </button>
         )}
+        {puedeCargar && (
+          <button className={`reportes-tab ${vista === 'oxant' ? 'active' : ''}`} onClick={() => setVista('oxant')}>
+            Oxant
+          </button>
+        )}
       </div>
 
       {vista === 'condiciones' && puedeCargar ? (
         <CondicionesConcesionarioTab token={token} />
+      ) : vista === 'oxant' && puedeCargar ? (
+        <OxantTab token={token} />
       ) : (
         <>
           <p className="totales-preview" style={{ marginTop: 0 }}>
@@ -1730,6 +1737,246 @@ function CondicionesConcesionarioTab({ token }: { token: string }) {
             ))}
           </tbody>
         </table>
+      )}
+    </>
+  );
+}
+
+interface OxantDetalle {
+  concesionario_id: string;
+  razon_social: string;
+  canon: number;
+}
+
+interface OxantData {
+  porcentaje_comision: number;
+  iva_porcentaje: number;
+  detalle: OxantDetalle[];
+  total_canon: number;
+  comision: number;
+  iva: number;
+  total_a_pagar: number;
+}
+
+// Oxant cobra sobre la SUMA del Canon (Total Final, antes de IVA/percepciones)
+// de varios concesionarios a la vez (hoy CECNOR SA, WFPP SRL, PILAR SHOPS
+// S.A. — ver oxant_concesionarios en el backend), no de uno solo — por eso
+// es su propia solapa en vez de vivir dentro de "Canon por concesionario"
+// como Esteban Vivo (que sí es 1 a 1 con un concesionario). Confirmado
+// contra una liquidación real de Oxant de agosto 2026: 6% de esa suma, más
+// el IVA propio de la factura de Oxant (21%) sobre la comisión — sin
+// relación con el IVA/percepciones que cada concesionario le cobra a
+// Topview por su lado. Export propio y aislado, mismo criterio que Esteban
+// Vivo: "ninguno ve lo del otro".
+function OxantTab({ token }: { token: string }) {
+  const hoy = new Date();
+  const [mes, setMes] = useState(String(hoy.getMonth() + 1));
+  const [ano, setAno] = useState(String(hoy.getFullYear()));
+  const [data, setData] = useState<OxantData | null>(null);
+  const [error, setError] = useState('');
+  const [condicionForm, setCondicionForm] = useState({ comision: '', iva: '' });
+  const [guardando, setGuardando] = useState(false);
+  const [guardado, setGuardado] = useState(false);
+
+  const anosDisponibles = Array.from({ length: 5 }, (_, i) => hoy.getFullYear() - 2 + i);
+
+  const cargar = () => {
+    setError('');
+    setData(null);
+    axios
+      .get('/api/liquidaciones/oxant', { ...authHeaders(token), params: { mes, ano } })
+      .then((res) => {
+        setData(res.data);
+        setCondicionForm({ comision: String(res.data.porcentaje_comision), iva: String(res.data.iva_porcentaje) });
+      })
+      .catch((err) => setError(mensajeError(err, 'No se pudo calcular la liquidación de Oxant de ese período.')));
+  };
+
+  useEffect(() => {
+    cargar();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mes, ano]);
+
+  const handleGuardarCondicion = async () => {
+    setGuardando(true);
+    setError('');
+    try {
+      await axios.put(
+        '/api/liquidaciones/condiciones/oxant',
+        { porcentaje_comision: Number(condicionForm.comision) || 0, iva_porcentaje: Number(condicionForm.iva) || 0 },
+        authHeaders(token)
+      );
+      setGuardado(true);
+      setTimeout(() => setGuardado(false), 1500);
+      cargar();
+    } catch (err: any) {
+      setError(mensajeError(err, 'No se pudieron guardar los % de Oxant.'));
+    } finally {
+      setGuardando(false);
+    }
+  };
+
+  const nombreArchivo = (ext: string) => `oxant_${NOMBRES_MES[Number(mes) - 1]}_${ano}.${ext}`;
+
+  const handleExportarExcel = async () => {
+    if (!data) return;
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Oxant');
+    ws.columns = [{ width: 30 }, { width: 20 }];
+    const formatoMoneda = '_-"$"* #,##0.00_-;_-"$"* \\-#,##0.00_-;_-"$"* "-"??_-;_-@';
+
+    ws.addRow(['OXANT']).font = { bold: true, size: 13 };
+    ws.addRow([]);
+    data.detalle.forEach((d) => {
+      const fila = ws.addRow([`Total liquidación ${d.razon_social}`, d.canon]);
+      fila.getCell(2).numFmt = formatoMoneda;
+    });
+    const filaMes = ws.addRow([NOMBRES_MES[Number(mes) - 1].toUpperCase(), data.total_canon]);
+    filaMes.font = { bold: true };
+    filaMes.getCell(2).numFmt = formatoMoneda;
+    const filaComision = ws.addRow([`Comisión Oxant SA Publicidad (${data.porcentaje_comision}%)`, data.comision]);
+    filaComision.font = { bold: true };
+    filaComision.getCell(2).numFmt = formatoMoneda;
+    const filaTotal = ws.addRow(['TOTAL A PAGAR', data.comision]);
+    filaTotal.font = { bold: true };
+    filaTotal.getCell(2).numFmt = formatoMoneda;
+    const filaIva = ws.addRow([`IVA (${data.iva_porcentaje}%)`, data.iva]);
+    filaIva.getCell(2).numFmt = formatoMoneda;
+    const filaFinal = ws.addRow(['Total: A PAGAR CON IVA', data.total_a_pagar]);
+    filaFinal.font = { bold: true };
+    filaFinal.getCell(2).numFmt = formatoMoneda;
+
+    const buffer = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = nombreArchivo('xlsx');
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportarPDF = () => {
+    if (!data) return;
+    const doc = new jsPDF();
+    doc.setFontSize(13);
+    doc.text('OXANT', 14, 15);
+    doc.setFontSize(10);
+    doc.text(`Período: ${NOMBRES_MES[Number(mes) - 1]} ${ano}`, 14, 22);
+    autoTable(doc, {
+      startY: 28,
+      body: [
+        ...data.detalle.map((d) => [`Total liquidación ${d.razon_social}`, formatMoney(d.canon)]),
+        [NOMBRES_MES[Number(mes) - 1].toUpperCase(), formatMoney(data.total_canon)],
+        [`Comisión Oxant SA Publicidad (${data.porcentaje_comision}%)`, formatMoney(data.comision)],
+        ['TOTAL A PAGAR', formatMoney(data.comision)],
+        [`IVA (${data.iva_porcentaje}%)`, formatMoney(data.iva)],
+        ['Total: A PAGAR CON IVA', formatMoney(data.total_a_pagar)],
+      ],
+      styles: { fontSize: 10 },
+      theme: 'plain',
+      columnStyles: { 1: { halign: 'right' } },
+    });
+    doc.save(nombreArchivo('pdf'));
+  };
+
+  return (
+    <>
+      <p className="totales-preview" style={{ marginTop: 0 }}>
+        Oxant cobra un % sobre la suma del Canon (antes de IVA/percepciones) de los concesionarios que trae —
+        hoy CECNOR SA, WFPP SRL y PILAR SHOPS S.A. — más el IVA propio de su factura sobre esa comisión. Sección
+        aislada: no se mezcla con lo que se le liquida a cada concesionario ni con lo de Esteban Vivo.
+      </p>
+      {error && <div className="error-message">{error}</div>}
+
+      <div className="filtros-fila" style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginBottom: '1.2rem' }}>
+        <label>
+          Mes
+          <select value={mes} onChange={(e) => setMes(e.target.value)}>
+            {NOMBRES_MES.map((nombre, i) => (
+              <option key={i + 1} value={i + 1}>
+                {nombre}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Año
+          <select value={ano} onChange={(e) => setAno(e.target.value)}>
+            {anosDisponibles.map((a) => (
+              <option key={a} value={a}>
+                {a}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      <div
+        className="linea-factura"
+        style={{ gridTemplateColumns: '1fr 1fr auto auto', maxWidth: '30rem', marginBottom: '1.2rem', alignItems: 'center' }}
+      >
+        <InputPorcentaje
+          placeholder="% Comisión Oxant"
+          value={condicionForm.comision}
+          onChange={(v) => setCondicionForm((f) => ({ ...f, comision: v }))}
+          disabled={guardando}
+        />
+        <InputPorcentaje
+          placeholder="% IVA"
+          value={condicionForm.iva}
+          onChange={(v) => setCondicionForm((f) => ({ ...f, iva: v }))}
+          disabled={guardando}
+        />
+        <button type="button" className="btn-secondary" onClick={handleGuardarCondicion} disabled={guardando}>
+          {guardando ? 'Guardando...' : 'Guardar'}
+        </button>
+        <span style={{ color: 'var(--color-exito, #2e7d32)', fontSize: '0.85rem' }}>{guardado ? 'Guardado ✓' : ''}</span>
+      </div>
+
+      {data === null && !error && <p className="empty-state">Calculando...</p>}
+
+      {data && (
+        <>
+          <div style={{ display: 'flex', gap: '0.6rem', marginBottom: '0.8rem' }}>
+            <button type="button" className="btn-secondary" onClick={handleExportarExcel}>
+              Exportar Excel (Oxant)
+            </button>
+            <button type="button" className="btn-secondary" onClick={handleExportarPDF}>
+              Exportar PDF (Oxant)
+            </button>
+          </div>
+          <table className="data-table" style={{ maxWidth: '32rem' }}>
+            <tbody>
+              {data.detalle.map((d) => (
+                <tr key={d.concesionario_id}>
+                  <td>Total liquidación {d.razon_social}</td>
+                  <td style={{ textAlign: 'right' }}>{formatMoney(d.canon)}</td>
+                </tr>
+              ))}
+              <tr style={{ fontWeight: 700 }}>
+                <td>{NOMBRES_MES[Number(mes) - 1].toUpperCase()}</td>
+                <td style={{ textAlign: 'right' }}>{formatMoney(data.total_canon)}</td>
+              </tr>
+              <tr style={{ fontWeight: 700 }}>
+                <td>Comisión Oxant SA Publicidad ({data.porcentaje_comision}%)</td>
+                <td style={{ textAlign: 'right' }}>{formatMoney(data.comision)}</td>
+              </tr>
+              <tr style={{ fontWeight: 700 }}>
+                <td>Total a Pagar</td>
+                <td style={{ textAlign: 'right' }}>{formatMoney(data.comision)}</td>
+              </tr>
+              <tr>
+                <td>IVA ({data.iva_porcentaje}%)</td>
+                <td style={{ textAlign: 'right' }}>{formatMoney(data.iva)}</td>
+              </tr>
+              <tr style={{ fontWeight: 700, fontSize: '1.05rem' }}>
+                <td>Total a Pagar con IVA</td>
+                <td style={{ textAlign: 'right' }}>{formatMoney(data.total_a_pagar)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </>
       )}
     </>
   );

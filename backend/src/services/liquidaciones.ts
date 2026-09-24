@@ -170,6 +170,99 @@ export class LiquidacionesService {
     }
   }
 
+  // Reutilizado por Oxant (necesita el Canon de 3 concesionarios distintos
+  // para el mismo período) y equivalente al cálculo que ya hace
+  // GET /api/liquidaciones para un solo concesionario — mismo criterio
+  // (declarado por sección × % de Canon), sin duplicarlo ahí para no tocar
+  // ese endpoint ya validado.
+  static async calcularTotalFinalConcesionario(concesionarioId: string, mes: number, ano: number): Promise<number> {
+    const filas = await this.listarPeriodo(concesionarioId, mes, ano);
+    const manuales = await this.listarManuales(concesionarioId, mes, ano);
+    const condicion = await this.obtenerCondicion(concesionarioId);
+    const declaradoPublicidad =
+      filas.filter((f) => !f.excluida && f.seccion === 'publicidad').reduce((s, f) => s + (Number(f.monto) || 0), 0) +
+      manuales.reduce((s, m) => s + (m.tipo === 'resta' ? -(Number(m.monto) || 0) : Number(m.monto) || 0), 0);
+    const declaradoStand = filas
+      .filter((f) => !f.excluida && f.seccion === 'stand')
+      .reduce((s, f) => s + (Number(f.monto) || 0), 0);
+    const canonPublicidad = declaradoPublicidad * (condicion.porcentajeComision / 100);
+    const canonStand = declaradoStand * (condicion.porcentajeComision / 100);
+    return canonPublicidad + canonStand;
+  }
+
+  // Oxant cobra sobre la SUMA del Canon de varios concesionarios a la vez
+  // (hoy CECNOR SA, WFPP SRL, PILAR SHOPS S.A. — ver oxant_concesionarios),
+  // no por concesionario individual. Confirmado contra una liquidación real
+  // de Oxant: % de comisión sobre esa suma + IVA propio de Oxant sobre la
+  // comisión (no el IVA/percepciones de cada concesionario).
+  static async obtenerCondicionOxant(): Promise<{ porcentajeComision: number; ivaPorcentaje: number }> {
+    const fila = await this.queryGet('SELECT * FROM condiciones_oxant LIMIT 1');
+    return {
+      porcentajeComision: fila ? Number(fila.porcentaje_comision) : 6,
+      ivaPorcentaje: fila ? Number(fila.iva_porcentaje) : 21,
+    };
+  }
+
+  static async guardarCondicionOxant(datos: { porcentajeComision: number; ivaPorcentaje: number }): Promise<void> {
+    const existente = await this.queryGet('SELECT * FROM condiciones_oxant LIMIT 1');
+    if (existente && existente.id) {
+      await this.runQuery(
+        'UPDATE condiciones_oxant SET porcentaje_comision = ?, iva_porcentaje = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+        [datos.porcentajeComision, datos.ivaPorcentaje, existente.id]
+      );
+      AuditoriaService.registrarOperacion('condiciones_oxant', 'UPDATE', existente.id, existente, datos);
+    } else {
+      const id = uuid();
+      await this.runQuery('INSERT INTO condiciones_oxant (id, porcentaje_comision, iva_porcentaje) VALUES (?, ?, ?)', [
+        id,
+        datos.porcentajeComision,
+        datos.ivaPorcentaje,
+      ]);
+      AuditoriaService.registrarOperacion('condiciones_oxant', 'INSERT', id, null, datos);
+    }
+  }
+
+  static async listarConcesionariosOxant(): Promise<Array<{ concesionario_id: string; razon_social: string }>> {
+    return this.queryAll(`
+      SELECT oc.concesionario_id, p.razon_social
+      FROM oxant_concesionarios oc
+      JOIN proveedores p ON p.id = oc.concesionario_id
+      ORDER BY p.razon_social
+    `);
+  }
+
+  static async calcularOxant(mes: number, ano: number): Promise<{
+    porcentaje_comision: number;
+    iva_porcentaje: number;
+    detalle: Array<{ concesionario_id: string; razon_social: string; canon: number }>;
+    total_canon: number;
+    comision: number;
+    iva: number;
+    total_a_pagar: number;
+  }> {
+    const condicion = await this.obtenerCondicionOxant();
+    const concesionarios = await this.listarConcesionariosOxant();
+    const detalle = await Promise.all(
+      concesionarios.map(async (c) => ({
+        concesionario_id: c.concesionario_id,
+        razon_social: c.razon_social,
+        canon: await this.calcularTotalFinalConcesionario(c.concesionario_id, mes, ano),
+      }))
+    );
+    const totalCanon = detalle.reduce((s, d) => s + d.canon, 0);
+    const comision = totalCanon * (condicion.porcentajeComision / 100);
+    const iva = comision * (condicion.ivaPorcentaje / 100);
+    return {
+      porcentaje_comision: condicion.porcentajeComision,
+      iva_porcentaje: condicion.ivaPorcentaje,
+      detalle,
+      total_canon: totalCanon,
+      comision,
+      iva,
+      total_a_pagar: comision + iva,
+    };
+  }
+
   static async agregarPercepcion(
     concesionarioId: string,
     nombre: string,
