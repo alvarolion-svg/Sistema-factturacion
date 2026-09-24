@@ -2255,6 +2255,21 @@ function OrdenesTab({
               const locacionElegida = locaciones.find((loc) => loc.id === linea.locacion_id);
               const soporteEnLocacion = (locacionElegida?.soportes || []).find((s: any) => s.producto_id === linea.producto_id);
               const puntosDisponibles = soporteEnLocacion?.puntos || [];
+              // Con locación elegida, solo se ofrecen los soportes que esa
+              // locación realmente tiene cargados en su inventario (evita
+              // armar una orden con un soporte que no existe ahí, ej. PPLs
+              // en una locación que solo tiene Pantalla Gran Formato). Se
+              // conserva visible el producto ya guardado aunque no esté en
+              // el inventario, para no esconder/romper una línea existente
+              // — el usuario lo ve y lo corrige a mano.
+              const productosDisponibles = (productos || [])
+                .filter((p) => p.tipo !== 'servicio')
+                .filter(
+                  (p) =>
+                    !locacionElegida ||
+                    (locacionElegida.soportes || []).some((s: any) => s.producto_id === p.id) ||
+                    p.id === linea.producto_id
+                );
               return (
               <div className="linea-factura" key={i} style={{ gridTemplateColumns: '1.3fr 1.8fr 70px 1.2fr 1fr 1.6fr auto' }}>
                 <select
@@ -2280,11 +2295,11 @@ function OrdenesTab({
                       ? 'Cargando...'
                       : productos.length === 0
                       ? 'No hay productos cargados'
+                      : locacionElegida && productosDisponibles.length === 0
+                      ? 'Esta locación no tiene soportes cargados'
                       : 'Elegir producto'}
                   </option>
-                  {(productos || [])
-                    .filter((p) => p.tipo !== 'servicio')
-                    .map((p) => (
+                  {productosDisponibles.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.nombre}
                     </option>
