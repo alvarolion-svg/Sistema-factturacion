@@ -932,6 +932,32 @@ function OrdenesTab({
       ]);
     });
 
+    // Misma fila de totales que ya se ve en pantalla (tfoot de la tabla):
+    // suma por soporte, $ Neto s/desc, $ Neto blanco y Neto Topview.
+    const filaTotalesExcel = ws.addRow([
+      `Totales (${ordenesFiltradas.length} órdenes)`,
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      ...soportes.map((p) => totalesFila.porProducto[p.id] || 0),
+      totalesFila.montoNeto,
+      '',
+      '',
+      totalesFila.netoBlanco,
+      totalesFila.montoFinal,
+      '',
+      '',
+      '',
+    ]);
+    filaTotalesExcel.eachCell((cell) => {
+      cell.font = { bold: true };
+      cell.border = { top: { style: 'thin' } };
+    });
+
     const headerRow = ws.getRow(1);
     headerRow.height = 20;
     headerRow.eachCell((cell) => {
@@ -987,12 +1013,36 @@ function OrdenesTab({
     columnStyles[idxNC] = { cellWidth: 10 };
     columnStyles[idxFC] = { cellWidth: 10 };
 
+    // Misma fila de totales que ya se ve en pantalla: suma por soporte,
+    // $ Neto s/desc, $ Neto blanco y Neto Topview.
+    const filaTotalesPDF = [
+      `Totales (${ordenesFiltradas.length} órdenes)`,
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      ...soportes.map((p) => String(totalesFila.porProducto[p.id] || '-')),
+      formatMoney(totalesFila.montoNeto),
+      '',
+      '',
+      formatMoney(totalesFila.netoBlanco),
+      formatMoney(totalesFila.montoFinal),
+      '',
+      '',
+      '',
+    ];
+
     const doc = new jsPDF({ orientation: 'landscape', format: 'a3' });
     autoTable(doc, {
       head: [columnas],
       body: filas as any,
+      foot: [filaTotalesPDF],
       styles: { fontSize: 6, cellPadding: 1.5, overflow: 'linebreak' },
       headStyles: { fillColor: [232, 24, 56] },
+      footStyles: { fillColor: [240, 240, 240], textColor: [0, 0, 0], fontStyle: 'bold' },
       columnStyles,
     });
     doc.save(nombreArchivoExport('pdf'));
