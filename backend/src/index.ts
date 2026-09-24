@@ -1122,65 +1122,6 @@ app.get('/api/liquidaciones', autenticacion, requierePermiso('liquidaciones_ver'
     }));
     const totalAPagar = totalFinal + ivaMonto + percepcionesCalculadas.reduce((s, p) => s + p.monto, 0);
 
-    // Esteban Vivo: solo se calcula/muestra si este concesionario tiene la
-    // condición cargada (hoy, Parque C. Avellaneda y Pueblo Caamaño — ver
-    // [[project_esteban_vivo_comisiona_no_comisionista]]). Cascada propia,
-    // sin relación con el Canon real de arriba. Se agrupa por orden real
-    // (no por nombre de anunciante) para no mezclar campañas distintas del
-    // mismo cliente en una sola fila, pero sí consolidar las líneas de
-    // soporte de una misma orden.
-    const condicionVivo = await LiquidacionesService.obtenerCondicionEstebanVivo(String(concesionario_id));
-    let estebanVivo: any = null;
-    if (condicionVivo) {
-      const porOrden = new Map<string, { anunciante: string; numeroOrden: string; declarado: number }>();
-      filas
-        .filter((f) => !f.excluida)
-        .forEach((f) => {
-          const clave = f.orden_id;
-          if (!porOrden.has(clave)) {
-            porOrden.set(clave, {
-              anunciante: f.nombre_anunciante || f.anunciante,
-              numeroOrden: f.numero_orden_agencia || f.numero_orden,
-              declarado: 0,
-            });
-          }
-          porOrden.get(clave)!.declarado += Number(f.monto) || 0;
-        });
-      const lineas = Array.from(porOrden.values())
-        .filter((l) => l.declarado !== 0)
-        .map((l) => {
-          const comisionVendedor = l.declarado * (condicionVivo.porcentajeComisionVendedor / 100);
-          const neto1 = l.declarado - comisionVendedor;
-          const canon = neto1 * (condicionVivo.porcentajeCanon / 100);
-          const neto2 = neto1 - canon;
-          const gastosTop = neto2 * (condicionVivo.porcentajeGastosTop / 100);
-          const neto3 = neto2 - gastosTop;
-          const comVivo = neto3 * (condicionVivo.porcentajeVivo / 100);
-          return {
-            anunciante: l.anunciante,
-            numero_orden: l.numeroOrden,
-            declarado: l.declarado,
-            comision_vendedor: comisionVendedor,
-            neto1,
-            canon,
-            neto2,
-            gastos_top: gastosTop,
-            neto3,
-            com_vivo: comVivo,
-          };
-        });
-      estebanVivo = {
-        porcentajes: {
-          comision_vendedor: condicionVivo.porcentajeComisionVendedor,
-          canon: condicionVivo.porcentajeCanon,
-          gastos_top: condicionVivo.porcentajeGastosTop,
-          vivo: condicionVivo.porcentajeVivo,
-        },
-        lineas,
-        total_a_pagar: lineas.reduce((s, l) => s + l.com_vivo, 0),
-      };
-    }
-
     res.json({
       filas,
       manuales,
@@ -1192,7 +1133,6 @@ app.get('/api/liquidaciones', autenticacion, requierePermiso('liquidaciones_ver'
       iva_monto: ivaMonto,
       percepciones: percepcionesCalculadas,
       total_a_pagar: totalAPagar,
-      esteban_vivo: estebanVivo,
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -1238,6 +1178,17 @@ app.put('/api/liquidaciones/condiciones/:concesionarioId/esteban-vivo', autentic
     res.json({ ok: true });
   } catch (err: any) {
     res.status(400).json({ error: err.message });
+  }
+});
+
+app.get('/api/liquidaciones/esteban-vivo', autenticacion, requierePermiso('liquidaciones_ver'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const { mes, ano } = req.query;
+    if (!mes || !ano) return res.status(400).json({ error: 'Faltan mes o año.' });
+    const resultado = await LiquidacionesService.calcularEstebanVivoTodos(Number(mes), Number(ano));
+    res.json(resultado);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
   }
 });
 

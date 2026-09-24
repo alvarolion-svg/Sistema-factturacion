@@ -181,6 +181,109 @@ export class LiquidacionesService {
     }
   }
 
+  static async listarConcesionariosEstebanVivo(): Promise<Array<{ concesionario_id: string; razon_social: string }>> {
+    return this.queryAll(`
+      SELECT cv.concesionario_id, p.razon_social
+      FROM condiciones_esteban_vivo cv
+      JOIN proveedores p ON p.id = cv.concesionario_id
+      ORDER BY p.razon_social
+    `);
+  }
+
+  // Cascada de Esteban Vivo para UN concesionario/período — agrupa por orden
+  // real (no por nombre de anunciante) para no mezclar campañas distintas
+  // del mismo cliente en una sola fila, pero sí consolidar las líneas de
+  // soporte de una misma orden. Extraído de lo que antes vivía inline en
+  // GET /api/liquidaciones, ahora reutilizado también por la solapa propia
+  // "Esteban Vivo" (que suma los 2 concesionarios que lo traen — mismo
+  // patrón que Oxant, a pedido del usuario: "el manejo es similar").
+  static async calcularEstebanVivoConcesionario(concesionarioId: string, mes: number, ano: number): Promise<{
+    porcentajes: { comision_vendedor: number; canon: number; gastos_top: number; vivo: number };
+    lineas: Array<{
+      anunciante: string;
+      numero_orden: string;
+      declarado: number;
+      comision_vendedor: number;
+      neto1: number;
+      canon: number;
+      neto2: number;
+      gastos_top: number;
+      neto3: number;
+      com_vivo: number;
+    }>;
+    total_a_pagar: number;
+  } | null> {
+    const condicionVivo = await this.obtenerCondicionEstebanVivo(concesionarioId);
+    if (!condicionVivo) return null;
+    const filas = await this.listarPeriodo(concesionarioId, mes, ano);
+    const porOrden = new Map<string, { anunciante: string; numeroOrden: string; declarado: number }>();
+    filas
+      .filter((f) => !f.excluida)
+      .forEach((f) => {
+        const clave = f.orden_id;
+        if (!porOrden.has(clave)) {
+          porOrden.set(clave, {
+            anunciante: f.nombre_anunciante || f.anunciante,
+            numeroOrden: f.numero_orden_agencia || f.numero_orden,
+            declarado: 0,
+          });
+        }
+        porOrden.get(clave)!.declarado += Number(f.monto) || 0;
+      });
+    const lineas = Array.from(porOrden.values())
+      .filter((l) => l.declarado !== 0)
+      .map((l) => {
+        const comisionVendedor = l.declarado * (condicionVivo.porcentajeComisionVendedor / 100);
+        const neto1 = l.declarado - comisionVendedor;
+        const canon = neto1 * (condicionVivo.porcentajeCanon / 100);
+        const neto2 = neto1 - canon;
+        const gastosTop = neto2 * (condicionVivo.porcentajeGastosTop / 100);
+        const neto3 = neto2 - gastosTop;
+        const comVivo = neto3 * (condicionVivo.porcentajeVivo / 100);
+        return {
+          anunciante: l.anunciante,
+          numero_orden: l.numeroOrden,
+          declarado: l.declarado,
+          comision_vendedor: comisionVendedor,
+          neto1,
+          canon,
+          neto2,
+          gastos_top: gastosTop,
+          neto3,
+          com_vivo: comVivo,
+        };
+      });
+    return {
+      porcentajes: {
+        comision_vendedor: condicionVivo.porcentajeComisionVendedor,
+        canon: condicionVivo.porcentajeCanon,
+        gastos_top: condicionVivo.porcentajeGastosTop,
+        vivo: condicionVivo.porcentajeVivo,
+      },
+      lineas,
+      total_a_pagar: lineas.reduce((s, l) => s + l.com_vivo, 0),
+    };
+  }
+
+  static async calcularEstebanVivoTodos(mes: number, ano: number): Promise<{
+    detalle: Array<{ concesionario_id: string; razon_social: string } & NonNullable<Awaited<ReturnType<typeof LiquidacionesService.calcularEstebanVivoConcesionario>>>>;
+    total_a_pagar: number;
+  }> {
+    const concesionarios = await this.listarConcesionariosEstebanVivo();
+    const detalle = (
+      await Promise.all(
+        concesionarios.map(async (c) => {
+          const calculo = await this.calcularEstebanVivoConcesionario(c.concesionario_id, mes, ano);
+          return calculo ? { concesionario_id: c.concesionario_id, razon_social: c.razon_social, ...calculo } : null;
+        })
+      )
+    ).filter((d): d is NonNullable<typeof d> => d !== null);
+    return {
+      detalle,
+      total_a_pagar: detalle.reduce((s, d) => s + d.total_a_pagar, 0),
+    };
+  }
+
   // Reutilizado por Oxant (necesita el Canon de 3 concesionarios distintos
   // para el mismo período) y equivalente al cálculo que ya hace
   // GET /api/liquidaciones para un solo concesionario — mismo criterio
