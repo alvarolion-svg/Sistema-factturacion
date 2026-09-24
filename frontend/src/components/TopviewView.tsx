@@ -2234,6 +2234,23 @@ function OrdenesTab({
 
           <div className="lineas-factura" style={{ gridColumn: '1 / -1' }}>
             <label>Productos / soportes *</label>
+            <div
+              className="linea-factura"
+              style={{
+                gridTemplateColumns: '1.3fr 1.8fr 70px 1.2fr 1fr 1.6fr auto',
+                fontSize: '0.8rem',
+                fontWeight: 600,
+                color: '#666',
+              }}
+            >
+              <span>Locación</span>
+              <span>Producto / Soporte</span>
+              <span>Cantidad</span>
+              <span>Posición</span>
+              <span>Precio</span>
+              <span>Notas</span>
+              <span></span>
+            </div>
             {lineasProductos.map((linea, i) => {
               const locacionElegida = locaciones.find((loc) => loc.id === linea.locacion_id);
               const soporteEnLocacion = (locacionElegida?.soportes || []).find((s: any) => s.producto_id === linea.producto_id);
