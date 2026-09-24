@@ -61,7 +61,27 @@ export class LiquidacionesService {
       if (!percepcionesPorConcesionario.has(p.concesionario_id)) percepcionesPorConcesionario.set(p.concesionario_id, []);
       percepcionesPorConcesionario.get(p.concesionario_id)!.push(p);
     });
-    return concesionarios.map((c) => ({ ...c, percepciones: percepcionesPorConcesionario.get(c.concesionario_id) || [] }));
+    // Esteban Vivo: solo los concesionarios que lo tienen cargado traen esta
+    // condición (hoy, Parque C. Avellaneda / Pueblo Caamaño) — null para el
+    // resto, así la pantalla sabe cuándo mostrar la sección.
+    const vivoRows = await this.queryAll('SELECT * FROM condiciones_esteban_vivo');
+    const vivoPorConcesionario = new Map<string, any>();
+    vivoRows.forEach((v) => vivoPorConcesionario.set(v.concesionario_id, v));
+    return concesionarios.map((c) => {
+      const vivo = vivoPorConcesionario.get(c.concesionario_id);
+      return {
+        ...c,
+        percepciones: percepcionesPorConcesionario.get(c.concesionario_id) || [],
+        esteban_vivo: vivo
+          ? {
+              porcentaje_comision_vendedor: Number(vivo.porcentaje_comision_vendedor),
+              porcentaje_canon: Number(vivo.porcentaje_canon),
+              porcentaje_gastos_top: Number(vivo.porcentaje_gastos_top),
+              porcentaje_vivo: Number(vivo.porcentaje_vivo),
+            }
+          : null,
+      };
+    });
   }
 
   // Condición completa de un concesionario (Canon, IVA y percepciones) para

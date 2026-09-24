@@ -143,9 +143,6 @@ function LiquidacionesTab({
   // (ni con Oxant si algún día se construye) porque son comunicaciones
   // separadas: cada uno cobra el suyo sin ver el del otro.
   const [estebanVivo, setEstebanVivo] = useState<EstebanVivo | null>(null);
-  const [editandoVivo, setEditandoVivo] = useState(false);
-  const [vivoForm, setVivoForm] = useState({ comisionVendedor: '', canon: '', gastosTop: '', vivo: '' });
-  const [guardandoVivo, setGuardandoVivo] = useState(false);
   const [vista, setVista] = useState<'liquidar' | 'tardias' | 'condiciones'>('liquidar');
 
   useEffect(() => {
@@ -335,40 +332,6 @@ function LiquidacionesTab({
       cargar();
     } catch (err: any) {
       setError(mensajeError(err, 'No se pudo guardar el estado de la línea.'));
-    }
-  };
-
-  const handleAbrirEditarVivo = () => {
-    if (!estebanVivo) return;
-    setVivoForm({
-      comisionVendedor: String(estebanVivo.porcentajes.comision_vendedor),
-      canon: String(estebanVivo.porcentajes.canon),
-      gastosTop: String(estebanVivo.porcentajes.gastos_top),
-      vivo: String(estebanVivo.porcentajes.vivo),
-    });
-    setEditandoVivo(true);
-  };
-
-  const handleGuardarVivo = async () => {
-    setError('');
-    setGuardandoVivo(true);
-    try {
-      await axios.put(
-        `/api/liquidaciones/condiciones/${concesionarioId}/esteban-vivo`,
-        {
-          porcentaje_comision_vendedor: Number(vivoForm.comisionVendedor) || 0,
-          porcentaje_canon: Number(vivoForm.canon) || 0,
-          porcentaje_gastos_top: Number(vivoForm.gastosTop) || 0,
-          porcentaje_vivo: Number(vivoForm.vivo) || 0,
-        },
-        authHeaders(token)
-      );
-      setEditandoVivo(false);
-      cargar();
-    } catch (err: any) {
-      setError(mensajeError(err, 'No se pudieron guardar los % de Esteban Vivo.'));
-    } finally {
-      setGuardandoVivo(false);
     }
   };
 
@@ -1216,51 +1179,9 @@ function LiquidacionesTab({
                     arriba (Comisión Vendedor {estebanVivo.porcentajes.comision_vendedor}% → Canon{' '}
                     {estebanVivo.porcentajes.canon}% → Gastos Top {estebanVivo.porcentajes.gastos_top}% → Com Vivo{' '}
                     {estebanVivo.porcentajes.vivo}%). Esta sección es solo para él: no forma parte de lo que se le
-                    liquida al concesionario y no se le muestra a nadie más.
+                    liquida al concesionario y no se le muestra a nadie más.{' '}
+                    {puedeCargar && 'Los % se editan en la solapa "Canon por concesionario".'}
                   </p>
-
-                  {puedeCargar && !editandoVivo && (
-                    <button type="button" className="btn-link" onClick={handleAbrirEditarVivo} style={{ marginBottom: '0.8rem' }}>
-                      Editar %
-                    </button>
-                  )}
-                  {puedeCargar && editandoVivo && (
-                    <div
-                      className="linea-factura"
-                      style={{ gridTemplateColumns: '1fr 1fr 1fr 1fr auto auto', marginBottom: '0.8rem', maxWidth: '40rem' }}
-                    >
-                      <InputPorcentaje
-                        placeholder="Com. Vendedor %"
-                        value={vivoForm.comisionVendedor}
-                        onChange={(v) => setVivoForm((f) => ({ ...f, comisionVendedor: v }))}
-                        disabled={guardandoVivo}
-                      />
-                      <InputPorcentaje
-                        placeholder="Canon %"
-                        value={vivoForm.canon}
-                        onChange={(v) => setVivoForm((f) => ({ ...f, canon: v }))}
-                        disabled={guardandoVivo}
-                      />
-                      <InputPorcentaje
-                        placeholder="Gastos Top %"
-                        value={vivoForm.gastosTop}
-                        onChange={(v) => setVivoForm((f) => ({ ...f, gastosTop: v }))}
-                        disabled={guardandoVivo}
-                      />
-                      <InputPorcentaje
-                        placeholder="Com Vivo %"
-                        value={vivoForm.vivo}
-                        onChange={(v) => setVivoForm((f) => ({ ...f, vivo: v }))}
-                        disabled={guardandoVivo}
-                      />
-                      <button type="button" className="btn-secondary" onClick={handleGuardarVivo} disabled={guardandoVivo}>
-                        {guardandoVivo ? 'Guardando...' : 'Guardar'}
-                      </button>
-                      <button type="button" className="btn-link" onClick={() => setEditandoVivo(false)} disabled={guardandoVivo}>
-                        Cancelar
-                      </button>
-                    </div>
-                  )}
 
                   {estebanVivo.lineas.length === 0 ? (
                     <p className="empty-state">Sin campañas declaradas en este período.</p>
@@ -1459,6 +1380,13 @@ interface Percepcion {
   tipo: 'suma' | 'resta';
 }
 
+interface CondicionEstebanVivo {
+  porcentaje_comision_vendedor: number;
+  porcentaje_canon: number;
+  porcentaje_gastos_top: number;
+  porcentaje_vivo: number;
+}
+
 interface CondicionConcesionario {
   concesionario_id: string;
   razon_social: string;
@@ -1466,6 +1394,7 @@ interface CondicionConcesionario {
   iva_porcentaje: number;
   notas: string | null;
   percepciones: Percepcion[];
+  esteban_vivo: CondicionEstebanVivo | null;
 }
 
 // Solapa chica dentro de Liquidaciones (no una pantalla aparte) para que el
@@ -1485,6 +1414,9 @@ function CondicionesConcesionarioTab({ token }: { token: string }) {
   const [guardadoId, setGuardadoId] = useState<string | null>(null);
   const [expandidoId, setExpandidoId] = useState<string | null>(null);
   const [percepcionForm, setPercepcionForm] = useState({ nombre: '', porcentaje: '', tipo: 'suma' as 'suma' | 'resta' });
+  const [vivoLocal, setVivoLocal] = useState<Record<string, { comisionVendedor: string; canon: string; gastosTop: string; vivo: string }>>({});
+  const [guardandoVivoId, setGuardandoVivoId] = useState<string | null>(null);
+  const [guardadoVivoId, setGuardadoVivoId] = useState<string | null>(null);
 
   const cargar = () => {
     setError('');
@@ -1495,10 +1427,20 @@ function CondicionesConcesionarioTab({ token }: { token: string }) {
         const data: CondicionConcesionario[] = res.data || [];
         setCondiciones(data);
         const iniciales: Record<string, { canon: string; iva: string }> = {};
+        const inicialesVivo: Record<string, { comisionVendedor: string; canon: string; gastosTop: string; vivo: string }> = {};
         data.forEach((c) => {
           iniciales[c.concesionario_id] = { canon: String(c.porcentaje_comision), iva: String(c.iva_porcentaje) };
+          if (c.esteban_vivo) {
+            inicialesVivo[c.concesionario_id] = {
+              comisionVendedor: String(c.esteban_vivo.porcentaje_comision_vendedor),
+              canon: String(c.esteban_vivo.porcentaje_canon),
+              gastosTop: String(c.esteban_vivo.porcentaje_gastos_top),
+              vivo: String(c.esteban_vivo.porcentaje_vivo),
+            };
+          }
         });
         setValoresLocal(iniciales);
+        setVivoLocal(inicialesVivo);
       })
       .catch((err) => {
         setError(mensajeError(err, 'No se pudieron cargar las condiciones.'));
@@ -1554,6 +1496,31 @@ function CondicionesConcesionarioTab({ token }: { token: string }) {
       cargar();
     } catch (err: any) {
       setError(mensajeError(err, 'No se pudo agregar la percepción.'));
+    }
+  };
+
+  const handleGuardarVivo = async (concesionarioId: string) => {
+    const v = vivoLocal[concesionarioId];
+    setGuardandoVivoId(concesionarioId);
+    setError('');
+    try {
+      await axios.put(
+        `/api/liquidaciones/condiciones/${concesionarioId}/esteban-vivo`,
+        {
+          porcentaje_comision_vendedor: Number(v?.comisionVendedor) || 0,
+          porcentaje_canon: Number(v?.canon) || 0,
+          porcentaje_gastos_top: Number(v?.gastosTop) || 0,
+          porcentaje_vivo: Number(v?.vivo) || 0,
+        },
+        authHeaders(token)
+      );
+      setGuardadoVivoId(concesionarioId);
+      setTimeout(() => setGuardadoVivoId((actual) => (actual === concesionarioId ? null : actual)), 1500);
+      cargar();
+    } catch (err: any) {
+      setError(mensajeError(err, 'No se pudieron guardar los % de Esteban Vivo.'));
+    } finally {
+      setGuardandoVivoId(null);
     }
   };
 
@@ -1644,7 +1611,7 @@ function CondicionesConcesionarioTab({ token }: { token: string }) {
                       className="btn-link"
                       onClick={() => setExpandidoId((actual) => (actual === c.concesionario_id ? null : c.concesionario_id))}
                     >
-                      {expandidoId === c.concesionario_id ? 'Cerrar' : 'Percepciones'}
+                      {expandidoId === c.concesionario_id ? 'Cerrar' : c.esteban_vivo ? 'Percepciones / Esteban Vivo' : 'Percepciones'}
                     </button>{' '}
                     <span style={{ color: 'var(--color-exito, #2e7d32)' }}>
                       {guardandoId === c.concesionario_id ? 'Guardando...' : guardadoId === c.concesionario_id ? 'Guardado ✓' : ''}
@@ -1697,6 +1664,65 @@ function CondicionesConcesionarioTab({ token }: { token: string }) {
                           + Agregar
                         </button>
                       </form>
+
+                      {c.esteban_vivo && (
+                        <div style={{ marginTop: '1rem', paddingTop: '0.8rem', borderTop: '1px solid #ddd' }}>
+                          <label style={{ display: 'block', marginBottom: '0.4rem' }}>Esteban Vivo — % propios de su cascada</label>
+                          <div
+                            className="linea-factura"
+                            style={{ gridTemplateColumns: '1fr 1fr 1fr 1fr auto auto', maxWidth: '40rem', alignItems: 'center' }}
+                          >
+                            <InputPorcentaje
+                              placeholder="Com. Vendedor %"
+                              value={vivoLocal[c.concesionario_id]?.comisionVendedor ?? ''}
+                              onChange={(v) =>
+                                setVivoLocal((actual) => ({
+                                  ...actual,
+                                  [c.concesionario_id]: { ...actual[c.concesionario_id], comisionVendedor: v },
+                                }))
+                              }
+                            />
+                            <InputPorcentaje
+                              placeholder="Canon %"
+                              value={vivoLocal[c.concesionario_id]?.canon ?? ''}
+                              onChange={(v) =>
+                                setVivoLocal((actual) => ({ ...actual, [c.concesionario_id]: { ...actual[c.concesionario_id], canon: v } }))
+                              }
+                            />
+                            <InputPorcentaje
+                              placeholder="Gastos Top %"
+                              value={vivoLocal[c.concesionario_id]?.gastosTop ?? ''}
+                              onChange={(v) =>
+                                setVivoLocal((actual) => ({
+                                  ...actual,
+                                  [c.concesionario_id]: { ...actual[c.concesionario_id], gastosTop: v },
+                                }))
+                              }
+                            />
+                            <InputPorcentaje
+                              placeholder="Com Vivo %"
+                              value={vivoLocal[c.concesionario_id]?.vivo ?? ''}
+                              onChange={(v) =>
+                                setVivoLocal((actual) => ({ ...actual, [c.concesionario_id]: { ...actual[c.concesionario_id], vivo: v } }))
+                              }
+                            />
+                            <button type="button" className="btn-secondary" onClick={() => handleGuardarVivo(c.concesionario_id)}>
+                              Guardar
+                            </button>
+                            <span style={{ color: 'var(--color-exito, #2e7d32)', fontSize: '0.85rem' }}>
+                              {guardandoVivoId === c.concesionario_id
+                                ? 'Guardando...'
+                                : guardadoVivoId === c.concesionario_id
+                                ? 'Guardado ✓'
+                                : ''}
+                            </span>
+                          </div>
+                          <p className="totales-preview" style={{ marginTop: '0.4rem', marginBottom: 0, fontSize: '0.8rem' }}>
+                            Cascada: Declarado −Com. Vendedor → Neto 1 −Canon → Neto 2 −Gastos Top → Neto 3 × Com Vivo = lo que cobra.
+                            Se ve calculado en la solapa "Liquidar" de este concesionario.
+                          </p>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 )}
