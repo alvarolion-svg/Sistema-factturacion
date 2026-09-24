@@ -34,8 +34,11 @@ una feature secundaria.
 
 - **Autenticación y roles** con permisos por sección.
 - **Topview**: Órdenes de publicidad, Órdenes de producción, Agencias, Comisionistas,
-  Condiciones, Comisiones en efectivo, Vendedores — todo con datos reales cargados (44 órdenes de
-  publicidad, 268 clientes, 506 proveedores).
+  Condiciones, Comisiones en efectivo, Vendedores — todo con datos reales cargados (45 órdenes de
+  publicidad, 268 clientes, 506 proveedores). La lista de Órdenes tiene filtros (mes/año según
+  fecha de facturación o mes de ingreso, tipo de anunciante, facturación, búsqueda) y exporta a
+  Excel/PDF con una fila de Totales al pie (suma por soporte y por los 3 montos), calcada de la
+  tabla en pantalla.
 - **Catálogo de Locaciones** (`locaciones` + `locaciones_capacidad` + `locaciones_puntos`): 21
   locaciones reales (el usuario las va sumando/editando en vivo, así que este número crece solo),
   cada una con su inventario de soportes y, opcionalmente, puntos de instalación con nombre propio
