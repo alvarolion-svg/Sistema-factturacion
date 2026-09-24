@@ -116,9 +116,14 @@ una feature secundaria.
   en Liquidar abre esa orden, y el detalle de una orden tiene "Ver liquidación de [concesionario]"
   — con un solo concesionario es un botón directo; con más de uno (una orden real de YPF llegó a
   tocar 10 a la vez) es un desplegable, para no romper el layout del encabezado. Cubre el mecanismo
-  base; **todavía no cubre** los casos de
-  terceros colgados de la liquidación de un concesionario (Oxant, Esteban Vivo — ver pendiente 2
-  abajo).
+  base y **ya cubre uno de los dos terceros colgados de una liquidación: Esteban Vivo**
+  (construido 2026-09-24) — cobra su propia comisión sobre las liquidaciones de Parque C.
+  Avellaneda y Pueblo Caamaño, con una cascada propia de 4 pasos (Comisión Vendedor 10% → Canon
+  30% → Gastos Top 20% → Com Vivo 25%, todos editables), calculada por orden real (no por nombre
+  de anunciante), en una sección aparte debajo del resumen del concesionario, con export Excel/PDF
+  propio y completamente aislado — nunca mezclado con lo del concesionario ni con lo de Oxant, que
+  **todavía no está construido** (mismo patrón visual, % distinto, sobre CECNOR SA / World Padel
+  Pilar / Hey Add Center).
 - **Producción se despliega fuera de esta Mac**: sin hacer todavía — ver
   [`PENDIENTE-PRODUCCION.md`](./PENDIENTE-PRODUCCION.md) para el relevamiento completo (qué falta
   antes de exponerlo a internet).
@@ -146,18 +151,15 @@ más importantes:
    resolvieron (WFPP SRL creado con su CUIT real; Parque Austral tiene a ASOCIACION CIVIL DE
    ESTUDIOS SUPERIORES ACES).
 2. **Módulo Liquidaciones a locatarios**: **mecanismo base + ABM construido** (Topview →
-   Liquidaciones, ver arriba, con exportar Excel/PDF) — falta, sobre todo, los dos casos de
-   terceros que se cuelgan de la liquidación de un concesionario (además del concesionario
-   mismo), que **todavía no están construidos**. Confirmado: que una locación tenga
-   **más de un tercero cobrando de su liquidación** es parte real del negocio de Topview, no una
-   excepción rara. Dos casos confirmados hasta ahora, mismo patrón:
+   Liquidaciones, ver arriba, con exportar Excel/PDF). De los terceros que se cuelgan de la
+   liquidación de un concesionario, **Esteban Vivo ya está construido** (2026-09-24, ver arriba);
+   falta **Oxant**:
    - **OXANT GROUP S.R.L.** cobra un **%** de lo que Topview le liquida a CECNOR SA, World Padel
-     Pilar (WFPP SRL) y Hey Add Center (Pilar Shops S.A.).
-   - **Esteban Vivo** trajo los concesionarios de **Parque C. Avellaneda** y **Pueblo Caamaño** —
-     cuando se liquide cualquiera de esos dos, tiene que replicarse automáticamente la misma lista
-     de campañas con un campo aparte para cargarle a mano cuánto se le paga (monto fijo, no %).
-   - Las reglas exactas (el % de Oxant, cómo se define el monto de Esteban Vivo) quedan para más
-     adelante — "después vemos las reglas para esos 2 casos."
+     Pilar (WFPP SRL) y Hey Add Center (Pilar Shops S.A.) — la regla exacta (el %, si tiene una
+     cascada propia como Esteban Vivo o es directo) todavía no se definió con el usuario.
+   - **Esteban Vivo** (resuelto): trajo los concesionarios de **Parque C. Avellaneda** y **Pueblo
+     Caamaño** — cobra un % en cascada (10%/30%/20%/25%), no un monto fijo como se pensaba
+     originalmente. Construido y verificado contra una liquidación real.
    - **Envío por mail**: diseño acordado, no construido — cerrar una liquidación crea una versión
      numerada con foto congelada de los números (se puede seguir editando después, cada re-cierre
      suma una versión nueva, con alerta si ya estaba cerrada/enviada), el PDF que ya arma el
