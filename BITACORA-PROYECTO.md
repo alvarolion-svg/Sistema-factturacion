@@ -121,11 +121,17 @@ una feature secundaria.
   Avellaneda y Pueblo Caamaño, con una cascada propia de 4 pasos (Comisión Vendedor 10% → Canon
   30% → Gastos Top 20% → Com Vivo 25%), calculada por orden real (no por nombre
   de anunciante), en una sección aparte debajo del resumen del concesionario, con export Excel/PDF
-  propio y completamente aislado — nunca mezclado con lo del concesionario ni con lo de Oxant, que
-  **todavía no está construido** (mismo patrón visual, % distinto, sobre CECNOR SA / World Padel
-  Pilar / Hey Add Center). Los 4 % se editan en **"Canon por concesionario"** (junto con
-  Canon/IVA/percepciones, no dentro de "Liquidar") — los concesionarios que tienen la condición
-  muestran "Percepciones / Esteban Vivo" al expandir la fila.
+  propio y completamente aislado — nunca mezclado con lo del concesionario ni con lo de Oxant. Los
+  4 % de Esteban Vivo se editan en **"Canon por concesionario"** (junto con Canon/IVA/percepciones,
+  no dentro de "Liquidar") — los concesionarios que tienen la condición muestran "Percepciones /
+  Esteban Vivo" al expandir la fila. **Y ahora cubre también el segundo: Oxant** (construido
+  2026-09-24) — a diferencia de Esteban Vivo (1:1 con un concesionario), Oxant cobra una **comisión
+  única sobre la suma del Canon** de **tres** concesionarios a la vez (CECNOR SA, WFPP SRL/World
+  Padel Pilar, PILAR SHOPS S.A./Hey Add Center): `total_canon × 6% = comisión`, `comisión × 21% =
+  IVA propio de Oxant`, total a pagar = comisión + IVA. Verificado exacto contra una liquidación
+  real de Oxant. Por sumar varios concesionarios, es una **pantalla propia** dentro de
+  Liquidaciones ("Oxant", solo mes/año, sin selector de concesionario), con export Excel/PDF
+  también aislado del resto. El % de comisión y el % de IVA son editables ahí mismo.
 - **Producción se despliega fuera de esta Mac**: sin hacer todavía — ver
   [`PENDIENTE-PRODUCCION.md`](./PENDIENTE-PRODUCCION.md) para el relevamiento completo (qué falta
   antes de exponerlo a internet).
@@ -153,15 +159,10 @@ más importantes:
    resolvieron (WFPP SRL creado con su CUIT real; Parque Austral tiene a ASOCIACION CIVIL DE
    ESTUDIOS SUPERIORES ACES).
 2. **Módulo Liquidaciones a locatarios**: **mecanismo base + ABM construido** (Topview →
-   Liquidaciones, ver arriba, con exportar Excel/PDF). De los terceros que se cuelgan de la
-   liquidación de un concesionario, **Esteban Vivo ya está construido** (2026-09-24, ver arriba);
-   falta **Oxant**:
-   - **OXANT GROUP S.R.L.** cobra un **%** de lo que Topview le liquida a CECNOR SA, World Padel
-     Pilar (WFPP SRL) y Hey Add Center (Pilar Shops S.A.) — la regla exacta (el %, si tiene una
-     cascada propia como Esteban Vivo o es directo) todavía no se definió con el usuario.
-   - **Esteban Vivo** (resuelto): trajo los concesionarios de **Parque C. Avellaneda** y **Pueblo
-     Caamaño** — cobra un % en cascada (10%/30%/20%/25%), no un monto fijo como se pensaba
-     originalmente. Construido y verificado contra una liquidación real.
+   Liquidaciones, ver arriba, con exportar Excel/PDF). Los dos terceros que se cuelgan de una
+   liquidación **ya están construidos y verificados** (2026-09-24, ver arriba): **Esteban Vivo**
+   (cascada 10%/30%/20%/25% sobre Parque C. Avellaneda/Pueblo Caamaño) y **Oxant** (6% sobre la
+   suma del Canon de CECNOR SA/WFPP SRL/Pilar Shops + 21% IVA propio). Queda pendiente:
    - **Envío por mail**: diseño acordado, no construido — cerrar una liquidación crea una versión
      numerada con foto congelada de los números (se puede seguir editando después, cada re-cierre
      suma una versión nueva, con alerta si ya estaba cerrada/enviada), el PDF que ya arma el
