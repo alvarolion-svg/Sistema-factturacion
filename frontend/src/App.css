@@ -401,6 +401,16 @@ body {
   border-radius: 4px;
   font-size: 0.95rem;
   font-family: inherit;
+  /* Sin esto, un <select> con una opción de texto largo (ej. "Nordelta ruta
+     27 8x4") fuerza su columna a crecer más de lo que le toca según el fr
+     de esa fila puntual — como cada fila es un grid independiente, eso
+     corre las columnas siguientes solo en esa fila y desalinea todo contra
+     el encabezado y el resto de las líneas. min-width: 0 deja que la
+     columna respete el ancho proporcional y el contenido se recorte en vez
+     de empujar. */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .totales-preview {
