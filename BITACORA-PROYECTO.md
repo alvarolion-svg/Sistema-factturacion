@@ -116,15 +116,19 @@ una feature secundaria.
   en Liquidar abre esa orden, y el detalle de una orden tiene "Ver liquidación de [concesionario]"
   — con un solo concesionario es un botón directo; con más de uno (una orden real de YPF llegó a
   tocar 10 a la vez) es un desplegable, para no romper el layout del encabezado. Cubre el mecanismo
-  base y **ya cubre uno de los dos terceros colgados de una liquidación: Esteban Vivo**
-  (construido 2026-09-24) — cobra su propia comisión sobre las liquidaciones de Parque C.
-  Avellaneda y Pueblo Caamaño, con una cascada propia de 4 pasos (Comisión Vendedor 10% → Canon
-  30% → Gastos Top 20% → Com Vivo 25%), calculada por orden real (no por nombre
-  de anunciante), en una sección aparte debajo del resumen del concesionario, con export Excel/PDF
-  propio y completamente aislado — nunca mezclado con lo del concesionario ni con lo de Oxant. Los
-  4 % de Esteban Vivo se editan en **"Canon por concesionario"** (junto con Canon/IVA/percepciones,
-  no dentro de "Liquidar") — los concesionarios que tienen la condición muestran "Percepciones /
-  Esteban Vivo" al expandir la fila. **Y ahora cubre también el segundo: Oxant** (construido
+  base y **ya cubre los dos terceros colgados de una liquidación: Esteban Vivo y Oxant**, cada uno
+  con **pantalla propia** dentro de Liquidaciones (solo mes/año, sin elegir concesionario) — export
+  Excel/PDF propio y completamente aislado, nunca mezclado con lo del concesionario ni entre sí.
+  **Esteban Vivo** (construido 2026-09-24) cobra su propia comisión sobre las liquidaciones de
+  Parque C. Avellaneda y Pueblo Caamaño, con una cascada propia de 4 pasos (Comisión Vendedor 10%
+  → Canon 30% → Gastos Top 20% → Com Vivo 25%), calculada por orden real (no por nombre de
+  anunciante). Al principio vivía embebido dentro de "Liquidar" de cada concesionario, pero
+  obligaba a entrar a cada uno por separado para ver/exportar — se movió a su propia solapa
+  "Esteban Vivo" (mismo día, mismo patrón que Oxant) que suma los 2 concesionarios de una vez, con
+  una sección y subtotal por cada uno y un total general. Los 4 % se editan en **"Canon por
+  concesionario"** (junto con Canon/IVA/percepciones, no dentro de "Liquidar" ni de "Esteban
+  Vivo") — los concesionarios que tienen la condición muestran "Percepciones / Esteban Vivo" al
+  expandir la fila. **Oxant** (construido
   2026-09-24) — a diferencia de Esteban Vivo (1:1 con un concesionario), Oxant cobra una **comisión
   única sobre la suma del Canon** de **tres** concesionarios a la vez (CECNOR SA, WFPP SRL/World
   Padel Pilar, PILAR SHOPS S.A./Hey Add Center): `total_canon × 6% = comisión`, `comisión × 21% =
