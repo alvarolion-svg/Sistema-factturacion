@@ -2647,19 +2647,32 @@ function OrdenesTab({
           </div>
           <div className="form-group" style={{ margin: 0 }}>
             <label htmlFor="filtro_mes">Mes</label>
-            <select
-              id="filtro_mes"
-              value={filtroMes}
-              onChange={(e) => setFiltroMes(e.target.value)}
-              style={{ width: '9rem' }}
-            >
-              <option value="">Todos los meses</option>
-              {NOMBRES_MES.map((nombre, i) => (
-                <option key={nombre} value={i + 1}>
-                  {nombre}
-                </option>
-              ))}
-            </select>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+              <select
+                id="filtro_mes"
+                value={filtroMes}
+                onChange={(e) => setFiltroMes(e.target.value)}
+                style={{ width: '9rem' }}
+              >
+                <option value="">Todos los meses</option>
+                {NOMBRES_MES.map((nombre, i) => (
+                  <option key={nombre} value={i + 1}>
+                    {nombre}
+                  </option>
+                ))}
+              </select>
+              <button type="button" className="btn-secondary" onClick={() => cambiarMesFiltro(-1)} title="Mes anterior">
+                ◀
+              </button>
+              <button type="button" className="btn-secondary" onClick={() => cambiarMesFiltro(1)} title="Mes siguiente">
+                ▶
+              </button>
+            </div>
+            {filtroMes && (
+              <button type="button" className="btn-link" style={{ fontSize: '0.8rem' }} onClick={() => setFiltroMes('')}>
+                Ver todos los meses
+              </button>
+            )}
           </div>
           <div className="form-group" style={{ margin: 0 }}>
             <label htmlFor="filtro_ano">Año</label>
@@ -2676,30 +2689,12 @@ function OrdenesTab({
                 </option>
               ))}
             </select>
+            {filtroAno && (
+              <button type="button" className="btn-link" style={{ display: 'block', fontSize: '0.8rem' }} onClick={() => setFiltroAno('')}>
+                Ver todos los años
+              </button>
+            )}
           </div>
-          {(filtroMes || filtroAno) && (
-            <div className="form-group" style={{ margin: 0 }}>
-              <label>&nbsp;</label>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                <button type="button" className="btn-secondary" onClick={() => cambiarMesFiltro(-1)} title="Mes anterior">
-                  ◀
-                </button>
-                <button type="button" className="btn-secondary" onClick={() => cambiarMesFiltro(1)} title="Mes siguiente">
-                  ▶
-                </button>
-                <button
-                  type="button"
-                  className="btn-link"
-                  onClick={() => {
-                    setFiltroMes('');
-                    setFiltroAno('');
-                  }}
-                >
-                  Ver todas
-                </button>
-              </div>
-            </div>
-          )}
           <div className="form-group" style={{ margin: 0 }}>
             <label htmlFor="filtro_facturado">Facturación</label>
             <select
