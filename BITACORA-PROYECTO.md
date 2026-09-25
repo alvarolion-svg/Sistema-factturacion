@@ -245,6 +245,14 @@ más importantes:
    también para Oxant/Esteban Vivo/Iris Chiterer, que la reutilizan). La sección "Comerciales" ahora
    muestra además el **desagregado por anunciante** del mes elegido (Anunciantes Topview / Anunciantes
    Concesionario, cada uno con subtotal), igual que el documento real de referencia.
+   Todavía el usuario notó que hasta las ventas REALES de Topview (San Andres, TOM) seguían pidiendo
+   un monto $ — resultó que World Padel Pilar se paga **100% por trueque**, ni la parte de Topview
+   cobra plata ahí. Se agregó `condiciones_comerciales.ocultar_liquidacion_dinero`, tildable en
+   "Canon por concesionario" ("podemos ocultarla y desocultarla aca" — reversible, no hardcode): con
+   el tilde activo, "Liquidar" no muestra ninguna tabla de $ para ese concesionario, solo la sección
+   Comerciales. De paso se corrigió un bug: el botón "Percepciones / X" solo mostraba el primer
+   tercero cuando un concesionario tenía más de uno (WFPP tiene Oxant y Comerciales a la vez) — ahora
+   lista todos ("Percepciones / Oxant / Comerciales").
    **Ojo, pendiente sin resolver**: "Pauta Concesionario" todavía no excluye estas órdenes de
    Reportes de Ventas/Dashboard (Topview no se queda con esa plata) — sigue sumando ahí igual que
    cualquier otra; ahora sería trivial filtrarlas por tipo si se pide.
