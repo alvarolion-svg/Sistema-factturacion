@@ -47,6 +47,7 @@ interface DatosOrden {
   }>;
   notas?: string;
   facturado?: boolean;
+  vendido_por_concesionario?: boolean;
   arreglos_no_registrables?: Array<{
     tipo?: string;
     descripcion?: string;
@@ -167,8 +168,8 @@ export class TopviewService {
           costo_produccion, monto_neto, descuento_porcentaje, descuento_en_cascada, descuento_monto,
           monto_neto_aplicado, descuento_facturas_porcentaje, descuento_facturas_monto,
           descuento_facturas_en_cascada, monto_final, notas, facturado, mes_ingreso, ano_ingreso,
-          vigencia_hasta_nota, estado
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          vigencia_hasta_nota, estado, vendido_por_concesionario
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
           [
             ordenId,
@@ -202,6 +203,7 @@ export class TopviewService {
             anoIngreso,
             datos.vigencia_hasta_nota || null,
             'Cargada',
+            datos.vendido_por_concesionario ? 1 : 0,
           ],
           async (err) => {
             if (err) return reject(err);
@@ -269,7 +271,7 @@ export class TopviewService {
                   if (detallesInsertados === datos.detalles_productos.length) {
                     this.insertarContactosEmail(ordenId, datos.emails_contacto || []);
                     this.insertarArreglosNoRegistrables(ordenId, datos.arreglos_no_registrables || []);
-                    if (datos.facturado !== false) {
+                    if (datos.facturado !== false && !datos.vendido_por_concesionario) {
                       this.crearReplicacionesFacturacion(ordenId, datos.periodo_desde, datos.periodo_hasta);
                     }
                     this.completarCreacionOrden(
@@ -291,7 +293,7 @@ export class TopviewService {
           } else {
             this.insertarContactosEmail(ordenId, datos.emails_contacto || []);
             this.insertarArreglosNoRegistrables(ordenId, datos.arreglos_no_registrables || []);
-            if (datos.facturado !== false) {
+            if (datos.facturado !== false && !datos.vendido_por_concesionario) {
               this.crearReplicacionesFacturacion(ordenId, datos.periodo_desde, datos.periodo_hasta);
             }
             this.completarCreacionOrden(
@@ -400,7 +402,8 @@ export class TopviewService {
           descuento_porcentaje = ?, descuento_en_cascada = ?, descuento_monto = ?,
           monto_neto_aplicado = ?, descuento_facturas_porcentaje = ?, descuento_facturas_monto = ?,
           descuento_facturas_en_cascada = ?, monto_final = ?, notas = ?, facturado = ?,
-          mes_ingreso = ?, ano_ingreso = ?, vigencia_hasta_nota = ?, updated_at = CURRENT_TIMESTAMP
+          mes_ingreso = ?, ano_ingreso = ?, vigencia_hasta_nota = ?, vendido_por_concesionario = ?,
+          updated_at = CURRENT_TIMESTAMP
         WHERE id = ?`,
         [
           datos.numero_orden_agencia || null,
@@ -431,6 +434,7 @@ export class TopviewService {
           mesIngreso,
           anoIngreso,
           datos.vigencia_hasta_nota || null,
+          datos.vendido_por_concesionario ? 1 : 0,
           ordenId,
         ],
         (err) => (err ? reject(err) : resolve())
@@ -556,10 +560,11 @@ export class TopviewService {
     });
     this.insertarArreglosNoRegistrables(ordenId, datos.arreglos_no_registrables || []);
 
-    // Una orden no registrada (facturado: false) nunca debería tener meses
-    // "Pendiente" de facturar — si se edita y queda así, se borran (los
-    // "Generada" con factura real ya emitida quedan intactos, eso no se toca).
-    if (datos.facturado === false) {
+    // Una orden no registrada (facturado: false) o vendida directamente por
+    // el concesionario nunca debería tener meses "Pendiente" de facturar —
+    // si se edita y queda así, se borran (los "Generada" con factura real ya
+    // emitida quedan intactos, eso no se toca).
+    if (datos.facturado === false || datos.vendido_por_concesionario) {
       await new Promise<void>((resolve, reject) => {
         db.run(`DELETE FROM replicaciones_facturacion WHERE orden_id = ? AND estado = 'Pendiente'`, [ordenId], (err) =>
           err ? reject(err) : resolve()

@@ -637,6 +637,13 @@ db.serialize(() => {
   // cruza el fin de mes, ej. una pauta del 31/10 al 30/11 se puede igual asignar a Octubre).
   db.run(`ALTER TABLE ordenes_publicidad ADD COLUMN mes_ingreso INTEGER`, () => {});
   db.run(`ALTER TABLE ordenes_publicidad ADD COLUMN ano_ingreso INTEGER`, () => {});
+  // Vendida directamente por el concesionario (ej. World Padel Pilar vende
+  // sus propios espacios sin pasar por Topview) — la orden sigue ocupando
+  // el soporte real para contar en el reparto de comerciales/cuenta
+  // corriente, pero Topview nunca la factura (no genera replicaciones de
+  // facturación) ni es venta propia. Ver
+  // [[project_world_padel_cuenta_corriente_comerciales]].
+  db.run(`ALTER TABLE ordenes_publicidad ADD COLUMN vendido_por_concesionario BOOLEAN DEFAULT 0`, () => {});
 
   db.run(`CREATE INDEX IF NOT EXISTS idx_ordenes_publicidad_estado ON ordenes_publicidad(estado)`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_ordenes_publicidad_cliente ON ordenes_publicidad(cliente_id)`);

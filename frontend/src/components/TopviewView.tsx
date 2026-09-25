@@ -36,6 +36,7 @@ interface OrdenPublicidad {
   monto_final: number;
   estado: string;
   facturado: number;
+  vendido_por_concesionario: number;
   notas: string | null;
   mes_ingreso: number | null;
   ano_ingreso: number | null;
@@ -147,6 +148,7 @@ const ORDEN_VACIA = {
   mes_ingreso: '',
   ano_ingreso: '',
   facturado: true,
+  vendido_por_concesionario: false,
   notas: '',
   vigencia_hasta_nota: '',
 };
@@ -470,6 +472,7 @@ function OrdenesTab({
       mes_ingreso: o.mes_ingreso ? String(o.mes_ingreso) : '',
       ano_ingreso: o.ano_ingreso ? String(o.ano_ingreso) : '',
       facturado: o.facturado === undefined ? true : !!o.facturado,
+      vendido_por_concesionario: !!o.vendido_por_concesionario,
       notas: o.notas || '',
       vigencia_hasta_nota: o.vigencia_hasta_nota || '',
     });
@@ -1298,6 +1301,7 @@ function OrdenesTab({
           mes_ingreso: ordenForm.mes_ingreso ? Number(ordenForm.mes_ingreso) : undefined,
           ano_ingreso: ordenForm.ano_ingreso ? Number(ordenForm.ano_ingreso) : undefined,
           facturado: ordenForm.facturado,
+          vendido_por_concesionario: ordenForm.vendido_por_concesionario,
           notas: ordenForm.notas,
           vigencia_hasta_nota: ordenForm.vigencia_hasta_nota.trim() || undefined,
           detalles_productos: productosValidos.map((l) => ({
@@ -2136,6 +2140,25 @@ function OrdenesTab({
             )}
           </div>
 
+          <div className="form-group">
+            <label htmlFor="orden_vendido_por_concesionario">
+              <input
+                id="orden_vendido_por_concesionario"
+                type="checkbox"
+                checked={ordenForm.vendido_por_concesionario}
+                onChange={(e) => handleChangeOrden('vendido_por_concesionario', e.target.checked)}
+                disabled={guardando}
+              />
+              {' '}Vendida directamente por el concesionario, no por Topview
+            </label>
+            {ordenForm.vendido_por_concesionario && (
+              <small>
+                No genera facturación de Topview ni cuenta como venta propia — solo ocupa el soporte real para
+                el reparto de comerciales con el concesionario.
+              </small>
+            )}
+          </div>
+
           {condicionesAgencia.length > 0 && (
             <div className="form-group">
               <label htmlFor="orden_condicion_agencia">Condición de descuento de la agencia</label>
@@ -2743,7 +2766,24 @@ function OrdenesTab({
                   </button>
                 </td>
                 <td>{o.razon_social}</td>
-                <td>{o.nombre_anunciante}</td>
+                <td>
+                  {o.nombre_anunciante}
+                  {!!o.vendido_por_concesionario && (
+                    <span
+                      title="Vendida directamente por el concesionario, no por Topview"
+                      style={{
+                        marginLeft: '0.4rem',
+                        fontSize: '0.7rem',
+                        color: '#8a5a00',
+                        background: '#fff3cd',
+                        borderRadius: '3px',
+                        padding: '0.05rem 0.35rem',
+                      }}
+                    >
+                      Concesionario
+                    </span>
+                  )}
+                </td>
                 <td>{o.vigencia_hasta_nota || '-'}</td>
                 <td>{o.tipo_anunciante}</td>
                 <td>{formatFecha(o.periodo_desde)}</td>
