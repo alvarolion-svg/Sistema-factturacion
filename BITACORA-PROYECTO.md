@@ -192,8 +192,9 @@ más importantes:
    S.R.L.** y **TERRA UNO S A**. Terra Uno cobra Canon reducido a 32% (80% del 40% real) porque el
    otro 20% (=8% flat del declarado) se lo lleva **Iris Chiterer** — tercero nuevo, mismo patrón de
    solapa propia que Esteban Vivo/Oxant pero sin cascada (un solo %), verificado con datos reales.
-   **Pendiente**: Gigantografía (1 punto) sin dueño asignado; 2 órdenes viejas de PPLs sin punto de
-   instalación cargado, no se sabe todavía si son de Asociación o de Lofts.
+   Las 2 órdenes viejas de PPLs sin punto cargado ya se resolvieron (San Andres partida 2/2 entre
+   Asociación y Lofts, Seven entera a Asociación). **Pendiente**: Gigantografía (1 punto, "Mirando
+   Ruta 27") sin dueño asignado todavía.
 4. **Integración con Asana**: idea diseñada (botón manual por orden, tarea compartida a 3
    proyectos reales de Asana) pero no construida — guardada para más adelante.
 5. **Bug conocido en Reportes**: la tarjeta "Órdenes revisadas" todavía cuenta todas las órdenes,
