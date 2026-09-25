@@ -203,8 +203,11 @@ más importantes:
    otro 20% (=8% flat del declarado) se lo lleva **Iris Chiterer** — tercero nuevo, mismo patrón de
    solapa propia que Esteban Vivo/Oxant pero sin cascada (un solo %), verificado con datos reales.
    Las 2 órdenes viejas de PPLs sin punto cargado ya se resolvieron (San Andres partida 2/2 entre
-   Asociación y Lofts, Seven entera a Asociación). **Pendiente**: Gigantografía (1 punto, "Mirando
-   Ruta 27") sin dueño asignado todavía.
+   Asociación y Lofts, Seven entera a Asociación). El usuario notó (2026-09-25) que, con todo esto
+   construido, faltaba cargar el **Canon real** en "Canon por concesionario" — quedaban en el
+   default 100% (incorrecto). Confirmado: los 4 cobran **40%** (Terra Uno ya estaba en 32% = su 80%
+   del 40%) — se cargó AVN Nordelta 40%, Fideicomiso Lofts 40%, Alquicer 40% (IVA 21% los tres).
+   **Pendiente**: Gigantografía (1 punto, "Mirando Ruta 27") sin dueño asignado todavía.
 4. **Integración con Asana**: idea diseñada (botón manual por orden, tarea compartida a 3
    proyectos reales de Asana) pero no construida — guardada para más adelante.
 5. **Bug conocido en Reportes**: la tarjeta "Órdenes revisadas" todavía cuenta todas las órdenes,
