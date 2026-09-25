@@ -252,7 +252,8 @@ más importantes:
    el tilde activo, "Liquidar" no muestra ninguna tabla de $ para ese concesionario, solo la sección
    Comerciales. De paso se corrigió un bug: el botón "Percepciones / X" solo mostraba el primer
    tercero cuando un concesionario tenía más de uno (WFPP tiene Oxant y Comerciales a la vez) — ahora
-   lista todos ("Percepciones / Oxant / Comerciales").
+   lista todos ("Percepciones / Oxant / Comerciales"). También se le agregó export Excel/PDF propio
+   a la sección Comerciales (había quedado sin forma de exportar al ocultarse el bloque de $).
    **Ojo, pendiente sin resolver**: "Pauta Concesionario" todavía no excluye estas órdenes de
    Reportes de Ventas/Dashboard (Topview no se queda con esa plata) — sigue sumando ahí igual que
    cualquier otra; ahora sería trivial filtrarlas por tipo si se pide.
