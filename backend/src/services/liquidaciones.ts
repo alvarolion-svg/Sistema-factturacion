@@ -27,14 +27,30 @@ export class LiquidacionesService {
     });
   }
 
-  // Concesionarios reales (proveedores usados en al menos una locación) para
-  // el selector de la pantalla — no todo el padrón de proveedores.
+  // Concesionarios reales (proveedores usados en al menos una locación, sea
+  // a nivel locación entera o de un punto/soporte/reparto puntual — ver
+  // [[project_concesionario_por_punto_no_por_locacion]]) para el selector de
+  // la pantalla — no todo el padrón de proveedores.
   static async listarConcesionarios(): Promise<any[]> {
     return this.queryAll(`
       SELECT DISTINCT p.id, p.razon_social, p.direccion
       FROM proveedores p
-      JOIN locaciones l ON l.concesionario_id = p.id
-      WHERE l.habilitado != 0 OR l.habilitado IS NULL
+      WHERE p.id IN (
+        SELECT l.concesionario_id FROM locaciones l WHERE (l.habilitado != 0 OR l.habilitado IS NULL) AND l.concesionario_id IS NOT NULL
+        UNION
+        SELECT lc.concesionario_id FROM locaciones_capacidad lc JOIN locaciones l ON l.id = lc.locacion_id
+          WHERE (l.habilitado != 0 OR l.habilitado IS NULL) AND lc.concesionario_id IS NOT NULL
+        UNION
+        SELECT lp.concesionario_id FROM locaciones_puntos lp
+          JOIN locaciones_capacidad lc ON lc.id = lp.capacidad_id
+          JOIN locaciones l ON l.id = lc.locacion_id
+          WHERE (l.habilitado != 0 OR l.habilitado IS NULL) AND lp.concesionario_id IS NOT NULL
+        UNION
+        SELECT rep.concesionario_id FROM locaciones_capacidad_reparto rep
+          JOIN locaciones_capacidad lc ON lc.id = rep.capacidad_id
+          JOIN locaciones l ON l.id = lc.locacion_id
+          WHERE (l.habilitado != 0 OR l.habilitado IS NULL)
+      )
       ORDER BY p.razon_social
     `);
   }
@@ -50,9 +66,23 @@ export class LiquidacionesService {
         COALESCE(cc.iva_porcentaje, 21) as iva_porcentaje,
         cc.notas
       FROM proveedores p
-      JOIN locaciones l ON l.concesionario_id = p.id
       LEFT JOIN condiciones_concesionario cc ON cc.concesionario_id = p.id
-      WHERE l.habilitado != 0 OR l.habilitado IS NULL
+      WHERE p.id IN (
+        SELECT l.concesionario_id FROM locaciones l WHERE (l.habilitado != 0 OR l.habilitado IS NULL) AND l.concesionario_id IS NOT NULL
+        UNION
+        SELECT lc.concesionario_id FROM locaciones_capacidad lc JOIN locaciones l ON l.id = lc.locacion_id
+          WHERE (l.habilitado != 0 OR l.habilitado IS NULL) AND lc.concesionario_id IS NOT NULL
+        UNION
+        SELECT lp.concesionario_id FROM locaciones_puntos lp
+          JOIN locaciones_capacidad lc ON lc.id = lp.capacidad_id
+          JOIN locaciones l ON l.id = lc.locacion_id
+          WHERE (l.habilitado != 0 OR l.habilitado IS NULL) AND lp.concesionario_id IS NOT NULL
+        UNION
+        SELECT rep.concesionario_id FROM locaciones_capacidad_reparto rep
+          JOIN locaciones_capacidad lc ON lc.id = rep.capacidad_id
+          JOIN locaciones l ON l.id = lc.locacion_id
+          WHERE (l.habilitado != 0 OR l.habilitado IS NULL)
+      )
       ORDER BY p.razon_social
     `);
     const percepciones = await this.queryAll('SELECT * FROM condiciones_percepciones ORDER BY nombre');
@@ -75,8 +105,15 @@ export class LiquidacionesService {
       (await this.queryAll('SELECT concesionario_id FROM oxant_concesionarios')).map((r) => r.concesionario_id)
     );
     const oxantCondicion = await this.obtenerCondicionOxant();
+    // Iris Chiterer: se queda con un % flat de lo declarado por Terra Uno
+    // (hoy el único concesionario que la trae) — condición 1 a 1, como
+    // Esteban Vivo, pero sin cascada.
+    const irisRows = await this.queryAll('SELECT * FROM condiciones_iris_chiterer');
+    const irisPorConcesionario = new Map<string, any>();
+    irisRows.forEach((v) => irisPorConcesionario.set(v.concesionario_id, v));
     return concesionarios.map((c) => {
       const vivo = vivoPorConcesionario.get(c.concesionario_id);
+      const iris = irisPorConcesionario.get(c.concesionario_id);
       return {
         ...c,
         percepciones: percepcionesPorConcesionario.get(c.concesionario_id) || [],
@@ -91,6 +128,7 @@ export class LiquidacionesService {
         oxant: oxantConcesionarioIds.has(c.concesionario_id)
           ? { porcentaje_comision: oxantCondicion.porcentajeComision, iva_porcentaje: oxantCondicion.ivaPorcentaje }
           : null,
+        iris_chiterer: iris ? { porcentaje: Number(iris.porcentaje) } : null,
       };
     });
   }
@@ -284,6 +322,101 @@ export class LiquidacionesService {
     };
   }
 
+  // Iris Chiterer: se queda con un % FLAT de lo declarado por un
+  // concesionario en el período (hoy, Terra Uno S.A. — 8%, ver
+  // [[project_concesionario_por_punto_no_por_locacion]]) — mismo espíritu
+  // que Esteban Vivo (comunicación aislada, solapa propia) pero sin
+  // cascada, un solo paso.
+  static async obtenerCondicionIrisChiterer(concesionarioId: string): Promise<{ porcentaje: number } | null> {
+    const fila = await this.queryGet('SELECT * FROM condiciones_iris_chiterer WHERE concesionario_id = ?', [concesionarioId]);
+    if (!fila) return null;
+    return { porcentaje: Number(fila.porcentaje) };
+  }
+
+  static async guardarCondicionIrisChiterer(concesionarioId: string, porcentaje: number): Promise<void> {
+    const existente = await this.queryGet('SELECT * FROM condiciones_iris_chiterer WHERE concesionario_id = ?', [concesionarioId]);
+    if (existente && existente.id) {
+      await this.runQuery('UPDATE condiciones_iris_chiterer SET porcentaje = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [
+        porcentaje,
+        existente.id,
+      ]);
+      AuditoriaService.registrarOperacion('condiciones_iris_chiterer', 'UPDATE', existente.id, existente, { porcentaje });
+    } else {
+      const id = uuid();
+      await this.runQuery('INSERT INTO condiciones_iris_chiterer (id, concesionario_id, porcentaje) VALUES (?, ?, ?)', [
+        id,
+        concesionarioId,
+        porcentaje,
+      ]);
+      AuditoriaService.registrarOperacion('condiciones_iris_chiterer', 'INSERT', id, null, { concesionarioId, porcentaje });
+    }
+  }
+
+  static async listarConcesionariosIrisChiterer(): Promise<Array<{ concesionario_id: string; razon_social: string }>> {
+    return this.queryAll(`
+      SELECT ci.concesionario_id, p.razon_social
+      FROM condiciones_iris_chiterer ci
+      JOIN proveedores p ON p.id = ci.concesionario_id
+      ORDER BY p.razon_social
+    `);
+  }
+
+  static async calcularIrisChitererConcesionario(concesionarioId: string, mes: number, ano: number): Promise<{
+    porcentaje: number;
+    lineas: Array<{ anunciante: string; numero_orden: string; declarado: number; cut: number }>;
+    total_a_pagar: number;
+  } | null> {
+    const condicion = await this.obtenerCondicionIrisChiterer(concesionarioId);
+    if (!condicion) return null;
+    const filas = await this.listarPeriodo(concesionarioId, mes, ano);
+    const porOrden = new Map<string, { anunciante: string; numeroOrden: string; declarado: number }>();
+    filas
+      .filter((f) => !f.excluida)
+      .forEach((f) => {
+        const clave = f.orden_id;
+        if (!porOrden.has(clave)) {
+          porOrden.set(clave, {
+            anunciante: f.nombre_anunciante || f.anunciante,
+            numeroOrden: f.numero_orden_agencia || f.numero_orden,
+            declarado: 0,
+          });
+        }
+        porOrden.get(clave)!.declarado += Number(f.monto) || 0;
+      });
+    const lineas = Array.from(porOrden.values())
+      .filter((l) => l.declarado !== 0)
+      .map((l) => ({
+        anunciante: l.anunciante,
+        numero_orden: l.numeroOrden,
+        declarado: l.declarado,
+        cut: l.declarado * (condicion.porcentaje / 100),
+      }));
+    return {
+      porcentaje: condicion.porcentaje,
+      lineas,
+      total_a_pagar: lineas.reduce((s, l) => s + l.cut, 0),
+    };
+  }
+
+  static async calcularIrisChitererTodos(mes: number, ano: number): Promise<{
+    detalle: Array<{ concesionario_id: string; razon_social: string } & NonNullable<Awaited<ReturnType<typeof LiquidacionesService.calcularIrisChitererConcesionario>>>>;
+    total_a_pagar: number;
+  }> {
+    const concesionarios = await this.listarConcesionariosIrisChiterer();
+    const detalle = (
+      await Promise.all(
+        concesionarios.map(async (c) => {
+          const calculo = await this.calcularIrisChitererConcesionario(c.concesionario_id, mes, ano);
+          return calculo ? { concesionario_id: c.concesionario_id, razon_social: c.razon_social, ...calculo } : null;
+        })
+      )
+    ).filter((d): d is NonNullable<typeof d> => d !== null);
+    return {
+      detalle,
+      total_a_pagar: detalle.reduce((s, d) => s + d.total_a_pagar, 0),
+    };
+  }
+
   // Reutilizado por Oxant (necesita el Canon de 3 concesionarios distintos
   // para el mismo período) y equivalente al cálculo que ya hace
   // GET /api/liquidaciones para un solo concesionario — mismo criterio
@@ -424,6 +557,16 @@ export class LiquidacionesService {
   // inicio_tardio=true) pero arranca excluida, salvo que ya haya una
   // decisión explícita guardada en liquidaciones_detalle.excluida (el
   // usuario puede tildarla para sumarla igual a este mes).
+  // Resolución de "a quién le corresponde esta línea" — de más a menos
+  // específico: locaciones_puntos.concesionario_id (un punto con dueño
+  // propio) → locaciones_capacidad.concesionario_id (el soporte entero de
+  // esa locación) → locaciones.concesionario_id (como siempre, para
+  // locaciones simples con un solo dueño). Además, si el SOPORTE tiene
+  // reparto cargado (locaciones_capacidad_reparto — ej. Circuito Pantallas
+  // LED Verticales de Bahía Nordelta, que se vende siempre completo pero se
+  // reparte entre 2 dueños), la línea entra en la liquidación de CADA
+  // concesionario del reparto, con el monto multiplicado por su % — en vez
+  // de por el dueño único. Ver [[project_concesionario_por_punto_no_por_locacion]].
   static async listarPeriodo(concesionarioId: string, mes: number, ano: number): Promise<any[]> {
     const esInicioTardio = `
       CASE
@@ -450,7 +593,7 @@ export class LiquidacionesService {
         l.id as locacion_id,
         l.nombre as locacion_nombre,
         ld.id as liquidacion_id,
-        COALESCE(ld.monto, 0) as monto,
+        CASE WHEN rep.concesionario_id IS NOT NULL THEN COALESCE(ld.monto, 0) * rep.porcentaje / 100.0 ELSE COALESCE(ld.monto, 0) END as monto,
         ld.estado_especial as estado_especial,
         CASE WHEN d.tipo_producto = 'Stand' THEN 'stand' ELSE 'publicidad' END as seccion,
         ${esInicioTardio} as inicio_tardio,
@@ -460,10 +603,20 @@ export class LiquidacionesService {
       JOIN ordenes_publicidad o ON o.id = d.orden_id
       JOIN replicaciones_facturacion r ON r.orden_id = o.id AND r.numero_mes = ? AND r.ano = ?
       LEFT JOIN liquidaciones_detalle ld ON ld.orden_detalle_id = d.id AND ld.mes = ? AND ld.ano = ?
-      WHERE l.concesionario_id = ? AND (o.habilitado != 0 OR o.habilitado IS NULL)
+      LEFT JOIN locaciones_capacidad lc ON lc.locacion_id = d.locacion_id AND lc.producto_id = d.producto_id
+      LEFT JOIN locaciones_puntos lp ON lp.capacidad_id = lc.id AND lp.nombre = d.punto_instalacion
+      LEFT JOIN locaciones_capacidad_reparto rep ON rep.capacidad_id = lc.id AND rep.concesionario_id = ?
+      WHERE (o.habilitado != 0 OR o.habilitado IS NULL)
+        AND (
+          rep.concesionario_id = ?
+          OR (
+            NOT EXISTS (SELECT 1 FROM locaciones_capacidad_reparto r2 WHERE r2.capacidad_id = lc.id)
+            AND COALESCE(lp.concesionario_id, lc.concesionario_id, l.concesionario_id) = ?
+          )
+        )
       ORDER BY l.nombre, o.razon_social
       `,
-      [ano, mes, ano, mes, mes, ano, mes, ano, concesionarioId]
+      [ano, mes, ano, mes, mes, ano, mes, ano, concesionarioId, concesionarioId, concesionarioId]
     );
     return filas.map((f) => ({ ...f, excluida: !!f.excluida, inicio_tardio: !!f.inicio_tardio }));
   }

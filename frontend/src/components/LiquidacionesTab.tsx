@@ -145,7 +145,7 @@ function LiquidacionesTab({
   const [percepcionesCalculadas, setPercepcionesCalculadas] = useState<PercepcionCalculada[]>([]);
   const [totalFinal, setTotalFinal] = useState(0);
   const [totalAPagar, setTotalAPagar] = useState(0);
-  const [vista, setVista] = useState<'liquidar' | 'tardias' | 'condiciones' | 'oxant' | 'esteban-vivo'>('liquidar');
+  const [vista, setVista] = useState<'liquidar' | 'tardias' | 'condiciones' | 'oxant' | 'esteban-vivo' | 'iris-chiterer'>('liquidar');
 
   useEffect(() => {
     axios
@@ -713,6 +713,14 @@ function LiquidacionesTab({
             Esteban Vivo
           </button>
         )}
+        {puedeCargar && (
+          <button
+            className={`reportes-tab ${vista === 'iris-chiterer' ? 'active' : ''}`}
+            onClick={() => setVista('iris-chiterer')}
+          >
+            Iris Chiterer
+          </button>
+        )}
       </div>
 
       {vista === 'condiciones' && puedeCargar ? (
@@ -721,6 +729,8 @@ function LiquidacionesTab({
         <OxantTab token={token} />
       ) : vista === 'esteban-vivo' && puedeCargar ? (
         <EstebanVivoTab token={token} />
+      ) : vista === 'iris-chiterer' && puedeCargar ? (
+        <IrisChitererTab token={token} />
       ) : (
         <>
           <p className="totales-preview" style={{ marginTop: 0 }}>
@@ -1251,6 +1261,7 @@ interface CondicionConcesionario {
   percepciones: Percepcion[];
   esteban_vivo: CondicionEstebanVivo | null;
   oxant: CondicionOxant | null;
+  iris_chiterer: { porcentaje: number } | null;
 }
 
 // Solapa chica dentro de Liquidaciones (no una pantalla aparte) para que el
@@ -1278,6 +1289,11 @@ function CondicionesConcesionarioTab({ token }: { token: string }) {
   const [oxantLocal, setOxantLocal] = useState({ comision: '', iva: '' });
   const [guardandoOxant, setGuardandoOxant] = useState(false);
   const [guardadoOxant, setGuardadoOxant] = useState(false);
+  // Iris Chiterer es 1 a 1 con un concesionario (hoy, Terra Uno) — como
+  // Esteban Vivo, pero un solo %, sin cascada.
+  const [irisLocal, setIrisLocal] = useState<Record<string, string>>({});
+  const [guardandoIrisId, setGuardandoIrisId] = useState<string | null>(null);
+  const [guardadoIrisId, setGuardadoIrisId] = useState<string | null>(null);
 
   const cargar = () => {
     setError('');
@@ -1289,6 +1305,7 @@ function CondicionesConcesionarioTab({ token }: { token: string }) {
         setCondiciones(data);
         const iniciales: Record<string, { canon: string; iva: string }> = {};
         const inicialesVivo: Record<string, { comisionVendedor: string; canon: string; gastosTop: string; vivo: string }> = {};
+        const inicialesIris: Record<string, string> = {};
         data.forEach((c) => {
           iniciales[c.concesionario_id] = { canon: String(c.porcentaje_comision), iva: String(c.iva_porcentaje) };
           if (c.esteban_vivo) {
@@ -1299,9 +1316,13 @@ function CondicionesConcesionarioTab({ token }: { token: string }) {
               vivo: String(c.esteban_vivo.porcentaje_vivo),
             };
           }
+          if (c.iris_chiterer) {
+            inicialesIris[c.concesionario_id] = String(c.iris_chiterer.porcentaje);
+          }
         });
         setValoresLocal(iniciales);
         setVivoLocal(inicialesVivo);
+        setIrisLocal(inicialesIris);
         const conOxant = data.find((c) => c.oxant);
         if (conOxant && conOxant.oxant) {
           setOxantLocal({ comision: String(conOxant.oxant.porcentaje_comision), iva: String(conOxant.oxant.iva_porcentaje) });
@@ -1408,6 +1429,25 @@ function CondicionesConcesionarioTab({ token }: { token: string }) {
     }
   };
 
+  const handleGuardarIris = async (concesionarioId: string) => {
+    setGuardandoIrisId(concesionarioId);
+    setError('');
+    try {
+      await axios.put(
+        `/api/liquidaciones/condiciones/${concesionarioId}/iris-chiterer`,
+        { porcentaje: Number(irisLocal[concesionarioId]) || 0 },
+        authHeaders(token)
+      );
+      setGuardadoIrisId(concesionarioId);
+      setTimeout(() => setGuardadoIrisId((actual) => (actual === concesionarioId ? null : actual)), 1500);
+      cargar();
+    } catch (err: any) {
+      setError(mensajeError(err, 'No se pudo guardar el % de Iris Chiterer.'));
+    } finally {
+      setGuardandoIrisId(null);
+    }
+  };
+
   const handleEliminarPercepcion = async (p: Percepcion) => {
     if (!window.confirm(`¿Quitar la percepción "${p.nombre}"?`)) return;
     setError('');
@@ -1501,6 +1541,8 @@ function CondicionesConcesionarioTab({ token }: { token: string }) {
                         ? 'Percepciones / Esteban Vivo'
                         : c.oxant
                         ? 'Percepciones / Oxant'
+                        : c.iris_chiterer
+                        ? 'Percepciones / Iris Chiterer'
                         : 'Percepciones'}
                     </button>{' '}
                     <span style={{ color: 'var(--color-exito, #2e7d32)' }}>
@@ -1645,6 +1687,40 @@ function CondicionesConcesionarioTab({ token }: { token: string }) {
                           <p className="totales-preview" style={{ marginTop: '0.4rem', marginBottom: 0, fontSize: '0.8rem' }}>
                             Un único % de comisión sobre la suma del Canon de los 3 (editarlo acá lo cambia para los 3), más el
                             IVA propio de la factura de Oxant. Se ve calculado en la solapa "Oxant".
+                          </p>
+                        </div>
+                      )}
+
+                      {c.iris_chiterer && (
+                        <div style={{ marginTop: '1rem', paddingTop: '0.8rem', borderTop: '1px solid #ddd' }}>
+                          <label style={{ display: 'block', marginBottom: '0.4rem' }}>
+                            Iris Chiterer — % flat sobre lo declarado por este concesionario
+                          </label>
+                          <div
+                            className="linea-factura"
+                            style={{ gridTemplateColumns: '1fr auto auto', maxWidth: '22rem', alignItems: 'center' }}
+                          >
+                            <InputPorcentaje
+                              placeholder="% Iris Chiterer"
+                              value={irisLocal[c.concesionario_id] ?? ''}
+                              onChange={(v) => setIrisLocal((actual) => ({ ...actual, [c.concesionario_id]: v }))}
+                              disabled={guardandoIrisId === c.concesionario_id}
+                            />
+                            <button
+                              type="button"
+                              className="btn-secondary"
+                              onClick={() => handleGuardarIris(c.concesionario_id)}
+                              disabled={guardandoIrisId === c.concesionario_id}
+                            >
+                              {guardandoIrisId === c.concesionario_id ? 'Guardando...' : 'Guardar'}
+                            </button>
+                            <span style={{ color: 'var(--color-exito, #2e7d32)', fontSize: '0.85rem' }}>
+                              {guardadoIrisId === c.concesionario_id ? 'Guardado ✓' : ''}
+                            </span>
+                          </div>
+                          <p className="totales-preview" style={{ marginTop: '0.4rem', marginBottom: 0, fontSize: '0.8rem' }}>
+                            Se queda con este % de todo lo que declare este concesionario en el período (sin cascada, un solo
+                            paso). Se ve calculado en la solapa "Iris Chiterer".
                           </p>
                         </div>
                       )}
@@ -2117,6 +2193,225 @@ function EstebanVivoTab({ token }: { token: string }) {
             <tbody>
               <tr style={{ fontWeight: 700, fontSize: '1.05rem' }}>
                 <td>Total a Pagar a Esteban Vivo</td>
+                <td style={{ textAlign: 'right' }}>{formatMoney(data.total_a_pagar)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </>
+      )}
+    </>
+  );
+}
+
+interface IrisChitererLinea {
+  anunciante: string;
+  numero_orden: string;
+  declarado: number;
+  cut: number;
+}
+
+interface IrisChitererDetalleConcesionario {
+  concesionario_id: string;
+  razon_social: string;
+  porcentaje: number;
+  lineas: IrisChitererLinea[];
+  total_a_pagar: number;
+}
+
+interface IrisChitererData {
+  detalle: IrisChitererDetalleConcesionario[];
+  total_a_pagar: number;
+}
+
+// Iris Chiterer se queda con un % FLAT de lo declarado por el/los
+// concesionarios que la traen (hoy solo Terra Uno S.A., dueño de la mitad
+// del Circuito Pantallas LED Verticales de Bahía Nordelta) — mismo patrón
+// de solapa propia que Esteban Vivo/Oxant, pero sin cascada, un solo paso.
+// Ver [[project_concesionario_por_punto_no_por_locacion]].
+function IrisChitererTab({ token }: { token: string }) {
+  const hoy = new Date();
+  const [mes, setMes] = useState(String(hoy.getMonth() + 1));
+  const [ano, setAno] = useState(String(hoy.getFullYear()));
+  const [data, setData] = useState<IrisChitererData | null>(null);
+  const [error, setError] = useState('');
+
+  const anosDisponibles = Array.from({ length: 5 }, (_, i) => hoy.getFullYear() - 2 + i);
+
+  const cargar = () => {
+    setError('');
+    setData(null);
+    axios
+      .get('/api/liquidaciones/iris-chiterer', { ...authHeaders(token), params: { mes, ano } })
+      .then((res) => setData(res.data))
+      .catch((err) => setError(mensajeError(err, 'No se pudo calcular la liquidación de Iris Chiterer de ese período.')));
+  };
+
+  useEffect(() => {
+    cargar();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mes, ano]);
+
+  const nombreArchivo = (ext: string) => `iris_chiterer_${NOMBRES_MES[Number(mes) - 1]}_${ano}.${ext}`;
+
+  const handleExportarExcel = async () => {
+    if (!data) return;
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Iris Chiterer');
+    ws.columns = [{ width: 26 }, { width: 18 }, { width: 16 }, { width: 16 }, { width: 16 }];
+    const formatoMoneda = '_-"$"* #,##0.00_-;_-"$"* \\-#,##0.00_-;_-"$"* "-"??_-;_-@';
+
+    ws.addRow(['IRIS CHITERER']).font = { bold: true, size: 13 };
+    ws.addRow([`Período: ${NOMBRES_MES[Number(mes) - 1]} ${ano}`]);
+    ws.addRow([]);
+
+    data.detalle.forEach((d) => {
+      const filaTitulo = ws.addRow([d.razon_social]);
+      filaTitulo.font = { bold: true };
+      const filaHeader = ws.addRow(['Anunciante', 'N° orden', 'Declarado', `Cut ${d.porcentaje}%`]);
+      filaHeader.font = { bold: true };
+      filaHeader.eachCell((cell) => {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFA4C2F4' } };
+      });
+      d.lineas.forEach((l) => {
+        const fila = ws.addRow([l.anunciante, l.numero_orden, l.declarado, l.cut]);
+        fila.getCell(3).numFmt = formatoMoneda;
+        fila.getCell(4).numFmt = formatoMoneda;
+      });
+      const filaSub = ws.addRow(['', '', `Subtotal ${d.razon_social}`, d.total_a_pagar]);
+      filaSub.font = { bold: true };
+      filaSub.getCell(4).numFmt = formatoMoneda;
+      ws.addRow([]);
+    });
+
+    const filaTotal = ws.addRow(['', '', 'TOTAL A PAGAR', data.total_a_pagar]);
+    filaTotal.font = { bold: true, size: 12 };
+    filaTotal.getCell(4).numFmt = formatoMoneda;
+
+    const buffer = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = nombreArchivo('xlsx');
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportarPDF = () => {
+    if (!data) return;
+    const doc = new jsPDF();
+    doc.setFontSize(13);
+    doc.text('IRIS CHITERER', 14, 15);
+    doc.setFontSize(10);
+    doc.text(`Período: ${NOMBRES_MES[Number(mes) - 1]} ${ano}`, 14, 22);
+    let startY = 28;
+    data.detalle.forEach((d) => {
+      doc.setFontSize(11);
+      doc.text(d.razon_social, 14, startY);
+      autoTable(doc, {
+        startY: startY + 4,
+        head: [['Anunciante', 'N° orden', 'Declarado', `Cut ${d.porcentaje}%`]],
+        body: d.lineas.map((l) => [l.anunciante, l.numero_orden, formatMoney(l.declarado), formatMoney(l.cut)]),
+        foot: [['', '', `Subtotal ${d.razon_social}`, formatMoney(d.total_a_pagar)]],
+        styles: { fontSize: 9 },
+        headStyles: { fillColor: [232, 24, 56] },
+        footStyles: { fillColor: [240, 240, 240], textColor: [0, 0, 0], fontStyle: 'bold' },
+      });
+      startY = (doc as any).lastAutoTable.finalY + 10;
+    });
+    doc.setFontSize(11);
+    doc.text(`TOTAL A PAGAR: ${formatMoney(data.total_a_pagar)}`, 14, startY);
+    doc.save(nombreArchivo('pdf'));
+  };
+
+  return (
+    <>
+      <p className="totales-preview" style={{ marginTop: 0 }}>
+        Iris Chiterer se queda con un % flat de lo declarado por los concesionarios que la traen — hoy Terra Uno
+        S.A. (dueño de la mitad del Circuito Pantallas LED Verticales de Bahía Grande Nordelta). Sección aislada: no
+        se mezcla con lo que se le liquida al concesionario ni con lo de Esteban Vivo u Oxant. El % se edita en
+        "Canon por concesionario" (en la fila de cada uno).
+      </p>
+      {error && <div className="error-message">{error}</div>}
+
+      <div className="filtros-fila" style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginBottom: '1.2rem' }}>
+        <label>
+          Mes
+          <select value={mes} onChange={(e) => setMes(e.target.value)}>
+            {NOMBRES_MES.map((nombre, i) => (
+              <option key={i + 1} value={i + 1}>
+                {nombre}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Año
+          <select value={ano} onChange={(e) => setAno(e.target.value)}>
+            {anosDisponibles.map((a) => (
+              <option key={a} value={a}>
+                {a}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      {data === null && !error && <p className="empty-state">Calculando...</p>}
+
+      {data && data.detalle.every((d) => d.lineas.length === 0) && (
+        <p className="empty-state">Sin campañas declaradas en este período.</p>
+      )}
+
+      {data && data.detalle.some((d) => d.lineas.length > 0) && (
+        <>
+          <div style={{ display: 'flex', gap: '0.6rem', marginBottom: '0.8rem' }}>
+            <button type="button" className="btn-secondary" onClick={handleExportarExcel}>
+              Exportar Excel (Iris Chiterer)
+            </button>
+            <button type="button" className="btn-secondary" onClick={handleExportarPDF}>
+              Exportar PDF (Iris Chiterer)
+            </button>
+          </div>
+
+          {data.detalle
+            .filter((d) => d.lineas.length > 0)
+            .map((d) => (
+              <div key={d.concesionario_id} style={{ marginBottom: '1.5rem' }}>
+                <h4 style={{ marginBottom: '0.4rem' }}>{d.razon_social}</h4>
+                <table className="data-table" style={{ marginBottom: '0.5rem', maxWidth: '36rem' }}>
+                  <thead>
+                    <tr>
+                      <th>Anunciante</th>
+                      <th>N° orden</th>
+                      <th>Declarado</th>
+                      <th>Cut {d.porcentaje}%</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {d.lineas.map((l) => (
+                      <tr key={`${l.numero_orden}-${l.anunciante}`}>
+                        <td>{l.anunciante}</td>
+                        <td>{l.numero_orden}</td>
+                        <td style={{ textAlign: 'right' }}>{formatMoney(l.declarado)}</td>
+                        <td style={{ textAlign: 'right', fontWeight: 600 }}>{formatMoney(l.cut)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{ fontWeight: 700 }}>
+                      <td colSpan={3}>Subtotal {d.razon_social}</td>
+                      <td style={{ textAlign: 'right' }}>{formatMoney(d.total_a_pagar)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            ))}
+
+          <table className="data-table" style={{ maxWidth: '26rem' }}>
+            <tbody>
+              <tr style={{ fontWeight: 700, fontSize: '1.05rem' }}>
+                <td>Total a Pagar a Iris Chiterer</td>
                 <td style={{ textAlign: 'right' }}>{formatMoney(data.total_a_pagar)}</td>
               </tr>
             </tbody>

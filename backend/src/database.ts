@@ -1035,6 +1035,144 @@ db.serialize(() => {
     WHERE razon_social IN ('CECNOR SA', 'WFPP SRL', 'PILAR SHOPS S.A.')
   `, () => {});
 
+  // Concesionario por punto/soporte, no solo por locación entera —
+  // [[project_concesionario_por_punto_no_por_locacion]]. Caso real: Bahía
+  // Grande Nordelta tiene varios dueños distintos según el soporte/punto
+  // específico (PPLs y Caja Backlight de un lado, Totems de otro), algo que
+  // `locaciones.concesionario_id` (uno solo por locación entera) no puede
+  // representar. Cadena de resolución, de más a menos específico:
+  // locaciones_puntos.concesionario_id → locaciones_capacidad.concesionario_id
+  // → locaciones.concesionario_id (como hoy, sin cambios para locaciones
+  // simples con un solo dueño).
+  db.run(`ALTER TABLE locaciones_capacidad ADD COLUMN concesionario_id TEXT REFERENCES proveedores(id)`, () => {});
+  db.run(`ALTER TABLE locaciones_puntos ADD COLUMN concesionario_id TEXT REFERENCES proveedores(id)`, () => {});
+
+  // Reparto: para un soporte que SIEMPRE se vende como paquete completo (ej.
+  // el Circuito Pantallas LED Verticales de Bahía Nordelta, 4 pantallas, se
+  // comercializa entero — nunca una pantalla suelta) pero cuyo ingreso se
+  // reparte entre varios concesionarios dueños de pantallas distintas. A
+  // diferencia de locaciones_puntos.concesionario_id (un dueño por punto),
+  // acá es TODO el soporte de esa locación el que se reparte %, aplicado a
+  // cada línea de orden sin que la orden tenga que elegir nada.
+  db.run(`
+    CREATE TABLE IF NOT EXISTS locaciones_capacidad_reparto (
+      id TEXT PRIMARY KEY,
+      capacidad_id TEXT NOT NULL,
+      concesionario_id TEXT NOT NULL,
+      porcentaje REAL NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (capacidad_id) REFERENCES locaciones_capacidad(id),
+      FOREIGN KEY (concesionario_id) REFERENCES proveedores(id)
+    )
+  `);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_locaciones_capacidad_reparto_capacidad ON locaciones_capacidad_reparto(capacidad_id)`);
+
+  // --- Seed real: Bahía Grande Nordelta (2026-09-24, ver bitácora) ---
+  // PPLs: 10 elementos bifaz (20 caras) a ASOCIACION CIVIL BAHIA GRANDE S.A.
+  // ("AVN Nordelta"), otros 10 (20 caras) a FIDEICOMISO LOFTS DE BAHIA
+  // GRANDE ("BA Property Managers") — puntos "Asociacion"/"Lofts" cargados
+  // a mano por el usuario, acá solo se les asigna el dueño.
+  db.run(`
+    UPDATE locaciones_puntos SET concesionario_id = (SELECT id FROM proveedores WHERE razon_social = 'ASOCIACION CIVIL BAHIA GRANDE S.A.')
+    WHERE nombre = 'Asociacion' AND concesionario_id IS NULL
+      AND capacidad_id IN (
+        SELECT lc.id FROM locaciones_capacidad lc
+        JOIN locaciones l ON l.id = lc.locacion_id
+        WHERE l.nombre = 'Bahía Grande Nordelta'
+      )
+  `, () => {});
+  db.run(`
+    UPDATE locaciones_puntos SET concesionario_id = (SELECT id FROM proveedores WHERE razon_social = 'FIDEICOMISO LOFTS DE BAHIA GRANDE')
+    WHERE nombre = 'Lofts' AND concesionario_id IS NULL
+      AND capacidad_id IN (
+        SELECT lc.id FROM locaciones_capacidad lc
+        JOIN locaciones l ON l.id = lc.locacion_id
+        WHERE l.nombre = 'Bahía Grande Nordelta'
+      )
+  `, () => {});
+  // Caja Backlight (6 puntos) y Pantalla Gran Formato (1 punto): todo de
+  // ASOCIACION CIVIL BAHIA GRANDE S.A.
+  db.run(`
+    UPDATE locaciones_puntos SET concesionario_id = (SELECT id FROM proveedores WHERE razon_social = 'ASOCIACION CIVIL BAHIA GRANDE S.A.')
+    WHERE concesionario_id IS NULL
+      AND capacidad_id IN (
+        SELECT lc.id FROM locaciones_capacidad lc
+        JOIN locaciones l ON l.id = lc.locacion_id
+        JOIN productos p ON p.id = lc.producto_id
+        WHERE l.nombre = 'Bahía Grande Nordelta' AND p.nombre IN ('Caja Backlight', 'Pantalla Gran Formato')
+      )
+  `, () => {});
+  // Circuito Pantallas LED Verticales: el usuario había partido el punto en
+  // 2 (uno por dueño) pensando que la orden elegía una pantalla puntual,
+  // pero se vende siempre el circuito completo (4 pantallas) sin elegir
+  // cuál — se unifica de nuevo en un solo punto "Pantallas" (así las
+  // órdenes viejas con ese punto_instalacion siguen matcheando) y el
+  // reparto 50/50 entre Alquicer y Terra Uno se resuelve en
+  // locaciones_capacidad_reparto, no en el punto.
+  db.run(`
+    DELETE FROM locaciones_puntos
+    WHERE nombre IN ('Pantallas - Alquicer', 'Pantallas - Terra Uno/Iris Chiterer')
+      AND capacidad_id IN (
+        SELECT lc.id FROM locaciones_capacidad lc
+        JOIN locaciones l ON l.id = lc.locacion_id
+        JOIN productos p ON p.id = lc.producto_id
+        WHERE l.nombre = 'Bahía Grande Nordelta' AND p.nombre = 'Circuito Pantallas LED Verticales'
+      )
+  `, () => {
+    db.run(`
+      INSERT OR IGNORE INTO locaciones_puntos (id, capacidad_id, nombre, cantidad)
+      SELECT lower(hex(randomblob(16))), lc.id, 'Pantallas', 4
+      FROM locaciones_capacidad lc
+      JOIN locaciones l ON l.id = lc.locacion_id
+      JOIN productos p ON p.id = lc.producto_id
+      WHERE l.nombre = 'Bahía Grande Nordelta' AND p.nombre = 'Circuito Pantallas LED Verticales'
+        AND NOT EXISTS (SELECT 1 FROM locaciones_puntos lp2 WHERE lp2.capacidad_id = lc.id AND lp2.nombre = 'Pantallas')
+    `, () => {});
+    db.run(`
+      INSERT OR IGNORE INTO locaciones_capacidad_reparto (id, capacidad_id, concesionario_id, porcentaje)
+      SELECT lower(hex(randomblob(16))), lc.id, pr.id, 50
+      FROM locaciones_capacidad lc
+      JOIN locaciones l ON l.id = lc.locacion_id
+      JOIN productos p ON p.id = lc.producto_id
+      JOIN proveedores pr ON pr.razon_social IN ('ALQUICER S.R.L.', 'TERRA UNO S A')
+      WHERE l.nombre = 'Bahía Grande Nordelta' AND p.nombre = 'Circuito Pantallas LED Verticales'
+        AND NOT EXISTS (SELECT 1 FROM locaciones_capacidad_reparto r2 WHERE r2.capacidad_id = lc.id AND r2.concesionario_id = pr.id)
+    `, () => {});
+  });
+
+  // Terra Uno cobra su Canon a un % reducido (32% = 80% del 40% que se paga
+  // en Bahía Nordelta) porque el otro 20% del 40% se lo lleva Iris Chiterer
+  // — ver condiciones_iris_chiterer más abajo. No se toca acá el % (se
+  // carga en "Canon por concesionario" como cualquier otro), solo se deja
+  // la nota.
+  db.run(`
+    INSERT OR IGNORE INTO condiciones_concesionario (id, concesionario_id, porcentaje_comision, iva_porcentaje)
+    SELECT lower(hex(randomblob(16))), id, 32, 21 FROM proveedores WHERE razon_social = 'TERRA UNO S A'
+  `, () => {});
+
+  // Iris Chiterer: tercero que se queda con una porción FLAT del declarado
+  // de Terra Uno (20% del 40% de Canon de Bahía Nordelta = 8% del
+  // declarado) — mismo espíritu que Esteban Vivo/Oxant (comunicación
+  // aislada, solapa propia) pero sin cascada, un solo %. Terra Uno hoy solo
+  // concesiona ese punto en Bahía Nordelta, así que tomar "todo lo
+  // declarado por Terra Uno en el período" da el mismo resultado que
+  // limitarlo al punto puntual — si en el futuro Terra Uno concesiona algo
+  // más, esto habría que revisarlo (ver bitácora).
+  db.run(`
+    CREATE TABLE IF NOT EXISTS condiciones_iris_chiterer (
+      id TEXT PRIMARY KEY,
+      concesionario_id TEXT NOT NULL UNIQUE,
+      porcentaje REAL NOT NULL DEFAULT 8,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (concesionario_id) REFERENCES proveedores(id)
+    )
+  `);
+  db.run(`
+    INSERT OR IGNORE INTO condiciones_iris_chiterer (id, concesionario_id)
+    SELECT lower(hex(randomblob(16))), id FROM proveedores WHERE razon_social = 'TERRA UNO S A'
+  `, () => {});
+
   // Contactos por Email
   db.run(`
     CREATE TABLE IF NOT EXISTS contactos_email (
