@@ -2648,6 +2648,9 @@ function OrdenesTab({
           <div className="form-group" style={{ margin: 0 }}>
             <label htmlFor="filtro_mes">Mes</label>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+              <button type="button" className="btn-secondary" onClick={() => cambiarMesFiltro(-1)} title="Mes anterior">
+                ◀
+              </button>
               <select
                 id="filtro_mes"
                 value={filtroMes}
@@ -2661,18 +2664,10 @@ function OrdenesTab({
                   </option>
                 ))}
               </select>
-              <button type="button" className="btn-secondary" onClick={() => cambiarMesFiltro(-1)} title="Mes anterior">
-                ◀
-              </button>
               <button type="button" className="btn-secondary" onClick={() => cambiarMesFiltro(1)} title="Mes siguiente">
                 ▶
               </button>
             </div>
-            {filtroMes && (
-              <button type="button" className="btn-link" style={{ fontSize: '0.8rem' }} onClick={() => setFiltroMes('')}>
-                Ver todos los meses
-              </button>
-            )}
           </div>
           <div className="form-group" style={{ margin: 0 }}>
             <label htmlFor="filtro_ano">Año</label>
@@ -2689,11 +2684,6 @@ function OrdenesTab({
                 </option>
               ))}
             </select>
-            {filtroAno && (
-              <button type="button" className="btn-link" style={{ display: 'block', fontSize: '0.8rem' }} onClick={() => setFiltroAno('')}>
-                Ver todos los años
-              </button>
-            )}
           </div>
           <div className="form-group" style={{ margin: 0 }}>
             <label htmlFor="filtro_facturado">Facturación</label>
