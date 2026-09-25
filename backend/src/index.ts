@@ -352,7 +352,10 @@ app.get('/api/clientes/:id', autenticacion, requierePermiso('clientes_ver'), (re
 
 app.post('/api/clientes', autenticacion, requierePermiso('clientes_crear'), (req: RequestConUsuario, res: Response) => {
   const id = uuid();
-  const valores = CAMPOS_CLIENTE.map((campo) => req.body[campo] ?? null);
+  // '' se guarda como NULL, no como string vacío — sino dos clientes sin
+  // CUIT (u otro campo UNIQUE) chocan entre sí ("Ya existe un cliente
+  // cargado con ese CUIT" con el campo en blanco).
+  const valores = CAMPOS_CLIENTE.map((campo) => req.body[campo] ?? null).map((v) => (v === '' ? null : v));
 
   db.run(
     `INSERT INTO clientes (id, ${CAMPOS_CLIENTE.join(', ')}) VALUES (?, ${CAMPOS_CLIENTE.map(() => '?').join(', ')})`,
@@ -382,7 +385,7 @@ app.put('/api/clientes/:id', autenticacion, requierePermiso('clientes_editar'), 
     if (err) return res.status(500).json({ error: err.message });
     if (!clienteAnterior) return res.status(404).json({ error: 'Cliente no encontrado' });
 
-    const valores = CAMPOS_CLIENTE.map((campo) => req.body[campo] ?? null);
+    const valores = CAMPOS_CLIENTE.map((campo) => req.body[campo] ?? null).map((v) => (v === '' ? null : v));
 
     db.run(
       `UPDATE clientes SET ${CAMPOS_CLIENTE.map((c) => `${c} = ?`).join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
