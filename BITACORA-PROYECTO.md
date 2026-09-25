@@ -237,7 +237,14 @@ más importantes:
    la forma de retribuirse nada más"), tabla con el ledger mes a mes. % configurables por
    concesionario (`condiciones_comerciales`, no hardcodeado a WFPP) editables en "Canon por
    concesionario". Verificado exacto con datos de prueba en ambas rondas: Topview 2, concesionario
-   6 → diferencia +7, igual que la captura real.
+   6 → diferencia +7, igual que la captura real. Con datos reales ya cargados por el usuario (7
+   pautas de World Padel: IEB, OSDE, PAX, Padel Kids, SSI Seguridad, St. Matthew's, Universidad
+   Austral) se encontró y corrigió un problema más: esas pautas aparecían mezcladas en la tabla de
+   **Liquidar en $** con un campo de monto editable, junto a las ventas reales de Topview — sin
+   sentido, porque Topview no cobra nada por ellas. Se excluyeron de `listarPeriodo` (correcto
+   también para Oxant/Esteban Vivo/Iris Chiterer, que la reutilizan). La sección "Comerciales" ahora
+   muestra además el **desagregado por anunciante** del mes elegido (Anunciantes Topview / Anunciantes
+   Concesionario, cada uno con subtotal), igual que el documento real de referencia.
    **Ojo, pendiente sin resolver**: "Pauta Concesionario" todavía no excluye estas órdenes de
    Reportes de Ventas/Dashboard (Topview no se queda con esa plata) — sigue sumando ahí igual que
    cualquier otra; ahora sería trivial filtrarlas por tipo si se pide.
