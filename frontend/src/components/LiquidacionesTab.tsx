@@ -25,6 +25,7 @@ interface LineaLiquidacion {
   numero_orden: string;
   numero_orden_agencia: string | null;
   anunciante: string;
+  nombre_anunciante: string;
   periodo_desde: string;
   periodo_hasta: string;
   tipo_producto: string;
@@ -451,6 +452,7 @@ function LiquidacionesTab({
         return {
           clave,
           anunciante: ls[0].anunciante,
+          nombreAnunciante: ls[0].nombre_anunciante,
           seccion: ls[0].seccion,
           lineas: ls,
           ordenesTexto: Array.from(new Set(ls.map((l) => l.numero_orden_agencia || l.numero_orden))).join(', '),
@@ -989,9 +991,9 @@ function LiquidacionesTab({
               <table className="data-table" style={{ marginBottom: '1rem' }}>
                 <thead>
                   <tr>
-                    <th>Anunciante / concepto</th>
+                    <th>Cliente/Agencia</th>
+                    <th>Anunciante</th>
                     <th>N° orden</th>
-                    <th>Sección</th>
                     <th>Vigencia</th>
                     <th>Producto</th>
                     <th>Locación</th>
@@ -1005,6 +1007,7 @@ function LiquidacionesTab({
                   {gruposVisibles.map((g) => (
                     <tr key={g.clave} style={{ background: '#f0f7ff' }}>
                       <td>{g.anunciante}</td>
+                      <td>{g.nombreAnunciante}</td>
                       <td style={{ fontSize: '0.8rem' }}>
                         {onVerOrden
                           ? Array.from(new Map(g.lineas.map((l) => [l.orden_id, l.numero_orden_agencia || l.numero_orden])).entries()).map(
@@ -1019,7 +1022,6 @@ function LiquidacionesTab({
                             )
                           : g.ordenesTexto}
                       </td>
-                      <td>{SECCION_NOMBRE[g.seccion]}</td>
                       <td>{g.vigenciaTexto}</td>
                       <td>{g.elementosTexto}</td>
                       <td>{g.locacionTexto}</td>
@@ -1051,6 +1053,7 @@ function LiquidacionesTab({
                   {filasIndividuales.map((f) => (
                     <tr key={f.detalle_id} style={f.excluida ? { opacity: 0.5 } : undefined}>
                         <td>{f.anunciante}</td>
+                        <td>{f.nombre_anunciante}</td>
                         <td>
                           {onVerOrden ? (
                             <button type="button" className="btn-link" onClick={() => onVerOrden(f.orden_id)}>
@@ -1060,7 +1063,6 @@ function LiquidacionesTab({
                             f.numero_orden_agencia || f.numero_orden
                           )}
                         </td>
-                        <td>{SECCION_NOMBRE[f.seccion]}</td>
                         <td>{vigenciaTexto(f)}</td>
                         <td>{f.tipo_producto}</td>
                         <td>{f.locacion_nombre}</td>
@@ -1401,9 +1403,9 @@ function LiquidacionesTab({
             <table className="data-table" style={{ marginBottom: '1rem' }}>
               <thead>
                 <tr>
-                  <th>Anunciante / concepto</th>
+                  <th>Cliente/Agencia</th>
+                  <th>Anunciante</th>
                   <th>N° orden</th>
-                  <th>Sección</th>
                   <th>Vigencia</th>
                   <th>Producto</th>
                   <th>Locación</th>
@@ -1417,6 +1419,7 @@ function LiquidacionesTab({
                 {gruposTardios.map((g) => (
                   <tr key={g.clave} style={{ background: '#fff8e1' }}>
                     <td>{g.anunciante}</td>
+                    <td>{g.nombreAnunciante}</td>
                     <td style={{ fontSize: '0.8rem' }}>
                       {onVerOrden
                         ? Array.from(new Map(g.lineas.map((l) => [l.orden_id, l.numero_orden_agencia || l.numero_orden])).entries()).map(
@@ -1431,7 +1434,6 @@ function LiquidacionesTab({
                           )
                         : g.ordenesTexto}
                     </td>
-                    <td>{SECCION_NOMBRE[g.seccion]}</td>
                     <td>{g.vigenciaTexto}</td>
                     <td>{g.elementosTexto}</td>
                     <td>{g.locacionTexto}</td>
@@ -1466,6 +1468,7 @@ function LiquidacionesTab({
                 {filasTardiasIndividuales.map((f) => (
                   <tr key={f.detalle_id}>
                     <td>{f.anunciante}</td>
+                    <td>{f.nombre_anunciante}</td>
                     <td>
                       {onVerOrden ? (
                         <button type="button" className="btn-link" onClick={() => onVerOrden(f.orden_id)}>
@@ -1475,7 +1478,6 @@ function LiquidacionesTab({
                         f.numero_orden_agencia || f.numero_orden
                       )}
                     </td>
-                    <td>{SECCION_NOMBRE[f.seccion]}</td>
                     <td>{vigenciaTexto(f)}</td>
                     <td>{f.tipo_producto}</td>
                     <td>{f.locacion_nombre}</td>
