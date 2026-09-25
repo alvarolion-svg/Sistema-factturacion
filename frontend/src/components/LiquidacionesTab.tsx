@@ -109,6 +109,7 @@ interface LineaComercial {
 interface CuentaCorrienteComerciales {
   porcentaje_concesionario: number;
   porcentaje_topview: number;
+  ocultar_liquidacion_dinero: boolean;
   meses: MesComerciales[];
   saldo_acumulado: number;
   detalle_mes_actual: { topview: LineaComercial[]; concesionario: LineaComercial[] };
@@ -471,6 +472,11 @@ function LiquidacionesTab({
   // propia solapa). "mostrar excluidas" sigue siendo solo para las sacadas a
   // mano por otro motivo (ej. cliente no pagó).
   const filasVisibles = (filas || []).filter((f) => !esPendienteCorte15(f) && (mostrarExcluidas || !f.excluida));
+  // Si el vínculo con este concesionario es 100% por trueque de comerciales
+  // (ej. World Padel Pilar), se puede ocultar la liquidación en $ entera —
+  // tildable en "Canon por concesionario". Ver
+  // [[project_world_padel_cuenta_corriente_comerciales]].
+  const ocultarLiquidacionDinero = !!comerciales?.ocultar_liquidacion_dinero;
 
   // Con "Colapsar" activado, las líneas "limpias" (sin excluir, sin Sin
   // cargo/Canje) del mismo anunciante+sección se muestran juntas en una
@@ -809,11 +815,23 @@ function LiquidacionesTab({
 
           {!concesionarioId && <p className="empty-state">Elegí un concesionario para ver sus campañas del período.</p>}
           {concesionarioId && filas === null && !error && <p className="empty-state">Cargando...</p>}
-          {concesionarioId && filas && vista === 'liquidar' && filasVisibles.length === 0 && manuales.length === 0 && !error && (
+          {concesionarioId && vista === 'liquidar' && ocultarLiquidacionDinero && (
             <p className="empty-state">
-              {nombreConcesionario} no tiene campañas activas en {NOMBRES_MES[Number(mes) - 1]} {ano}.
+              {nombreConcesionario} se compensa 100% por trueque de comerciales, sin liquidación en $ — ver la sección
+              "Comerciales" más abajo.
             </p>
           )}
+          {concesionarioId &&
+            filas &&
+            vista === 'liquidar' &&
+            !ocultarLiquidacionDinero &&
+            filasVisibles.length === 0 &&
+            manuales.length === 0 &&
+            !error && (
+              <p className="empty-state">
+                {nombreConcesionario} no tiene campañas activas en {NOMBRES_MES[Number(mes) - 1]} {ano}.
+              </p>
+            )}
           {concesionarioId && filas && vista === 'tardias' && filasTardias.length === 0 && !error && (
             <p className="empty-state">
               {nombreConcesionario} no tiene campañas pendientes de decisión después del día 15 en{' '}
@@ -821,7 +839,7 @@ function LiquidacionesTab({
             </p>
           )}
 
-          {vista === 'liquidar' && filas && (filasVisibles.length > 0 || manuales.length > 0) && (
+          {vista === 'liquidar' && !ocultarLiquidacionDinero && filas && (filasVisibles.length > 0 || manuales.length > 0) && (
             <>
               <div style={{ display: 'flex', gap: '0.6rem', marginBottom: '0.8rem', alignItems: 'center', flexWrap: 'wrap' }}>
                 <button type="button" className="btn-secondary" onClick={handleExportarExcel}>
@@ -1129,15 +1147,20 @@ function LiquidacionesTab({
                   </tr>
                 </tbody>
               </table>
+            </>
+          )}
 
-              {comerciales && (
+          {vista === 'liquidar' && comerciales && (
                 <div style={{ marginTop: '2.5rem', paddingTop: '1.5rem', borderTop: '3px double #ccc' }}>
                   <h3 className="reportes-subtitulo">Comerciales — cuenta corriente por trueque</h3>
                   <p className="totales-preview" style={{ marginTop: 0 }}>
-                    Este concesionario se compensa por cantidad de comerciales (spots), no por plata — convive con la
-                    liquidación en $ de arriba, no la reemplaza. Reparto {comerciales.porcentaje_concesionario}%
-                    concesionario / {comerciales.porcentaje_topview}% Topview. Corte mensual, con saldo que arrastra
-                    mes a mes. Los % se editan en la solapa "Canon por concesionario".
+                    Este concesionario se compensa por cantidad de comerciales (spots), no por plata
+                    {ocultarLiquidacionDinero
+                      ? ' — no tiene liquidación en $ (se ocultó porque se paga 100% por trueque)'
+                      : ' — convive con la liquidación en $ de arriba, no la reemplaza'}
+                    . Reparto {comerciales.porcentaje_concesionario}% concesionario / {comerciales.porcentaje_topview}%
+                    Topview. Corte mensual, con saldo que arrastra mes a mes. Los % (y si se oculta el $) se editan en
+                    la solapa "Canon por concesionario".
                   </p>
 
                   {(comerciales.detalle_mes_actual.topview.length > 0 || comerciales.detalle_mes_actual.concesionario.length > 0) && (
@@ -1252,8 +1275,6 @@ function LiquidacionesTab({
                     </table>
                   )}
                 </div>
-              )}
-            </>
           )}
 
           {vista === 'tardias' && filas && filasTardias.length > 0 && (
@@ -1418,7 +1439,7 @@ interface CondicionConcesionario {
   esteban_vivo: CondicionEstebanVivo | null;
   oxant: CondicionOxant | null;
   iris_chiterer: { porcentaje: number } | null;
-  comerciales: { porcentaje_concesionario: number; porcentaje_topview: number } | null;
+  comerciales: { porcentaje_concesionario: number; porcentaje_topview: number; ocultar_liquidacion_dinero: boolean } | null;
 }
 
 // Solapa chica dentro de Liquidaciones (no una pantalla aparte) para que el
@@ -1453,7 +1474,9 @@ function CondicionesConcesionarioTab({ token }: { token: string }) {
   const [guardadoIrisId, setGuardadoIrisId] = useState<string | null>(null);
   // World Padel Pilar: cuenta corriente de comerciales — 1 a 1 con un
   // concesionario, con 2 % (concesionario/Topview) en vez de 1.
-  const [comercialesLocal, setComercialesLocal] = useState<Record<string, { concesionario: string; topview: string }>>({});
+  const [comercialesLocal, setComercialesLocal] = useState<
+    Record<string, { concesionario: string; topview: string; ocultarDinero: boolean }>
+  >({});
   const [guardandoComercialesId, setGuardandoComercialesId] = useState<string | null>(null);
   const [guardadoComercialesId, setGuardadoComercialesId] = useState<string | null>(null);
 
@@ -1468,7 +1491,7 @@ function CondicionesConcesionarioTab({ token }: { token: string }) {
         const iniciales: Record<string, { canon: string; iva: string }> = {};
         const inicialesVivo: Record<string, { comisionVendedor: string; canon: string; gastosTop: string; vivo: string }> = {};
         const inicialesIris: Record<string, string> = {};
-        const inicialesComerciales: Record<string, { concesionario: string; topview: string }> = {};
+        const inicialesComerciales: Record<string, { concesionario: string; topview: string; ocultarDinero: boolean }> = {};
         data.forEach((c) => {
           iniciales[c.concesionario_id] = { canon: String(c.porcentaje_comision), iva: String(c.iva_porcentaje) };
           if (c.esteban_vivo) {
@@ -1486,6 +1509,7 @@ function CondicionesConcesionarioTab({ token }: { token: string }) {
             inicialesComerciales[c.concesionario_id] = {
               concesionario: String(c.comerciales.porcentaje_concesionario),
               topview: String(c.comerciales.porcentaje_topview),
+              ocultarDinero: c.comerciales.ocultar_liquidacion_dinero,
             };
           }
         });
@@ -1625,7 +1649,11 @@ function CondicionesConcesionarioTab({ token }: { token: string }) {
     try {
       await axios.put(
         `/api/liquidaciones/condiciones/${concesionarioId}/comerciales`,
-        { porcentaje_concesionario: Number(v?.concesionario) || 0, porcentaje_topview: Number(v?.topview) || 0 },
+        {
+          porcentaje_concesionario: Number(v?.concesionario) || 0,
+          porcentaje_topview: Number(v?.topview) || 0,
+          ocultar_liquidacion_dinero: !!v?.ocultarDinero,
+        },
         authHeaders(token)
       );
       setGuardadoComercialesId(concesionarioId);
@@ -1727,15 +1755,15 @@ function CondicionesConcesionarioTab({ token }: { token: string }) {
                     >
                       {expandidoId === c.concesionario_id
                         ? 'Cerrar'
-                        : c.esteban_vivo
-                        ? 'Percepciones / Esteban Vivo'
-                        : c.oxant
-                        ? 'Percepciones / Oxant'
-                        : c.iris_chiterer
-                        ? 'Percepciones / Iris Chiterer'
-                        : c.comerciales
-                        ? 'Percepciones / Comerciales'
-                        : 'Percepciones'}
+                        : [
+                            'Percepciones',
+                            c.esteban_vivo && 'Esteban Vivo',
+                            c.oxant && 'Oxant',
+                            c.iris_chiterer && 'Iris Chiterer',
+                            c.comerciales && 'Comerciales',
+                          ]
+                            .filter(Boolean)
+                            .join(' / ')}
                     </button>{' '}
                     <span style={{ color: 'var(--color-exito, #2e7d32)' }}>
                       {guardandoId === c.concesionario_id ? 'Guardando...' : guardadoId === c.concesionario_id ? 'Guardado ✓' : ''}
@@ -1960,9 +1988,26 @@ function CondicionesConcesionarioTab({ token }: { token: string }) {
                               {guardadoComercialesId === c.concesionario_id ? 'Guardado ✓' : ''}
                             </span>
                           </div>
+                          <label
+                            style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.6rem', fontWeight: 'normal' }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={!!comercialesLocal[c.concesionario_id]?.ocultarDinero}
+                              onChange={(e) =>
+                                setComercialesLocal((actual) => ({
+                                  ...actual,
+                                  [c.concesionario_id]: { ...actual[c.concesionario_id], ocultarDinero: e.target.checked },
+                                }))
+                              }
+                              disabled={guardandoComercialesId === c.concesionario_id}
+                            />
+                            Ocultar la liquidación en $ para este concesionario (se paga todo por trueque, sin plata)
+                          </label>
                           <p className="totales-preview" style={{ marginTop: '0.4rem', marginBottom: 0, fontSize: '0.8rem' }}>
                             Se compensa por cantidad de comerciales (spots), no por plata — cuenta corriente que arrastra
-                            saldo mes a mes. Se ve calculado dentro de "Liquidar" de este concesionario.
+                            saldo mes a mes. Se ve calculado dentro de "Liquidar" de este concesionario. Acordate de tocar
+                            "Guardar" después de tildar/destildar esto.
                           </p>
                         </div>
                       )}

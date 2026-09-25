@@ -1218,10 +1218,11 @@ app.get('/api/liquidaciones/iris-chiterer', autenticacion, requierePermiso('liqu
 
 app.put('/api/liquidaciones/condiciones/:concesionarioId/comerciales', autenticacion, requierePermiso('liquidaciones_cargar'), async (req: RequestConUsuario, res: Response) => {
   try {
-    const { porcentaje_concesionario, porcentaje_topview } = req.body;
+    const { porcentaje_concesionario, porcentaje_topview, ocultar_liquidacion_dinero } = req.body;
     await LiquidacionesService.guardarCondicionComerciales(req.params.concesionarioId, {
       porcentajeConcesionario: Number(porcentaje_concesionario) || 0,
       porcentajeTopview: Number(porcentaje_topview) || 0,
+      ocultarLiquidacionDinero: !!ocultar_liquidacion_dinero,
     });
     res.json({ ok: true });
   } catch (err: any) {

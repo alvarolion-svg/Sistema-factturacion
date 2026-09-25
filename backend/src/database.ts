@@ -1197,11 +1197,19 @@ db.serialize(() => {
       concesionario_id TEXT NOT NULL UNIQUE,
       porcentaje_concesionario REAL NOT NULL DEFAULT 40,
       porcentaje_topview REAL NOT NULL DEFAULT 60,
+      ocultar_liquidacion_dinero BOOLEAN NOT NULL DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (concesionario_id) REFERENCES proveedores(id)
     )
   `);
+  // Si el vínculo con el concesionario es 100% por trueque de comerciales
+  // (sin plata de por medio, ej. World Padel Pilar), el usuario puede
+  // ocultar la tabla de Liquidar en $ para no pedir un monto que nunca
+  // corresponde — tildable/destildable en "Canon por concesionario", por si
+  // el negocio cambia y en algún momento sí le pagan algo en efectivo. Ver
+  // [[project_world_padel_cuenta_corriente_comerciales]].
+  db.run(`ALTER TABLE condiciones_comerciales ADD COLUMN ocultar_liquidacion_dinero BOOLEAN NOT NULL DEFAULT 0`, () => {});
   db.run(`
     INSERT OR IGNORE INTO condiciones_comerciales (id, concesionario_id)
     SELECT lower(hex(randomblob(16))), id FROM proveedores WHERE razon_social = 'WFPP SRL'

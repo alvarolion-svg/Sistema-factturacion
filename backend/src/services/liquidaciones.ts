@@ -140,6 +140,7 @@ export class LiquidacionesService {
           ? {
               porcentaje_concesionario: Number(comerciales.porcentaje_concesionario),
               porcentaje_topview: Number(comerciales.porcentaje_topview),
+              ocultar_liquidacion_dinero: !!comerciales.ocultar_liquidacion_dinero,
             }
           : null,
       };
@@ -436,31 +437,32 @@ export class LiquidacionesService {
   // aparte). Ver [[project_world_padel_cuenta_corriente_comerciales]].
   static async obtenerCondicionComerciales(
     concesionarioId: string
-  ): Promise<{ porcentajeConcesionario: number; porcentajeTopview: number } | null> {
+  ): Promise<{ porcentajeConcesionario: number; porcentajeTopview: number; ocultarLiquidacionDinero: boolean } | null> {
     const fila = await this.queryGet('SELECT * FROM condiciones_comerciales WHERE concesionario_id = ?', [concesionarioId]);
     if (!fila) return null;
     return {
       porcentajeConcesionario: Number(fila.porcentaje_concesionario),
       porcentajeTopview: Number(fila.porcentaje_topview),
+      ocultarLiquidacionDinero: !!fila.ocultar_liquidacion_dinero,
     };
   }
 
   static async guardarCondicionComerciales(
     concesionarioId: string,
-    datos: { porcentajeConcesionario: number; porcentajeTopview: number }
+    datos: { porcentajeConcesionario: number; porcentajeTopview: number; ocultarLiquidacionDinero: boolean }
   ): Promise<void> {
     const existente = await this.queryGet('SELECT * FROM condiciones_comerciales WHERE concesionario_id = ?', [concesionarioId]);
     if (existente && existente.id) {
       await this.runQuery(
-        'UPDATE condiciones_comerciales SET porcentaje_concesionario = ?, porcentaje_topview = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-        [datos.porcentajeConcesionario, datos.porcentajeTopview, existente.id]
+        'UPDATE condiciones_comerciales SET porcentaje_concesionario = ?, porcentaje_topview = ?, ocultar_liquidacion_dinero = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+        [datos.porcentajeConcesionario, datos.porcentajeTopview, datos.ocultarLiquidacionDinero ? 1 : 0, existente.id]
       );
       AuditoriaService.registrarOperacion('condiciones_comerciales', 'UPDATE', existente.id, existente, datos);
     } else {
       const id = uuid();
       await this.runQuery(
-        'INSERT INTO condiciones_comerciales (id, concesionario_id, porcentaje_concesionario, porcentaje_topview) VALUES (?, ?, ?, ?)',
-        [id, concesionarioId, datos.porcentajeConcesionario, datos.porcentajeTopview]
+        'INSERT INTO condiciones_comerciales (id, concesionario_id, porcentaje_concesionario, porcentaje_topview, ocultar_liquidacion_dinero) VALUES (?, ?, ?, ?, ?)',
+        [id, concesionarioId, datos.porcentajeConcesionario, datos.porcentajeTopview, datos.ocultarLiquidacionDinero ? 1 : 0]
       );
       AuditoriaService.registrarOperacion('condiciones_comerciales', 'INSERT', id, null, { concesionarioId, ...datos });
     }
@@ -569,6 +571,7 @@ export class LiquidacionesService {
   ): Promise<{
     porcentaje_concesionario: number;
     porcentaje_topview: number;
+    ocultar_liquidacion_dinero: boolean;
     meses: Array<{
       mes: number;
       ano: number;
@@ -608,7 +611,11 @@ export class LiquidacionesService {
       [concesionarioId, concesionarioId, concesionarioId]
     );
 
-    const base = { porcentaje_concesionario: condicion.porcentajeConcesionario, porcentaje_topview: condicion.porcentajeTopview };
+    const base = {
+      porcentaje_concesionario: condicion.porcentajeConcesionario,
+      porcentaje_topview: condicion.porcentajeTopview,
+      ocultar_liquidacion_dinero: condicion.ocultarLiquidacionDinero,
+    };
     if (!primerMes || !primerMes.inicio) {
       return { ...base, meses: [], saldo_acumulado: 0, detalle_mes_actual: detalleMesActual };
     }
