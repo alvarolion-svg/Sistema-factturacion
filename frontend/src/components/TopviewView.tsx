@@ -736,11 +736,14 @@ function OrdenesTab({
     }
   };
 
-  // Filtro mensual de la lista: por "Fecha de facturación" (el dato real de
-  // cuándo se emite la factura de este mes), no por período de la campaña —
-  // es la pregunta "qué tengo que facturar este mes", no "qué órdenes están vigentes".
-  const [filtroMes, setFiltroMes] = useState('');
-  const [filtroAno, setFiltroAno] = useState('');
+  // Filtro mensual de la lista: por defecto arranca en el mes de ingreso
+  // (venta) actual — "paginación" natural por mes en vez de números de
+  // página genéricos, para no tener que cargar/scrollear todo el histórico
+  // cada vez que se entra. "Ver todas" (más abajo) saca el filtro para
+  // volver al comportamiento de antes.
+  const hoyOrdenes = new Date();
+  const [filtroMes, setFiltroMes] = useState(String(hoyOrdenes.getMonth() + 1));
+  const [filtroAno, setFiltroAno] = useState(String(hoyOrdenes.getFullYear()));
   const [busqueda, setBusqueda] = useState('');
   // "Facturado" (checkbox "Esta orden genera facturación") separa lo que
   // realmente entra en el circuito fiscal de lo que no — clientes con
@@ -751,10 +754,31 @@ function OrdenesTab({
   // El mes/año de arriba puede filtrar por "Fecha de facturación" (cuándo se
   // factura) o por "Mes de ingreso (venta)" (cuándo se cargó/vendió la
   // pauta) — son preguntas distintas: una orden vendida en agosto puede
-  // facturarse recién en septiembre. Default: facturación, igual que
-  // siempre. Mismo criterio que separa "Venta mensual" de "Facturación
-  // bruta mensual" en Reportes → Topview.
-  const [filtroMesTipo, setFiltroMesTipo] = useState<'facturacion' | 'ingreso'>('facturacion');
+  // facturarse recién en septiembre. Default: ingreso (venta), para que la
+  // "paginación por mes" de arriba tenga sentido — es la pregunta "qué
+  // vendí este mes", la más habitual al entrar a la lista. Mismo criterio
+  // que separa "Venta mensual" de "Facturación bruta mensual" en Reportes →
+  // Topview.
+  const [filtroMesTipo, setFiltroMesTipo] = useState<'facturacion' | 'ingreso'>('ingreso');
+
+  // Navega un mes hacia adelante/atrás (con acarreo de año) sobre el filtro
+  // de mes/año elegido — funciona con cualquiera de los dos (ingreso o
+  // facturación), lo que esté seleccionado en "Filtrar por".
+  const cambiarMesFiltro = (delta: number) => {
+    const mesBase = filtroMes ? Number(filtroMes) : hoyOrdenes.getMonth() + 1;
+    const anoBase = filtroAno ? Number(filtroAno) : hoyOrdenes.getFullYear();
+    let nuevoMes = mesBase + delta;
+    let nuevoAno = anoBase;
+    if (nuevoMes < 1) {
+      nuevoMes = 12;
+      nuevoAno -= 1;
+    } else if (nuevoMes > 12) {
+      nuevoMes = 1;
+      nuevoAno += 1;
+    }
+    setFiltroMes(String(nuevoMes));
+    setFiltroAno(String(nuevoAno));
+  };
 
   // Mes/año de ingreso resuelto igual que al guardar la orden: si no se
   // cargó a mano, se toma el mes/año de "Período desde".
@@ -764,14 +788,18 @@ function OrdenesTab({
   };
 
   const anosDisponibles = Array.from(
-    new Set(
-      filtroMesTipo === 'ingreso'
+    new Set([
+      ...(filtroMesTipo === 'ingreso'
         ? (ordenes || []).map((o) => mesAnoIngresoDe(o)[0])
         : (ordenes || [])
             .map((o) => o.fecha_facturacion)
             .filter((f): f is string => !!f)
-            .map((f) => Number(f.split('-')[0]))
-    )
+            .map((f) => Number(f.split('-')[0]))),
+      // Si "Mes siguiente/anterior" navegó a un año sin ninguna orden
+      // todavía, lo agregamos igual para que el <select> no quede
+      // desincronizado del filtro real.
+      ...(filtroAno ? [Number(filtroAno)] : []),
+    ])
   ).sort((a, b) => Number(b) - Number(a));
 
   const esOrdenFacturado = (o: OrdenPublicidad) => o.facturado === undefined || o.facturado === null || !!o.facturado;
@@ -2649,6 +2677,29 @@ function OrdenesTab({
               ))}
             </select>
           </div>
+          {(filtroMes || filtroAno) && (
+            <div className="form-group" style={{ margin: 0 }}>
+              <label>&nbsp;</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <button type="button" className="btn-secondary" onClick={() => cambiarMesFiltro(-1)} title="Mes anterior">
+                  ◀
+                </button>
+                <button type="button" className="btn-secondary" onClick={() => cambiarMesFiltro(1)} title="Mes siguiente">
+                  ▶
+                </button>
+                <button
+                  type="button"
+                  className="btn-link"
+                  onClick={() => {
+                    setFiltroMes('');
+                    setFiltroAno('');
+                  }}
+                >
+                  Ver todas
+                </button>
+              </div>
+            </div>
+          )}
           <div className="form-group" style={{ margin: 0 }}>
             <label htmlFor="filtro_facturado">Facturación</label>
             <select
@@ -2678,7 +2729,12 @@ function OrdenesTab({
               ))}
             </select>
           </div>
-          {(filtroMes || filtroAno || busqueda || filtroFacturado || filtroTipoAnunciante || filtroMesTipo !== 'facturacion') && (
+          {(filtroMes !== String(hoyOrdenes.getMonth() + 1) ||
+            filtroAno !== String(hoyOrdenes.getFullYear()) ||
+            busqueda ||
+            filtroFacturado ||
+            filtroTipoAnunciante ||
+            filtroMesTipo !== 'ingreso') && (
             <button
               type="button"
               className="btn-link"
@@ -2688,7 +2744,7 @@ function OrdenesTab({
                 setBusqueda('');
                 setFiltroFacturado('');
                 setFiltroTipoAnunciante('');
-                setFiltroMesTipo('facturacion');
+                setFiltroMesTipo('ingreso');
               }}
             >
               Limpiar filtro
