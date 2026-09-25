@@ -222,26 +222,25 @@ más importantes:
    nombre tipo `'Administrador'`, nunca matchea) — no se usa todavía, pero conviene arreglarlo o
    sacarlo antes de que alguien lo use tal cual.
 9. **World Padel Pilar: cuenta corriente de comerciales (trueque, no plata) — CONSTRUIDO
-   (2026-09-24)**. WFPP SRL compensa espacios por trueque de spots publicitarios (60% Topview / 40%
-   World Padel), no por dinero. Fórmula verificada contra una captura real: `total_implícito =
+   (2026-09-24/25)**. WFPP SRL compensa espacios por trueque de spots publicitarios (60% Topview /
+   40% World Padel), no por dinero. Fórmula verificada contra una captura real: `total_implícito =
    ventas_concesionario / %concesionario`, `cuota_topview = total_implícito × %topview`,
    `diferencia_mes = cuota_topview − ventas_topview`, `saldo_acumulado = saldo_anterior +
    diferencia_mes` (ej. WP vendió 6, Topview 2 → +7). Corte mensual con saldo que arrastra entre
-   meses (cuenta corriente real), confirmado por el usuario. Construido en 2 pasos: (1) tilde
-   "Vendida directamente por el concesionario, no por Topview" en el formulario de orden (al lado
-   de "Interviene una agencia distinta...") — la orden ocupa el soporte real y cuenta como
-   "comercial" pero nunca genera facturación de Topview; (2) sección nueva **embebida dentro de
-   "Liquidar"** del mismo concesionario (no una solapa aparte — pedido explícito: "cambia la forma
-   de retribuirse nada más"), tabla con el ledger mes a mes hasta el período elegido. % configurables
-   por concesionario (`condiciones_comerciales`, no hardcodeado a WFPP) editables en "Canon por
-   concesionario". Verificado exacto con datos de prueba: Topview 2, concesionario 6 → diferencia +7,
-   igual que la captura real. Además se agregó el tipo de anunciante **"Pauta Concesionario"** (tabla
-   `tipos_anunciantes`) para que estas campañas se distingan solas en cualquier listado/reporte que
-   agrupe por tipo — decisión explícita del usuario de mantenerlo **separado** del tilde de
-   facturación (uno es categoría de reporte, el otro es comportamiento; no se auto-marcan entre sí).
-   **Ojo, pendiente sin resolver**: ni el tipo nuevo ni el tilde excluyen todavía estas órdenes de
+   meses (cuenta corriente real), confirmado por el usuario. Una campaña vendida por el
+   concesionario se identifica con el tipo de anunciante **"Pauta Concesionario"** (única señal —
+   se probó primero con un tilde aparte en la orden, pero se fusionó a pedido del usuario para no
+   repetir el lío de dos controles diciendo lo mismo). Elegir ese tipo destilda y bloquea
+   automáticamente "Esta orden genera facturación", evita crear `replicaciones_facturacion`, y
+   alimenta el conteo de comerciales del concesionario. Cálculo en una sección nueva **embebida
+   dentro de "Liquidar"** del mismo concesionario (no una solapa aparte — pedido explícito: "cambia
+   la forma de retribuirse nada más"), tabla con el ledger mes a mes. % configurables por
+   concesionario (`condiciones_comerciales`, no hardcodeado a WFPP) editables en "Canon por
+   concesionario". Verificado exacto con datos de prueba en ambas rondas: Topview 2, concesionario
+   6 → diferencia +7, igual que la captura real.
+   **Ojo, pendiente sin resolver**: "Pauta Concesionario" todavía no excluye estas órdenes de
    Reportes de Ventas/Dashboard (Topview no se queda con esa plata) — sigue sumando ahí igual que
-   cualquier otra; con el tipo nuevo ahora sería fácil filtrarlas si se pide.
+   cualquier otra; ahora sería trivial filtrarlas por tipo si se pide.
 
 ## Cómo trabaja este usuario (para que una sesión nueva no tenga que redescubrirlo)
 
