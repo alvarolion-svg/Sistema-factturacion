@@ -638,12 +638,14 @@ db.serialize(() => {
   db.run(`ALTER TABLE ordenes_publicidad ADD COLUMN mes_ingreso INTEGER`, () => {});
   db.run(`ALTER TABLE ordenes_publicidad ADD COLUMN ano_ingreso INTEGER`, () => {});
   // Vendida directamente por el concesionario (ej. World Padel Pilar vende
-  // sus propios espacios sin pasar por Topview) — la orden sigue ocupando
-  // el soporte real para contar en el reparto de comerciales/cuenta
-  // corriente, pero Topview nunca la factura (no genera replicaciones de
-  // facturación) ni es venta propia. Ver
+  // sus propios espacios sin pasar por Topview): se identifica por
+  // tipo_anunciante = 'Pauta Concesionario' (ver seed de tipos_anunciantes),
+  // no por una columna aparte — se probó con un tilde independiente primero
+  // pero el usuario prefirió fusionarlo con el tipo de anunciante, una sola
+  // señal en vez de dos. Columna vieja, sin uso (0 filas la tenían en
+  // producción al momento de sacarla). Ver
   // [[project_world_padel_cuenta_corriente_comerciales]].
-  db.run(`ALTER TABLE ordenes_publicidad ADD COLUMN vendido_por_concesionario BOOLEAN DEFAULT 0`, () => {});
+  db.run(`ALTER TABLE ordenes_publicidad DROP COLUMN vendido_por_concesionario`, () => {});
 
   db.run(`CREATE INDEX IF NOT EXISTS idx_ordenes_publicidad_estado ON ordenes_publicidad(estado)`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_ordenes_publicidad_cliente ON ordenes_publicidad(cliente_id)`);

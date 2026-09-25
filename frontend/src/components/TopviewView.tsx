@@ -36,7 +36,6 @@ interface OrdenPublicidad {
   monto_final: number;
   estado: string;
   facturado: number;
-  vendido_por_concesionario: number;
   notas: string | null;
   mes_ingreso: number | null;
   ano_ingreso: number | null;
@@ -90,6 +89,11 @@ const TIPOS_ANUNCIANTE = [
   'Pautas en dólares',
   'Pauta Concesionario',
 ];
+// Campaña vendida directamente por el concesionario, no por Topview (ej.
+// World Padel Pilar) — señal única en tipo_anunciante, sin tilde aparte
+// (se probó con uno y se fusionó a pedido del usuario). Ver
+// [[project_world_padel_cuenta_corriente_comerciales]].
+const TIPO_ANUNCIANTE_PAUTA_CONCESIONARIO = 'Pauta Concesionario';
 // No es un gate de facturación acá adentro — es un tracker manual de en qué
 // paso está la orden respecto del proceso real (Colppy sigue siendo quien
 // factura de verdad hoy): la cargaste en el sistema, la revisaste, y la
@@ -155,7 +159,6 @@ const ORDEN_VACIA = {
   mes_ingreso: '',
   ano_ingreso: '',
   facturado: true,
-  vendido_por_concesionario: false,
   notas: '',
   vigencia_hasta_nota: '',
 };
@@ -478,8 +481,12 @@ function OrdenesTab({
       descuento_facturas_en_cascada: !!o.descuento_facturas_en_cascada,
       mes_ingreso: o.mes_ingreso ? String(o.mes_ingreso) : '',
       ano_ingreso: o.ano_ingreso ? String(o.ano_ingreso) : '',
-      facturado: o.vendido_por_concesionario ? false : o.facturado === undefined ? true : !!o.facturado,
-      vendido_por_concesionario: !!o.vendido_por_concesionario,
+      facturado:
+        o.tipo_anunciante === TIPO_ANUNCIANTE_PAUTA_CONCESIONARIO
+          ? false
+          : o.facturado === undefined
+          ? true
+          : !!o.facturado,
       notas: o.notas || '',
       vigencia_hasta_nota: o.vigencia_hasta_nota || '',
     });
@@ -1308,7 +1315,6 @@ function OrdenesTab({
           mes_ingreso: ordenForm.mes_ingreso ? Number(ordenForm.mes_ingreso) : undefined,
           ano_ingreso: ordenForm.ano_ingreso ? Number(ordenForm.ano_ingreso) : undefined,
           facturado: ordenForm.facturado,
-          vendido_por_concesionario: ordenForm.vendido_por_concesionario,
           notas: ordenForm.notas,
           vigencia_hasta_nota: ordenForm.vigencia_hasta_nota.trim() || undefined,
           detalles_productos: productosValidos.map((l) => ({
@@ -1982,7 +1988,13 @@ function OrdenesTab({
             <select
               id="orden_tipo"
               value={ordenForm.tipo_anunciante}
-              onChange={(e) => handleChangeOrden('tipo_anunciante', e.target.value)}
+              onChange={(e) =>
+                setOrdenForm((p) => ({
+                  ...p,
+                  tipo_anunciante: e.target.value,
+                  facturado: e.target.value === TIPO_ANUNCIANTE_PAUTA_CONCESIONARIO ? false : p.facturado,
+                }))
+              }
               disabled={guardando}
             >
               {(tiposAnunciantes.length > 0 ? tiposAnunciantes.map((t) => t.nombre) : TIPOS_ANUNCIANTE).map((t) => (
@@ -2144,31 +2156,6 @@ function OrdenesTab({
                   </small>
                 )}
               </>
-            )}
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="orden_vendido_por_concesionario">
-              <input
-                id="orden_vendido_por_concesionario"
-                type="checkbox"
-                checked={ordenForm.vendido_por_concesionario}
-                onChange={(e) =>
-                  setOrdenForm((p) => ({
-                    ...p,
-                    vendido_por_concesionario: e.target.checked,
-                    facturado: e.target.checked ? false : p.facturado,
-                  }))
-                }
-                disabled={guardando}
-              />
-              {' '}Vendida directamente por el concesionario, no por Topview
-            </label>
-            {ordenForm.vendido_por_concesionario && (
-              <small>
-                No genera facturación de Topview ni cuenta como venta propia — solo ocupa el soporte real para
-                el reparto de comerciales con el concesionario.
-              </small>
             )}
           </div>
 
@@ -2398,14 +2385,14 @@ function OrdenesTab({
               <input
                 id="orden_facturado"
                 type="checkbox"
-                checked={ordenForm.vendido_por_concesionario ? false : ordenForm.facturado}
+                checked={ordenForm.tipo_anunciante === TIPO_ANUNCIANTE_PAUTA_CONCESIONARIO ? false : ordenForm.facturado}
                 onChange={(e) => handleChangeOrden('facturado', e.target.checked)}
-                disabled={guardando || ordenForm.vendido_por_concesionario}
+                disabled={guardando || ordenForm.tipo_anunciante === TIPO_ANUNCIANTE_PAUTA_CONCESIONARIO}
               />
               {' '}Esta orden genera facturación
-              {ordenForm.vendido_por_concesionario && (
+              {ordenForm.tipo_anunciante === TIPO_ANUNCIANTE_PAUTA_CONCESIONARIO && (
                 <small style={{ display: 'block', fontWeight: 'normal' }}>
-                  Deshabilitado: la vendió el concesionario, Topview no la factura.
+                  Deshabilitado: es una Pauta Concesionario, Topview no la factura.
                 </small>
               )}
             </label>
@@ -2786,7 +2773,7 @@ function OrdenesTab({
                 <td>{o.razon_social}</td>
                 <td>
                   {o.nombre_anunciante}
-                  {!!o.vendido_por_concesionario && (
+                  {o.tipo_anunciante === TIPO_ANUNCIANTE_PAUTA_CONCESIONARIO && (
                     <span
                       title="Vendida directamente por el concesionario, no por Topview"
                       style={{

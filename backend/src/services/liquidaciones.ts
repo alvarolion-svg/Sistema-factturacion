@@ -481,7 +481,7 @@ export class LiquidacionesService {
     const filas = await this.queryAll(
       `
       SELECT
-        CASE WHEN o.vendido_por_concesionario = 1 THEN 1 ELSE 0 END as es_concesionario,
+        CASE WHEN o.tipo_anunciante = 'Pauta Concesionario' THEN 1 ELSE 0 END as es_concesionario,
         SUM(d.cantidad) as total
       FROM ordenes_publicidad_detalles d
       JOIN locaciones l ON l.id = d.locacion_id
