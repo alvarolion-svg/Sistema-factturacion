@@ -235,9 +235,13 @@ más importantes:
    de retribuirse nada más"), tabla con el ledger mes a mes hasta el período elegido. % configurables
    por concesionario (`condiciones_comerciales`, no hardcodeado a WFPP) editables en "Canon por
    concesionario". Verificado exacto con datos de prueba: Topview 2, concesionario 6 → diferencia +7,
-   igual que la captura real. **Ojo, pendiente sin resolver**: no se auditó si estas órdenes deberían
-   excluirse de Reportes de Ventas/Dashboard (Topview no se queda con esa plata) — sigue sumando ahí
-   igual que cualquier otra.
+   igual que la captura real. Además se agregó el tipo de anunciante **"Pauta Concesionario"** (tabla
+   `tipos_anunciantes`) para que estas campañas se distingan solas en cualquier listado/reporte que
+   agrupe por tipo — decisión explícita del usuario de mantenerlo **separado** del tilde de
+   facturación (uno es categoría de reporte, el otro es comportamiento; no se auto-marcan entre sí).
+   **Ojo, pendiente sin resolver**: ni el tipo nuevo ni el tilde excluyen todavía estas órdenes de
+   Reportes de Ventas/Dashboard (Topview no se queda con esa plata) — sigue sumando ahí igual que
+   cualquier otra; con el tipo nuevo ahora sería fácil filtrarlas si se pide.
 
 ## Cómo trabaja este usuario (para que una sesión nueva no tenga que redescubrirlo)
 
