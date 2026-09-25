@@ -45,10 +45,9 @@ una feature secundaria.
   ("posiciones" en la interfaz). Las órdenes ya pueden asociar cada línea de producto a una
   locación + posición real (reemplaza de a poco el texto libre de ubicación viejo, que se conserva
   como respaldo).
-  - **Concesionarios asignados: 19 de 21** — el usuario cargó la gran mayoría en vivo directamente
-    desde la app. Solo faltan 2: **Bahía Grande Nordelta** (bloqueada a propósito, ver el
-    pendiente de "concesionario por punto" — necesita varios, no uno solo) y **Chateau Portal
-    Nordelta**.
+  - **Concesionarios asignados: 20 de 21** — el usuario cargó la gran mayoría en vivo directamente
+    desde la app. **Bahía Grande Nordelta** ya resuelta (2026-09-24, necesitaba varios concesionarios
+    por punto/soporte, no uno solo — ver más abajo). Solo falta **Chateau Portal Nordelta**.
   - Las 3 órdenes de YPF (2026080187, 2026080296, 2026080245) se usaron como caso de prueba real
     para anotar líneas de orden con locación/soporte/posición — están las tres idénticas en
     soportes, sirven de referencia para seguir cargando el resto.
@@ -162,10 +161,10 @@ una feature secundaria.
 Cada uno tiene su propio detalle en la memoria de Claude (o en este repo, donde se indica). Los
 más importantes:
 
-1. **Concesionarios sin asignar**: solo 2 de 21 locaciones ya (ver arriba) — Bahía Grande
-   Nordelta y Chateau Portal Nordelta. "World Padel Center Pilar" y "Parque Austral" ya se
-   resolvieron (WFPP SRL creado con su CUIT real; Parque Austral tiene a ASOCIACION CIVIL DE
-   ESTUDIOS SUPERIORES ACES).
+1. **Concesionarios sin asignar**: solo 1 de 21 locaciones (ver arriba) — Chateau Portal Nordelta.
+   "World Padel Center Pilar", "Parque Austral" y **Bahía Grande Nordelta** ya se resolvieron (WFPP
+   SRL creado con su CUIT real; Parque Austral tiene a ASOCIACION CIVIL DE ESTUDIOS SUPERIORES
+   ACES; Bahía Nordelta con concesionario por punto/soporte, ver ítem 3).
 2. **Módulo Liquidaciones a locatarios**: **mecanismo base + ABM construido** (Topview →
    Liquidaciones, ver arriba, con exportar Excel/PDF). Los dos terceros que se cuelgan de una
    liquidación **ya están construidos y verificados** (2026-09-24, ver arriba): **Esteban Vivo**
@@ -177,18 +176,24 @@ más importantes:
      frontend se manda por mail al concesionario (campo de email propio, no el de Proveedores).
      Bloqueado en que el usuario consiga una cuenta SMTP real (Gmail o el hosting de la empresa,
      cualquiera sirve) — `nodemailer` ya está instalado en el backend, sin usar todavía.
-3. **Concesionario por punto, no solo por locación**: algunas locaciones (ej. Bahía Grande
-   Nordelta) tienen varios proveedores distintos adentro, cada uno dueño de un cartel/punto
-   específico — el modelo actual (`concesionario_id` único en `locaciones`) no alcanza. Diseño ya
-   acordado: cadena de herencia punto → soporte → locación (el de la locación sigue siendo el
-   default para los casos simples). No construido — bloqueado hasta que el usuario averigüe el
-   desglose real de proveedores de Bahía Nordelta. Afecta directo al módulo de Liquidaciones
-   (ítem 2), que va a tener que resolver el concesionario por esta misma cadena. **Pistas
-   parciales**: cuatro de los proveedores reales que son parte de Bahía Nordelta son **IRIS
-   CHITERER**, **FIDEICOMISO LOFTS DE BAHIA GRANDE**, **ALQUICER S.R.L.** y **TERRA UNO S A** —
-   todavía falta saber qué soporte/punto puntual le corresponde a cada uno. Esteban Vivo (ver
-   ítem 2) **no** es parte de esta lista de Bahía Nordelta — es un caso aparte, ya resuelto y
-   explicado más arriba.
+3. **Concesionario por punto, no solo por locación — CONSTRUIDO (2026-09-24)**: algunas locaciones
+   (ej. Bahía Grande Nordelta) tienen varios proveedores distintos adentro, cada uno dueño de un
+   cartel/punto específico — el `concesionario_id` único de `locaciones` no alcanzaba. Cadena de
+   resolución de más a menos específico: `locaciones_puntos.concesionario_id` →
+   `locaciones_capacidad.concesionario_id` → `locaciones.concesionario_id` (default sin cambios
+   para locaciones simples). `listarPeriodo`/`listarConcesionarios`/`listarCondiciones` de
+   Liquidaciones ya resuelven por esta cadena. Además se agregó **reparto**
+   (`locaciones_capacidad_reparto`) para un soporte que se vende siempre como paquete completo pero
+   reparte ingreso entre varios dueños (sin que la orden elija nada).
+   **Bahía Grande Nordelta, resuelto**: PPLs (20 caras/10 elementos) repartidos 10/10 entre
+   **ASOCIACION CIVIL BAHIA GRANDE S.A.** ("AVN Nordelta") y **FIDEICOMISO LOFTS DE BAHIA GRANDE**
+   ("BA Property Managers"); Caja Backlight y Pantalla Gran Formato → AVN; Circuito Pantallas LED
+   Verticales (4 pantallas = 2 totems, se vende siempre completo) → reparto 50/50 entre **ALQUICER
+   S.R.L.** y **TERRA UNO S A**. Terra Uno cobra Canon reducido a 32% (80% del 40% real) porque el
+   otro 20% (=8% flat del declarado) se lo lleva **Iris Chiterer** — tercero nuevo, mismo patrón de
+   solapa propia que Esteban Vivo/Oxant pero sin cascada (un solo %), verificado con datos reales.
+   **Pendiente**: Gigantografía (1 punto) sin dueño asignado; 2 órdenes viejas de PPLs sin punto de
+   instalación cargado, no se sabe todavía si son de Asociación o de Lofts.
 4. **Integración con Asana**: idea diseñada (botón manual por orden, tarea compartida a 3
    proyectos reales de Asana) pero no construida — guardada para más adelante.
 5. **Bug conocido en Reportes**: la tarjeta "Órdenes revisadas" todavía cuenta todas las órdenes,
