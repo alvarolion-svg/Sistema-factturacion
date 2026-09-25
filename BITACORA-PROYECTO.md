@@ -269,6 +269,12 @@ más importantes:
     en el ingreso de órdenes: "Cliente/Agencia" y "Anunciante". Se sacó también la columna "Sección"
     (Publicidad/Stand) del listado (sigue calculándose igual en el resumen y en el export). El
     export Excel/PDF no se tocó, sigue mostrando "Anunciante" como antes.
+11. **Órdenes: filtro por mes de ingreso por defecto + navegación mes a mes (2026-09-25)** — el
+    listado no tenía filtro por defecto ni paginación, se veían todas las órdenes del histórico de
+    una. Se cambió el default a "Mes de ingreso (venta)" = mes actual, con botones ◀/▶ para navegar
+    mes a mes (con acarreo de año) en vez de paginación genérica por número — decisión explícita del
+    usuario, encaja mejor con cómo ya piensa el negocio. "Ver todas" saca el filtro de mes/año sin
+    tocar los demás filtros; "Limpiar filtro" sigue reseteando todo. Sin cambios en el backend.
 
 ## Cómo trabaja este usuario (para que una sesión nueva no tenga que redescubrirlo)
 
