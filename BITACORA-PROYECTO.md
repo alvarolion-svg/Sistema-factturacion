@@ -221,18 +221,23 @@ más importantes:
    `requiereRol()` en `backend/src/middleware.ts` está roto (compara un UUID de rol contra un
    nombre tipo `'Administrador'`, nunca matchea) — no se usa todavía, pero conviene arreglarlo o
    sacarlo antes de que alguien lo use tal cual.
-9. **World Padel Pilar: cuenta corriente de comerciales (trueque, no plata)** — 2026-09-24. WFPP
-   SRL compensa espacios por trueque de spots publicitarios (60% Topview / 40% World Padel), no por
-   dinero. Fórmula verificada contra una captura real: `total = ventas_WP / 0.40`, `cuota_topview =
-   total × 0.60`, `diferencia_a_favor_topview = cuota_topview − ventas_topview` (ej. WP vendió 6,
-   Topview 2 → 7 a favor de Topview). **Primer paso construido**: tilde "Vendida directamente por
-   el concesionario, no por Topview" en el formulario de orden — se carga como orden real (ocupa el
-   soporte, queda registrada a nombre de quién es) pero nunca genera facturación de Topview. Falta
-   la pantalla que cuente automático ambos lados y calcule el saldo — bloqueado en 3 preguntas al
-   usuario (¿cuenta corriente que arrastra saldo entre meses o se recalcula cada mes? ¿es solo de
-   World Padel o puede pasar en otro concesionario? ¿dónde vive la pantalla?). **Ojo**: no se auditó
-   si estas órdenes deberían excluirse de Reportes de Ventas/Dashboard (Topview no se queda con esa
-   plata) — sigue sumando ahí igual que cualquier otra, sin resolver todavía.
+9. **World Padel Pilar: cuenta corriente de comerciales (trueque, no plata) — CONSTRUIDO
+   (2026-09-24)**. WFPP SRL compensa espacios por trueque de spots publicitarios (60% Topview / 40%
+   World Padel), no por dinero. Fórmula verificada contra una captura real: `total_implícito =
+   ventas_concesionario / %concesionario`, `cuota_topview = total_implícito × %topview`,
+   `diferencia_mes = cuota_topview − ventas_topview`, `saldo_acumulado = saldo_anterior +
+   diferencia_mes` (ej. WP vendió 6, Topview 2 → +7). Corte mensual con saldo que arrastra entre
+   meses (cuenta corriente real), confirmado por el usuario. Construido en 2 pasos: (1) tilde
+   "Vendida directamente por el concesionario, no por Topview" en el formulario de orden (al lado
+   de "Interviene una agencia distinta...") — la orden ocupa el soporte real y cuenta como
+   "comercial" pero nunca genera facturación de Topview; (2) sección nueva **embebida dentro de
+   "Liquidar"** del mismo concesionario (no una solapa aparte — pedido explícito: "cambia la forma
+   de retribuirse nada más"), tabla con el ledger mes a mes hasta el período elegido. % configurables
+   por concesionario (`condiciones_comerciales`, no hardcodeado a WFPP) editables en "Canon por
+   concesionario". Verificado exacto con datos de prueba: Topview 2, concesionario 6 → diferencia +7,
+   igual que la captura real. **Ojo, pendiente sin resolver**: no se auditó si estas órdenes deberían
+   excluirse de Reportes de Ventas/Dashboard (Topview no se queda con esa plata) — sigue sumando ahí
+   igual que cualquier otra.
 
 ## Cómo trabaja este usuario (para que una sesión nueva no tenga que redescubrirlo)
 
