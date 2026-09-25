@@ -1425,6 +1425,17 @@ db.serialize(() => {
       ('4', 'Pautas Mensuales', 'Contratos mensuales'),
       ('5', 'Pautas en dólares', 'Compras desde el exterior')
   `);
+  // Pauta Concesionario: campañas vendidas directamente por el concesionario
+  // (ej. World Padel Pilar), no por Topview — no pertenece al ejercicio
+  // comercial de Topview, se marca para no confundirla en los listados. Ver
+  // [[project_world_padel_cuenta_corriente_comerciales]]. Independiente del
+  // tilde `vendido_por_concesionario` (que controla si genera facturación) —
+  // el usuario prefirió mantenerlos separados: uno es categoría para
+  // reportes/listados, el otro es comportamiento de facturación.
+  db.run(`
+    INSERT OR IGNORE INTO tipos_anunciantes (id, nombre, descripcion)
+    VALUES ('6', 'Pauta Concesionario', 'Vendida directamente por el concesionario, no por Topview')
+  `);
 
   // Insertar productos de TOPVIEW
   db.run(`

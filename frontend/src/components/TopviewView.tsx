@@ -82,7 +82,14 @@ interface TopviewViewProps {
   usuario: any;
 }
 
-const TIPOS_ANUNCIANTE = ['Pequeños Anunciantes', 'Pautas Estado', 'Pautas Anuales', 'Pautas Mensuales', 'Pautas en dólares'];
+const TIPOS_ANUNCIANTE = [
+  'Pequeños Anunciantes',
+  'Pautas Estado',
+  'Pautas Anuales',
+  'Pautas Mensuales',
+  'Pautas en dólares',
+  'Pauta Concesionario',
+];
 // No es un gate de facturación acá adentro — es un tracker manual de en qué
 // paso está la orden respecto del proceso real (Colppy sigue siendo quien
 // factura de verdad hoy): la cargaste en el sistema, la revisaste, y la
