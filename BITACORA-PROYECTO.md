@@ -221,6 +221,18 @@ más importantes:
    `requiereRol()` en `backend/src/middleware.ts` está roto (compara un UUID de rol contra un
    nombre tipo `'Administrador'`, nunca matchea) — no se usa todavía, pero conviene arreglarlo o
    sacarlo antes de que alguien lo use tal cual.
+9. **World Padel Pilar: cuenta corriente de comerciales (trueque, no plata)** — 2026-09-24. WFPP
+   SRL compensa espacios por trueque de spots publicitarios (60% Topview / 40% World Padel), no por
+   dinero. Fórmula verificada contra una captura real: `total = ventas_WP / 0.40`, `cuota_topview =
+   total × 0.60`, `diferencia_a_favor_topview = cuota_topview − ventas_topview` (ej. WP vendió 6,
+   Topview 2 → 7 a favor de Topview). **Primer paso construido**: tilde "Vendida directamente por
+   el concesionario, no por Topview" en el formulario de orden — se carga como orden real (ocupa el
+   soporte, queda registrada a nombre de quién es) pero nunca genera facturación de Topview. Falta
+   la pantalla que cuente automático ambos lados y calcule el saldo — bloqueado en 3 preguntas al
+   usuario (¿cuenta corriente que arrastra saldo entre meses o se recalcula cada mes? ¿es solo de
+   World Padel o puede pasar en otro concesionario? ¿dónde vive la pantalla?). **Ojo**: no se auditó
+   si estas órdenes deberían excluirse de Reportes de Ventas/Dashboard (Topview no se queda con esa
+   plata) — sigue sumando ahí igual que cualquier otra, sin resolver todavía.
 
 ## Cómo trabaja este usuario (para que una sesión nueva no tenga que redescubrirlo)
 
