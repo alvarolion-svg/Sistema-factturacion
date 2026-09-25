@@ -257,6 +257,13 @@ más importantes:
    **Ojo, pendiente sin resolver**: "Pauta Concesionario" todavía no excluye estas órdenes de
    Reportes de Ventas/Dashboard (Topview no se queda con esa plata) — sigue sumando ahí igual que
    cualquier otra; ahora sería trivial filtrarlas por tipo si se pide.
+10. **Liquidar: Cliente/Agencia separado de Anunciante, sin columna Sección (2026-09-25)** — la
+    tabla de "Liquidar" (y "Después del día 15") mostraba en "Anunciante / concepto" en realidad la
+    razón social del cliente facturado (ej. CAPISCO S.A.), no el anunciante real (ej. OSDE) — misma
+    confusión que ya se había corregido antes en Esteban Vivo. Se separó en dos columnas, igual que
+    en el ingreso de órdenes: "Cliente/Agencia" y "Anunciante". Se sacó también la columna "Sección"
+    (Publicidad/Stand) del listado (sigue calculándose igual en el resumen y en el export). El
+    export Excel/PDF no se tocó, sigue mostrando "Anunciante" como antes.
 
 ## Cómo trabaja este usuario (para que una sesión nueva no tenga que redescubrirlo)
 
