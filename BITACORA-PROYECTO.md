@@ -207,7 +207,9 @@ más importantes:
    construido, faltaba cargar el **Canon real** en "Canon por concesionario" — quedaban en el
    default 100% (incorrecto). Confirmado: los 4 cobran **40%** (Terra Uno ya estaba en 32% = su 80%
    del 40%) — se cargó AVN Nordelta 40%, Fideicomiso Lofts 40%, Alquicer 40% (IVA 21% los tres).
-   **Pendiente**: Gigantografía (1 punto, "Mirando Ruta 27") sin dueño asignado todavía.
+   Gigantografía (1 punto, "Mirando Ruta 27") → AVN Nordelta, confirmado 2026-09-25. **Con esto,
+   Bahía Grande Nordelta queda 100% resuelta** — todos los soportes con dueño y Canon real cargado,
+   sin pendientes.
 4. **Integración con Asana**: idea diseñada (botón manual por orden, tarea compartida a 3
    proyectos reales de Asana) pero no construida — guardada para más adelante.
 5. **Bug conocido en Reportes**: la tarjeta "Órdenes revisadas" todavía cuenta todas las órdenes,
