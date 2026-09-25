@@ -138,7 +138,15 @@ una feature secundaria.
   concesionario"** (mismo criterio que Esteban Vivo) — como es una condición única compartida por
   los 3, la sección editable aparece en las 3 filas (CECNOR SA, WFPP SRL, PILAR SHOPS S.A.) y
   guardar desde cualquiera actualiza la misma condición global; la solapa "Oxant" quedó de solo
-  cálculo y export.
+  cálculo y export. **Iris Chiterer** (tercero nuevo, ver ítem 3 más abajo) se lleva un 8% flat de
+  lo declarado por Terra Uno S.A. — mismo patrón de solapa propia, sin cascada.
+- **Bug real corregido (2026-09-24): las órdenes "No registradas" nunca entraban en ningún
+  cálculo de Liquidaciones**, para ningún concesionario, desde que existe el módulo — `listarPeriodo`
+  exigía una fila en `replicaciones_facturacion` (tabla del ciclo de facturación real/Colppy), que
+  esas órdenes nunca tienen a propósito. Se corrigió resolviendo su mes/año directo contra el
+  período de la orden en vez de exigir esa replicación — sin tocar el flujo de facturación real.
+  Verificado sin cambiar ningún número ya confirmado (CECNOR, Oxant, Esteban Vivo dan exactamente
+  lo mismo). Las 5 órdenes no registradas del sistema ahora entran correctamente.
 - **Producción se despliega fuera de esta Mac**: sin hacer todavía — ver
   [`PENDIENTE-PRODUCCION.md`](./PENDIENTE-PRODUCCION.md) para el relevamiento completo (qué falta
   antes de exponerlo a internet).
@@ -165,11 +173,13 @@ más importantes:
    "World Padel Center Pilar", "Parque Austral" y **Bahía Grande Nordelta** ya se resolvieron (WFPP
    SRL creado con su CUIT real; Parque Austral tiene a ASOCIACION CIVIL DE ESTUDIOS SUPERIORES
    ACES; Bahía Nordelta con concesionario por punto/soporte, ver ítem 3).
-2. **Módulo Liquidaciones a locatarios**: **mecanismo base + ABM construido** (Topview →
-   Liquidaciones, ver arriba, con exportar Excel/PDF). Los dos terceros que se cuelgan de una
-   liquidación **ya están construidos y verificados** (2026-09-24, ver arriba): **Esteban Vivo**
-   (cascada 10%/30%/20%/25% sobre Parque C. Avellaneda/Pueblo Caamaño) y **Oxant** (6% sobre la
-   suma del Canon de CECNOR SA/WFPP SRL/Pilar Shops + 21% IVA propio). Queda pendiente:
+2. **Módulo Liquidaciones a locatarios**: **construido completo** (Topview → Liquidaciones, ver
+   arriba, con exportar Excel/PDF). Los 3 terceros que se cuelgan de una liquidación **ya están
+   construidos y verificados** (2026-09-24, ver arriba): **Esteban Vivo** (cascada
+   10%/30%/20%/25% sobre Parque C. Avellaneda/Pueblo Caamaño), **Oxant** (6% sobre la suma del
+   Canon de CECNOR SA/WFPP SRL/Pilar Shops + 21% IVA propio) e **Iris Chiterer** (8% flat sobre lo
+   declarado por Terra Uno S.A.). También se corrigió el bug de órdenes "No registradas" que nunca
+   entraban al cálculo (ver arriba). Queda pendiente:
    - **Envío por mail**: diseño acordado, no construido — cerrar una liquidación crea una versión
      numerada con foto congelada de los números (se puede seguir editando después, cada re-cierre
      suma una versión nueva, con alerta si ya estaba cerrada/enviada), el PDF que ya arma el
