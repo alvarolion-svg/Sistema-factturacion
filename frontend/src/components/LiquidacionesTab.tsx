@@ -709,6 +709,117 @@ function LiquidacionesTab({
     doc.save(nombreArchivoExport('pdf'));
   };
 
+  const nombreArchivoComerciales = (ext: string) =>
+    `comerciales_${(nombreConcesionario || 'concesionario').replace(/\s+/g, '_')}_${NOMBRES_MES[Number(mes) - 1]}_${ano}.${ext}`;
+
+  const handleExportarComercialesExcel = async () => {
+    if (!comerciales) return;
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Comerciales');
+    ws.columns = [{ width: 28 }, { width: 18 }, { width: 18 }, { width: 18 }, { width: 18 }];
+
+    ws.addRow([nombreConcesionario]).font = { bold: true, size: 13 };
+    ws.addRow([`Período: ${NOMBRES_MES[Number(mes) - 1]} ${ano}`]);
+    ws.addRow([`Reparto: ${comerciales.porcentaje_concesionario}% concesionario / ${comerciales.porcentaje_topview}% Topview`]);
+    ws.addRow([]);
+
+    ws.addRow(['Anunciantes Topview']).font = { bold: true };
+    comerciales.detalle_mes_actual.topview.forEach((l) => ws.addRow([l.anunciante, l.cantidad]));
+    const filaTotalTv = ws.addRow(['Total comerciales Topview', comerciales.detalle_mes_actual.topview.reduce((s, l) => s + l.cantidad, 0)]);
+    filaTotalTv.font = { bold: true };
+    ws.addRow([]);
+
+    ws.addRow(['Anunciantes Concesionario']).font = { bold: true };
+    comerciales.detalle_mes_actual.concesionario.forEach((l) => ws.addRow([l.anunciante, l.cantidad]));
+    const filaTotalConc = ws.addRow([
+      'Total comerciales Concesionario',
+      comerciales.detalle_mes_actual.concesionario.reduce((s, l) => s + l.cantidad, 0),
+    ]);
+    filaTotalConc.font = { bold: true };
+    ws.addRow([]);
+
+    const headerRow = ws.addRow(['Mes', 'Comerciales Topview', 'Comerciales Concesionario', 'Diferencia del mes', 'Saldo acumulado']);
+    headerRow.font = { bold: true };
+    headerRow.eachCell((cell) => {
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFA4C2F4' } };
+    });
+    comerciales.meses.forEach((m) => {
+      ws.addRow([
+        `${NOMBRES_MES[m.mes - 1]} ${m.ano}`,
+        m.ventas_topview,
+        m.ventas_concesionario,
+        m.diferencia_mes,
+        m.saldo_acumulado,
+      ]);
+    });
+    const filaSaldo = ws.addRow(['', '', '', `Saldo acumulado a ${NOMBRES_MES[Number(mes) - 1]} ${ano}`, comerciales.saldo_acumulado]);
+    filaSaldo.font = { bold: true };
+
+    const buffer = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = nombreArchivoComerciales('xlsx');
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportarComercialesPDF = () => {
+    if (!comerciales) return;
+    const doc = new jsPDF();
+    doc.setFontSize(13);
+    doc.text(nombreConcesionario, 14, 15);
+    doc.setFontSize(10);
+    doc.text(`Período: ${NOMBRES_MES[Number(mes) - 1]} ${ano} — Comerciales (trueque)`, 14, 22);
+    doc.text(`Reparto: ${comerciales.porcentaje_concesionario}% concesionario / ${comerciales.porcentaje_topview}% Topview`, 14, 28);
+
+    autoTable(doc, {
+      startY: 34,
+      head: [['Anunciantes Topview', 'Cantidad']],
+      body: comerciales.detalle_mes_actual.topview.map((l) => [l.anunciante, String(l.cantidad)]),
+      foot: [['Total comerciales Topview', String(comerciales.detalle_mes_actual.topview.reduce((s, l) => s + l.cantidad, 0))]],
+      styles: { fontSize: 9 },
+      headStyles: { fillColor: [232, 24, 56] },
+      footStyles: { fillColor: [240, 240, 240], textColor: [0, 0, 0], fontStyle: 'bold' },
+    });
+    let y = (doc as any).lastAutoTable.finalY + 10;
+
+    autoTable(doc, {
+      startY: y,
+      head: [['Anunciantes Concesionario', 'Cantidad']],
+      body: comerciales.detalle_mes_actual.concesionario.map((l) => [l.anunciante, String(l.cantidad)]),
+      foot: [
+        [
+          'Total comerciales Concesionario',
+          String(comerciales.detalle_mes_actual.concesionario.reduce((s, l) => s + l.cantidad, 0)),
+        ],
+      ],
+      styles: { fontSize: 9 },
+      headStyles: { fillColor: [232, 24, 56] },
+      footStyles: { fillColor: [240, 240, 240], textColor: [0, 0, 0], fontStyle: 'bold' },
+    });
+    y = (doc as any).lastAutoTable.finalY + 10;
+
+    autoTable(doc, {
+      startY: y,
+      head: [['Mes', 'Com. Topview', 'Com. Concesionario', 'Diferencia', 'Saldo acumulado']],
+      body: comerciales.meses.map((m) => [
+        `${NOMBRES_MES[m.mes - 1]} ${m.ano}`,
+        String(m.ventas_topview),
+        String(m.ventas_concesionario),
+        `${m.diferencia_mes >= 0 ? '+' : ''}${m.diferencia_mes.toFixed(1)}`,
+        m.saldo_acumulado.toFixed(1),
+      ]),
+      foot: [['', '', '', `Saldo a ${NOMBRES_MES[Number(mes) - 1]} ${ano}`, comerciales.saldo_acumulado.toFixed(1)]],
+      styles: { fontSize: 8 },
+      headStyles: { fillColor: [232, 24, 56] },
+      footStyles: { fillColor: [240, 240, 240], textColor: [0, 0, 0], fontStyle: 'bold' },
+    });
+
+    doc.save(nombreArchivoComerciales('pdf'));
+  };
+
   return (
     <>
       <div className="view-header">
@@ -1162,6 +1273,15 @@ function LiquidacionesTab({
                     Topview. Corte mensual, con saldo que arrastra mes a mes. Los % (y si se oculta el $) se editan en
                     la solapa "Canon por concesionario".
                   </p>
+
+                  <div style={{ display: 'flex', gap: '0.6rem', marginBottom: '0.8rem' }}>
+                    <button type="button" className="btn-secondary" onClick={handleExportarComercialesExcel}>
+                      Exportar Excel (Comerciales)
+                    </button>
+                    <button type="button" className="btn-secondary" onClick={handleExportarComercialesPDF}>
+                      Exportar PDF (Comerciales)
+                    </button>
+                  </div>
 
                   {(comerciales.detalle_mes_actual.topview.length > 0 || comerciales.detalle_mes_actual.concesionario.length > 0) && (
                     <div style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap', marginBottom: '1.5rem' }}>
