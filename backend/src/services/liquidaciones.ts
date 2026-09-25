@@ -567,6 +567,14 @@ export class LiquidacionesService {
   // reparte entre 2 dueños), la línea entra en la liquidación de CADA
   // concesionario del reparto, con el monto multiplicado por su % — en vez
   // de por el dueño único. Ver [[project_concesionario_por_punto_no_por_locacion]].
+  //
+  // Órdenes "No registradas" (facturado=0, ej. Pequeños Anunciantes en
+  // efectivo) NUNCA tienen fila en replicaciones_facturacion — esa tabla es
+  // del ciclo de facturación real (Colppy), que a ellas no les aplica. Pero
+  // igual usan un soporte físico real, así que Topview le sigue debiendo el
+  // Canon al concesionario por esas líneas. Para esas, el mes/año se
+  // resuelve directo contra el período de la orden (periodo_desde/hasta) en
+  // vez de contra replicaciones_facturacion.
   static async listarPeriodo(concesionarioId: string, mes: number, ano: number): Promise<any[]> {
     const esInicioTardio = `
       CASE
@@ -576,6 +584,7 @@ export class LiquidacionesService {
         THEN 1 ELSE 0
       END
     `;
+    const periodoBuscado = `? || '-' || printf('%02d', ?)`;
     const filas = await this.queryAll(
       `
       SELECT
@@ -601,12 +610,20 @@ export class LiquidacionesService {
       FROM ordenes_publicidad_detalles d
       JOIN locaciones l ON l.id = d.locacion_id
       JOIN ordenes_publicidad o ON o.id = d.orden_id
-      JOIN replicaciones_facturacion r ON r.orden_id = o.id AND r.numero_mes = ? AND r.ano = ?
+      LEFT JOIN replicaciones_facturacion r ON r.orden_id = o.id AND r.numero_mes = ? AND r.ano = ?
       LEFT JOIN liquidaciones_detalle ld ON ld.orden_detalle_id = d.id AND ld.mes = ? AND ld.ano = ?
       LEFT JOIN locaciones_capacidad lc ON lc.locacion_id = d.locacion_id AND lc.producto_id = d.producto_id
       LEFT JOIN locaciones_puntos lp ON lp.capacidad_id = lc.id AND lp.nombre = d.punto_instalacion
       LEFT JOIN locaciones_capacidad_reparto rep ON rep.capacidad_id = lc.id AND rep.concesionario_id = ?
       WHERE (o.habilitado != 0 OR o.habilitado IS NULL)
+        AND (
+          r.orden_id IS NOT NULL
+          OR (
+            o.facturado = 0
+            AND (${periodoBuscado}) >= substr(o.periodo_desde, 1, 7)
+            AND (${periodoBuscado}) <= substr(o.periodo_hasta, 1, 7)
+          )
+        )
         AND (
           rep.concesionario_id = ?
           OR (
@@ -616,7 +633,7 @@ export class LiquidacionesService {
         )
       ORDER BY l.nombre, o.razon_social
       `,
-      [ano, mes, ano, mes, mes, ano, mes, ano, concesionarioId, concesionarioId, concesionarioId]
+      [ano, mes, ano, mes, mes, ano, mes, ano, concesionarioId, ano, mes, ano, mes, concesionarioId, concesionarioId]
     );
     return filas.map((f) => ({ ...f, excluida: !!f.excluida, inicio_tardio: !!f.inicio_tardio }));
   }
