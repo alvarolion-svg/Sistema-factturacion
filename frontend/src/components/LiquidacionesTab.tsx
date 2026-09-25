@@ -100,11 +100,18 @@ interface MesComerciales {
   saldo_acumulado: number;
 }
 
+interface LineaComercial {
+  anunciante: string;
+  numero_orden: string;
+  cantidad: number;
+}
+
 interface CuentaCorrienteComerciales {
   porcentaje_concesionario: number;
   porcentaje_topview: number;
   meses: MesComerciales[];
   saldo_acumulado: number;
+  detalle_mes_actual: { topview: LineaComercial[]; concesionario: LineaComercial[] };
 }
 
 const MANUAL_VACIO = { descripcion: '', monto: '', tipo: 'suma' as 'suma' | 'resta' };
@@ -1132,6 +1139,65 @@ function LiquidacionesTab({
                     concesionario / {comerciales.porcentaje_topview}% Topview. Corte mensual, con saldo que arrastra
                     mes a mes. Los % se editan en la solapa "Canon por concesionario".
                   </p>
+
+                  {(comerciales.detalle_mes_actual.topview.length > 0 || comerciales.detalle_mes_actual.concesionario.length > 0) && (
+                    <div style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap', marginBottom: '1.5rem' }}>
+                      <div>
+                        <h4 style={{ marginBottom: '0.4rem' }}>
+                          Anunciantes Topview — {NOMBRES_MES[Number(mes) - 1]} {ano}
+                        </h4>
+                        {comerciales.detalle_mes_actual.topview.length === 0 ? (
+                          <p className="empty-state">Sin comerciales este mes.</p>
+                        ) : (
+                          <table className="data-table" style={{ maxWidth: '24rem' }}>
+                            <tbody>
+                              {comerciales.detalle_mes_actual.topview.map((l, i) => (
+                                <tr key={`${l.numero_orden}-${i}`}>
+                                  <td>{l.anunciante}</td>
+                                  <td style={{ textAlign: 'right' }}>{l.cantidad}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                            <tfoot>
+                              <tr style={{ fontWeight: 700 }}>
+                                <td>Total comerciales Topview</td>
+                                <td style={{ textAlign: 'right' }}>
+                                  {comerciales.detalle_mes_actual.topview.reduce((s, l) => s + l.cantidad, 0)}
+                                </td>
+                              </tr>
+                            </tfoot>
+                          </table>
+                        )}
+                      </div>
+                      <div>
+                        <h4 style={{ marginBottom: '0.4rem' }}>
+                          Anunciantes Concesionario — {NOMBRES_MES[Number(mes) - 1]} {ano}
+                        </h4>
+                        {comerciales.detalle_mes_actual.concesionario.length === 0 ? (
+                          <p className="empty-state">Sin comerciales este mes.</p>
+                        ) : (
+                          <table className="data-table" style={{ maxWidth: '24rem' }}>
+                            <tbody>
+                              {comerciales.detalle_mes_actual.concesionario.map((l, i) => (
+                                <tr key={`${l.numero_orden}-${i}`}>
+                                  <td>{l.anunciante}</td>
+                                  <td style={{ textAlign: 'right' }}>{l.cantidad}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                            <tfoot>
+                              <tr style={{ fontWeight: 700 }}>
+                                <td>Total comerciales Concesionario</td>
+                                <td style={{ textAlign: 'right' }}>
+                                  {comerciales.detalle_mes_actual.concesionario.reduce((s, l) => s + l.cantidad, 0)}
+                                </td>
+                              </tr>
+                            </tfoot>
+                          </table>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                   {comerciales.meses.length === 0 ? (
                     <p className="empty-state">Sin campañas registradas todavía para este concesionario.</p>

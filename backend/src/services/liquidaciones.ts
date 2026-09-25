@@ -511,6 +511,57 @@ export class LiquidacionesService {
     };
   }
 
+  // Desagregado línea por línea de "quién puso qué comercial" en el mes
+  // pedido — mismo criterio que un documento real de World Padel
+  // (Anunciantes Topview / Anunciantes World Padel, cada uno con su
+  // Cantidad). Solo para el mes actual (no todo el histórico, para no
+  // pesar la respuesta).
+  private static async detalleComercialesPeriodo(
+    concesionarioId: string,
+    mes: number,
+    ano: number
+  ): Promise<{
+    topview: Array<{ anunciante: string; numero_orden: string; cantidad: number }>;
+    concesionario: Array<{ anunciante: string; numero_orden: string; cantidad: number }>;
+  }> {
+    const periodoBuscado = `? || '-' || printf('%02d', ?)`;
+    const filas = await this.queryAll(
+      `
+      SELECT
+        o.nombre_anunciante as anunciante,
+        COALESCE(o.numero_orden_agencia, o.numero_orden) as numero_orden,
+        d.cantidad,
+        CASE WHEN o.tipo_anunciante = 'Pauta Concesionario' THEN 1 ELSE 0 END as es_concesionario
+      FROM ordenes_publicidad_detalles d
+      JOIN locaciones l ON l.id = d.locacion_id
+      JOIN ordenes_publicidad o ON o.id = d.orden_id
+      LEFT JOIN locaciones_capacidad lc ON lc.locacion_id = d.locacion_id AND lc.producto_id = d.producto_id
+      LEFT JOIN locaciones_puntos lp ON lp.capacidad_id = lc.id AND lp.nombre = d.punto_instalacion
+      LEFT JOIN locaciones_capacidad_reparto rep ON rep.capacidad_id = lc.id AND rep.concesionario_id = ?
+      WHERE (o.habilitado != 0 OR o.habilitado IS NULL)
+        AND (${periodoBuscado}) >= substr(o.periodo_desde, 1, 7)
+        AND (${periodoBuscado}) <= substr(o.periodo_hasta, 1, 7)
+        AND (
+          rep.concesionario_id = ?
+          OR (
+            NOT EXISTS (SELECT 1 FROM locaciones_capacidad_reparto r2 WHERE r2.capacidad_id = lc.id)
+            AND COALESCE(lp.concesionario_id, lc.concesionario_id, l.concesionario_id) = ?
+          )
+        )
+      ORDER BY o.nombre_anunciante
+      `,
+      [concesionarioId, ano, mes, ano, mes, concesionarioId, concesionarioId]
+    );
+    return {
+      topview: filas
+        .filter((f) => !f.es_concesionario)
+        .map((f) => ({ anunciante: f.anunciante, numero_orden: f.numero_orden, cantidad: Number(f.cantidad) || 0 })),
+      concesionario: filas
+        .filter((f) => f.es_concesionario)
+        .map((f) => ({ anunciante: f.anunciante, numero_orden: f.numero_orden, cantidad: Number(f.cantidad) || 0 })),
+    };
+  }
+
   static async calcularCuentaCorrienteComerciales(
     concesionarioId: string,
     mes: number,
@@ -527,9 +578,14 @@ export class LiquidacionesService {
       saldo_acumulado: number;
     }>;
     saldo_acumulado: number;
+    detalle_mes_actual: {
+      topview: Array<{ anunciante: string; numero_orden: string; cantidad: number }>;
+      concesionario: Array<{ anunciante: string; numero_orden: string; cantidad: number }>;
+    };
   } | null> {
     const condicion = await this.obtenerCondicionComerciales(concesionarioId);
     if (!condicion) return null;
+    const detalleMesActual = await this.detalleComercialesPeriodo(concesionarioId, mes, ano);
 
     const primerMes = await this.queryGet(
       `
@@ -554,7 +610,7 @@ export class LiquidacionesService {
 
     const base = { porcentaje_concesionario: condicion.porcentajeConcesionario, porcentaje_topview: condicion.porcentajeTopview };
     if (!primerMes || !primerMes.inicio) {
-      return { ...base, meses: [], saldo_acumulado: 0 };
+      return { ...base, meses: [], saldo_acumulado: 0, detalle_mes_actual: detalleMesActual };
     }
 
     const [anoInicio, mesInicio] = String(primerMes.inicio).split('-').map(Number);
@@ -594,7 +650,7 @@ export class LiquidacionesService {
       iteraciones++;
     }
 
-    return { ...base, meses, saldo_acumulado: saldo };
+    return { ...base, meses, saldo_acumulado: saldo, detalle_mes_actual: detalleMesActual };
   }
 
   // Reutilizado por Oxant (necesita el Canon de 3 concesionarios distintos
@@ -755,6 +811,13 @@ export class LiquidacionesService {
   // Canon al concesionario por esas líneas. Para esas, el mes/año se
   // resuelve directo contra el período de la orden (periodo_desde/hasta) en
   // vez de contra replicaciones_facturacion.
+  //
+  // Órdenes "Pauta Concesionario" (vendidas directo por el concesionario,
+  // ej. World Padel Pilar) quedan EXCLUIDAS acá — Topview no cobra nada por
+  // ellas, no tiene sentido pedir un monto en $ ni calcularles Canon. Se
+  // cuentan aparte, como "comerciales" (spots), en
+  // contarComercialesPeriodo/detalleComercialesPeriodo más abajo. Ver
+  // [[project_world_padel_cuenta_corriente_comerciales]].
   static async listarPeriodo(concesionarioId: string, mes: number, ano: number): Promise<any[]> {
     const esInicioTardio = `
       CASE
@@ -796,6 +859,7 @@ export class LiquidacionesService {
       LEFT JOIN locaciones_puntos lp ON lp.capacidad_id = lc.id AND lp.nombre = d.punto_instalacion
       LEFT JOIN locaciones_capacidad_reparto rep ON rep.capacidad_id = lc.id AND rep.concesionario_id = ?
       WHERE (o.habilitado != 0 OR o.habilitado IS NULL)
+        AND o.tipo_anunciante != 'Pauta Concesionario'
         AND (
           r.orden_id IS NOT NULL
           OR (
