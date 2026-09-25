@@ -91,6 +91,22 @@ interface EstebanVivoData {
   total_a_pagar: number;
 }
 
+interface MesComerciales {
+  mes: number;
+  ano: number;
+  ventas_topview: number;
+  ventas_concesionario: number;
+  diferencia_mes: number;
+  saldo_acumulado: number;
+}
+
+interface CuentaCorrienteComerciales {
+  porcentaje_concesionario: number;
+  porcentaje_topview: number;
+  meses: MesComerciales[];
+  saldo_acumulado: number;
+}
+
 const MANUAL_VACIO = { descripcion: '', monto: '', tipo: 'suma' as 'suma' | 'resta' };
 const SECCION_NOMBRE: Record<'publicidad' | 'stand', string> = { publicidad: 'Publicidad', stand: 'Stand' };
 
@@ -145,6 +161,11 @@ function LiquidacionesTab({
   const [percepcionesCalculadas, setPercepcionesCalculadas] = useState<PercepcionCalculada[]>([]);
   const [totalFinal, setTotalFinal] = useState(0);
   const [totalAPagar, setTotalAPagar] = useState(0);
+  // Comerciales (World Padel Pilar): solo llega no-null cuando el
+  // concesionario elegido tiene la condición cargada — convive con la
+  // liquidación en $ de arriba, no la reemplaza. Ver
+  // [[project_world_padel_cuenta_corriente_comerciales]].
+  const [comerciales, setComerciales] = useState<CuentaCorrienteComerciales | null>(null);
   const [vista, setVista] = useState<'liquidar' | 'tardias' | 'condiciones' | 'oxant' | 'esteban-vivo' | 'iris-chiterer'>('liquidar');
 
   useEffect(() => {
@@ -187,6 +208,10 @@ function LiquidacionesTab({
         setFilas([]);
         setManuales([]);
       });
+    axios
+      .get('/api/liquidaciones/comerciales', { ...authHeaders(token), params: { concesionario_id: concesionarioId, mes, ano } })
+      .then((res) => setComerciales(res.data || null))
+      .catch(() => setComerciales(null));
   };
 
   useEffect(() => {
@@ -1097,6 +1122,71 @@ function LiquidacionesTab({
                   </tr>
                 </tbody>
               </table>
+
+              {comerciales && (
+                <div style={{ marginTop: '2.5rem', paddingTop: '1.5rem', borderTop: '3px double #ccc' }}>
+                  <h3 className="reportes-subtitulo">Comerciales — cuenta corriente por trueque</h3>
+                  <p className="totales-preview" style={{ marginTop: 0 }}>
+                    Este concesionario se compensa por cantidad de comerciales (spots), no por plata — convive con la
+                    liquidación en $ de arriba, no la reemplaza. Reparto {comerciales.porcentaje_concesionario}%
+                    concesionario / {comerciales.porcentaje_topview}% Topview. Corte mensual, con saldo que arrastra
+                    mes a mes. Los % se editan en la solapa "Canon por concesionario".
+                  </p>
+
+                  {comerciales.meses.length === 0 ? (
+                    <p className="empty-state">Sin campañas registradas todavía para este concesionario.</p>
+                  ) : (
+                    <table className="data-table" style={{ maxWidth: '46rem' }}>
+                      <thead>
+                        <tr>
+                          <th>Mes</th>
+                          <th>Comerciales Topview</th>
+                          <th>Comerciales Concesionario</th>
+                          <th>Diferencia del mes</th>
+                          <th>Saldo acumulado</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {comerciales.meses.map((m) => {
+                          const esMesActual = m.mes === Number(mes) && m.ano === Number(ano);
+                          return (
+                            <tr key={`${m.ano}-${m.mes}`} style={esMesActual ? { fontWeight: 700, background: '#fafafa' } : undefined}>
+                              <td>
+                                {NOMBRES_MES[m.mes - 1]} {m.ano}
+                              </td>
+                              <td style={{ textAlign: 'right' }}>{m.ventas_topview}</td>
+                              <td style={{ textAlign: 'right' }}>{m.ventas_concesionario}</td>
+                              <td
+                                style={{
+                                  textAlign: 'right',
+                                  color: m.diferencia_mes < 0 ? 'var(--color-peligro, #c62828)' : undefined,
+                                }}
+                              >
+                                {m.diferencia_mes >= 0 ? '+' : ''}
+                                {m.diferencia_mes.toFixed(1)}
+                              </td>
+                              <td
+                                style={{
+                                  textAlign: 'right',
+                                  color: m.saldo_acumulado < 0 ? 'var(--color-peligro, #c62828)' : undefined,
+                                }}
+                              >
+                                {m.saldo_acumulado.toFixed(1)}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                      <tfoot>
+                        <tr style={{ fontWeight: 700, fontSize: '1.05rem' }}>
+                          <td colSpan={4}>Saldo acumulado a {NOMBRES_MES[Number(mes) - 1]} {ano}</td>
+                          <td style={{ textAlign: 'right' }}>{comerciales.saldo_acumulado.toFixed(1)}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  )}
+                </div>
+              )}
             </>
           )}
 
@@ -1262,6 +1352,7 @@ interface CondicionConcesionario {
   esteban_vivo: CondicionEstebanVivo | null;
   oxant: CondicionOxant | null;
   iris_chiterer: { porcentaje: number } | null;
+  comerciales: { porcentaje_concesionario: number; porcentaje_topview: number } | null;
 }
 
 // Solapa chica dentro de Liquidaciones (no una pantalla aparte) para que el
@@ -1294,6 +1385,11 @@ function CondicionesConcesionarioTab({ token }: { token: string }) {
   const [irisLocal, setIrisLocal] = useState<Record<string, string>>({});
   const [guardandoIrisId, setGuardandoIrisId] = useState<string | null>(null);
   const [guardadoIrisId, setGuardadoIrisId] = useState<string | null>(null);
+  // World Padel Pilar: cuenta corriente de comerciales — 1 a 1 con un
+  // concesionario, con 2 % (concesionario/Topview) en vez de 1.
+  const [comercialesLocal, setComercialesLocal] = useState<Record<string, { concesionario: string; topview: string }>>({});
+  const [guardandoComercialesId, setGuardandoComercialesId] = useState<string | null>(null);
+  const [guardadoComercialesId, setGuardadoComercialesId] = useState<string | null>(null);
 
   const cargar = () => {
     setError('');
@@ -1306,6 +1402,7 @@ function CondicionesConcesionarioTab({ token }: { token: string }) {
         const iniciales: Record<string, { canon: string; iva: string }> = {};
         const inicialesVivo: Record<string, { comisionVendedor: string; canon: string; gastosTop: string; vivo: string }> = {};
         const inicialesIris: Record<string, string> = {};
+        const inicialesComerciales: Record<string, { concesionario: string; topview: string }> = {};
         data.forEach((c) => {
           iniciales[c.concesionario_id] = { canon: String(c.porcentaje_comision), iva: String(c.iva_porcentaje) };
           if (c.esteban_vivo) {
@@ -1319,10 +1416,17 @@ function CondicionesConcesionarioTab({ token }: { token: string }) {
           if (c.iris_chiterer) {
             inicialesIris[c.concesionario_id] = String(c.iris_chiterer.porcentaje);
           }
+          if (c.comerciales) {
+            inicialesComerciales[c.concesionario_id] = {
+              concesionario: String(c.comerciales.porcentaje_concesionario),
+              topview: String(c.comerciales.porcentaje_topview),
+            };
+          }
         });
         setValoresLocal(iniciales);
         setVivoLocal(inicialesVivo);
         setIrisLocal(inicialesIris);
+        setComercialesLocal(inicialesComerciales);
         const conOxant = data.find((c) => c.oxant);
         if (conOxant && conOxant.oxant) {
           setOxantLocal({ comision: String(conOxant.oxant.porcentaje_comision), iva: String(conOxant.oxant.iva_porcentaje) });
@@ -1448,6 +1552,26 @@ function CondicionesConcesionarioTab({ token }: { token: string }) {
     }
   };
 
+  const handleGuardarComerciales = async (concesionarioId: string) => {
+    const v = comercialesLocal[concesionarioId];
+    setGuardandoComercialesId(concesionarioId);
+    setError('');
+    try {
+      await axios.put(
+        `/api/liquidaciones/condiciones/${concesionarioId}/comerciales`,
+        { porcentaje_concesionario: Number(v?.concesionario) || 0, porcentaje_topview: Number(v?.topview) || 0 },
+        authHeaders(token)
+      );
+      setGuardadoComercialesId(concesionarioId);
+      setTimeout(() => setGuardadoComercialesId((actual) => (actual === concesionarioId ? null : actual)), 1500);
+      cargar();
+    } catch (err: any) {
+      setError(mensajeError(err, 'No se pudieron guardar los % de comerciales.'));
+    } finally {
+      setGuardandoComercialesId(null);
+    }
+  };
+
   const handleEliminarPercepcion = async (p: Percepcion) => {
     if (!window.confirm(`¿Quitar la percepción "${p.nombre}"?`)) return;
     setError('');
@@ -1543,6 +1667,8 @@ function CondicionesConcesionarioTab({ token }: { token: string }) {
                         ? 'Percepciones / Oxant'
                         : c.iris_chiterer
                         ? 'Percepciones / Iris Chiterer'
+                        : c.comerciales
+                        ? 'Percepciones / Comerciales'
                         : 'Percepciones'}
                     </button>{' '}
                     <span style={{ color: 'var(--color-exito, #2e7d32)' }}>
@@ -1721,6 +1847,56 @@ function CondicionesConcesionarioTab({ token }: { token: string }) {
                           <p className="totales-preview" style={{ marginTop: '0.4rem', marginBottom: 0, fontSize: '0.8rem' }}>
                             Se queda con este % de todo lo que declare este concesionario en el período (sin cascada, un solo
                             paso). Se ve calculado en la solapa "Iris Chiterer".
+                          </p>
+                        </div>
+                      )}
+
+                      {c.comerciales && (
+                        <div style={{ marginTop: '1rem', paddingTop: '0.8rem', borderTop: '1px solid #ddd' }}>
+                          <label style={{ display: 'block', marginBottom: '0.4rem' }}>
+                            Comerciales — reparto por trueque de spots (no plata)
+                          </label>
+                          <div
+                            className="linea-factura"
+                            style={{ gridTemplateColumns: '1fr 1fr auto auto', maxWidth: '30rem', alignItems: 'center' }}
+                          >
+                            <InputPorcentaje
+                              placeholder="% Concesionario"
+                              value={comercialesLocal[c.concesionario_id]?.concesionario ?? ''}
+                              onChange={(v) =>
+                                setComercialesLocal((actual) => ({
+                                  ...actual,
+                                  [c.concesionario_id]: { ...actual[c.concesionario_id], concesionario: v },
+                                }))
+                              }
+                              disabled={guardandoComercialesId === c.concesionario_id}
+                            />
+                            <InputPorcentaje
+                              placeholder="% Topview"
+                              value={comercialesLocal[c.concesionario_id]?.topview ?? ''}
+                              onChange={(v) =>
+                                setComercialesLocal((actual) => ({
+                                  ...actual,
+                                  [c.concesionario_id]: { ...actual[c.concesionario_id], topview: v },
+                                }))
+                              }
+                              disabled={guardandoComercialesId === c.concesionario_id}
+                            />
+                            <button
+                              type="button"
+                              className="btn-secondary"
+                              onClick={() => handleGuardarComerciales(c.concesionario_id)}
+                              disabled={guardandoComercialesId === c.concesionario_id}
+                            >
+                              {guardandoComercialesId === c.concesionario_id ? 'Guardando...' : 'Guardar'}
+                            </button>
+                            <span style={{ color: 'var(--color-exito, #2e7d32)', fontSize: '0.85rem' }}>
+                              {guardadoComercialesId === c.concesionario_id ? 'Guardado ✓' : ''}
+                            </span>
+                          </div>
+                          <p className="totales-preview" style={{ marginTop: '0.4rem', marginBottom: 0, fontSize: '0.8rem' }}>
+                            Se compensa por cantidad de comerciales (spots), no por plata — cuenta corriente que arrastra
+                            saldo mes a mes. Se ve calculado dentro de "Liquidar" de este concesionario.
                           </p>
                         </div>
                       )}

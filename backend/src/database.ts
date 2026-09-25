@@ -1180,6 +1180,31 @@ db.serialize(() => {
     SELECT lower(hex(randomblob(16))), id FROM proveedores WHERE razon_social = 'TERRA UNO S A'
   `, () => {});
 
+  // World Padel Pilar (WFPP SRL): se compensa por TRUEQUE de comerciales
+  // (spots publicitarios), no por plata — 60% Topview / 40% concesionario.
+  // Cada mes se cuentan los comerciales que puso cada lado (Topview vende
+  // normal; el concesionario vende directo, marcado con
+  // ordenes_publicidad.vendido_por_concesionario) y se lleva un acumulado
+  // mes a mes (cuenta corriente real). Convive con la liquidación en $ de
+  // siempre (no la reemplaza en el código — es una sección más dentro de
+  // "Liquidar" del mismo concesionario). Ver
+  // [[project_world_padel_cuenta_corriente_comerciales]].
+  db.run(`
+    CREATE TABLE IF NOT EXISTS condiciones_comerciales (
+      id TEXT PRIMARY KEY,
+      concesionario_id TEXT NOT NULL UNIQUE,
+      porcentaje_concesionario REAL NOT NULL DEFAULT 40,
+      porcentaje_topview REAL NOT NULL DEFAULT 60,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (concesionario_id) REFERENCES proveedores(id)
+    )
+  `);
+  db.run(`
+    INSERT OR IGNORE INTO condiciones_comerciales (id, concesionario_id)
+    SELECT lower(hex(randomblob(16))), id FROM proveedores WHERE razon_social = 'WFPP SRL'
+  `, () => {});
+
   // Contactos por Email
   db.run(`
     CREATE TABLE IF NOT EXISTS contactos_email (

@@ -1213,6 +1213,30 @@ app.get('/api/liquidaciones/iris-chiterer', autenticacion, requierePermiso('liqu
   }
 });
 
+app.put('/api/liquidaciones/condiciones/:concesionarioId/comerciales', autenticacion, requierePermiso('liquidaciones_cargar'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const { porcentaje_concesionario, porcentaje_topview } = req.body;
+    await LiquidacionesService.guardarCondicionComerciales(req.params.concesionarioId, {
+      porcentajeConcesionario: Number(porcentaje_concesionario) || 0,
+      porcentajeTopview: Number(porcentaje_topview) || 0,
+    });
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.get('/api/liquidaciones/comerciales', autenticacion, requierePermiso('liquidaciones_ver'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const { concesionario_id, mes, ano } = req.query;
+    if (!concesionario_id || !mes || !ano) return res.status(400).json({ error: 'Faltan concesionario_id, mes o año.' });
+    const resultado = await LiquidacionesService.calcularCuentaCorrienteComerciales(String(concesionario_id), Number(mes), Number(ano));
+    res.json(resultado);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/liquidaciones/oxant', autenticacion, requierePermiso('liquidaciones_ver'), async (req: RequestConUsuario, res: Response) => {
   try {
     const { mes, ano } = req.query;

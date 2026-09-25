@@ -111,9 +111,16 @@ export class LiquidacionesService {
     const irisRows = await this.queryAll('SELECT * FROM condiciones_iris_chiterer');
     const irisPorConcesionario = new Map<string, any>();
     irisRows.forEach((v) => irisPorConcesionario.set(v.concesionario_id, v));
+    // World Padel Pilar: se compensa por comerciales (trueque), no plata —
+    // condición 1 a 1 como Esteban Vivo/Iris, pero convive con el Canon $
+    // normal del mismo concesionario (no lo reemplaza).
+    const comercialesRows = await this.queryAll('SELECT * FROM condiciones_comerciales');
+    const comercialesPorConcesionario = new Map<string, any>();
+    comercialesRows.forEach((v) => comercialesPorConcesionario.set(v.concesionario_id, v));
     return concesionarios.map((c) => {
       const vivo = vivoPorConcesionario.get(c.concesionario_id);
       const iris = irisPorConcesionario.get(c.concesionario_id);
+      const comerciales = comercialesPorConcesionario.get(c.concesionario_id);
       return {
         ...c,
         percepciones: percepcionesPorConcesionario.get(c.concesionario_id) || [],
@@ -129,6 +136,12 @@ export class LiquidacionesService {
           ? { porcentaje_comision: oxantCondicion.porcentajeComision, iva_porcentaje: oxantCondicion.ivaPorcentaje }
           : null,
         iris_chiterer: iris ? { porcentaje: Number(iris.porcentaje) } : null,
+        comerciales: comerciales
+          ? {
+              porcentaje_concesionario: Number(comerciales.porcentaje_concesionario),
+              porcentaje_topview: Number(comerciales.porcentaje_topview),
+            }
+          : null,
       };
     });
   }
@@ -415,6 +428,173 @@ export class LiquidacionesService {
       detalle,
       total_a_pagar: detalle.reduce((s, d) => s + d.total_a_pagar, 0),
     };
+  }
+
+  // World Padel Pilar (WFPP SRL) — cuenta corriente de comerciales (trueque
+  // de spots, no plata). Convive con la liquidación en $ normal, vive
+  // embebida en "Liquidar" del mismo concesionario (no en una solapa
+  // aparte). Ver [[project_world_padel_cuenta_corriente_comerciales]].
+  static async obtenerCondicionComerciales(
+    concesionarioId: string
+  ): Promise<{ porcentajeConcesionario: number; porcentajeTopview: number } | null> {
+    const fila = await this.queryGet('SELECT * FROM condiciones_comerciales WHERE concesionario_id = ?', [concesionarioId]);
+    if (!fila) return null;
+    return {
+      porcentajeConcesionario: Number(fila.porcentaje_concesionario),
+      porcentajeTopview: Number(fila.porcentaje_topview),
+    };
+  }
+
+  static async guardarCondicionComerciales(
+    concesionarioId: string,
+    datos: { porcentajeConcesionario: number; porcentajeTopview: number }
+  ): Promise<void> {
+    const existente = await this.queryGet('SELECT * FROM condiciones_comerciales WHERE concesionario_id = ?', [concesionarioId]);
+    if (existente && existente.id) {
+      await this.runQuery(
+        'UPDATE condiciones_comerciales SET porcentaje_concesionario = ?, porcentaje_topview = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+        [datos.porcentajeConcesionario, datos.porcentajeTopview, existente.id]
+      );
+      AuditoriaService.registrarOperacion('condiciones_comerciales', 'UPDATE', existente.id, existente, datos);
+    } else {
+      const id = uuid();
+      await this.runQuery(
+        'INSERT INTO condiciones_comerciales (id, concesionario_id, porcentaje_concesionario, porcentaje_topview) VALUES (?, ?, ?, ?)',
+        [id, concesionarioId, datos.porcentajeConcesionario, datos.porcentajeTopview]
+      );
+      AuditoriaService.registrarOperacion('condiciones_comerciales', 'INSERT', id, null, { concesionarioId, ...datos });
+    }
+  }
+
+  // Cuenta, para un concesionario/período, cuántos "comerciales" (spots,
+  // sum(cantidad)) puso cada lado — resolviendo el concesionario por la
+  // misma cadena punto → soporte → locación (+ reparto) que
+  // listarPeriodo, pero SIN depender de replicaciones_facturacion (acá
+  // importa en qué mes corrió la campaña, no el ciclo de facturación real
+  // — las que vende el concesionario directo ni siquiera se facturan).
+  private static async contarComercialesPeriodo(
+    concesionarioId: string,
+    mes: number,
+    ano: number
+  ): Promise<{ ventasTopview: number; ventasConcesionario: number }> {
+    const periodoBuscado = `? || '-' || printf('%02d', ?)`;
+    const filas = await this.queryAll(
+      `
+      SELECT
+        CASE WHEN o.vendido_por_concesionario = 1 THEN 1 ELSE 0 END as es_concesionario,
+        SUM(d.cantidad) as total
+      FROM ordenes_publicidad_detalles d
+      JOIN locaciones l ON l.id = d.locacion_id
+      JOIN ordenes_publicidad o ON o.id = d.orden_id
+      LEFT JOIN locaciones_capacidad lc ON lc.locacion_id = d.locacion_id AND lc.producto_id = d.producto_id
+      LEFT JOIN locaciones_puntos lp ON lp.capacidad_id = lc.id AND lp.nombre = d.punto_instalacion
+      LEFT JOIN locaciones_capacidad_reparto rep ON rep.capacidad_id = lc.id AND rep.concesionario_id = ?
+      WHERE (o.habilitado != 0 OR o.habilitado IS NULL)
+        AND (${periodoBuscado}) >= substr(o.periodo_desde, 1, 7)
+        AND (${periodoBuscado}) <= substr(o.periodo_hasta, 1, 7)
+        AND (
+          rep.concesionario_id = ?
+          OR (
+            NOT EXISTS (SELECT 1 FROM locaciones_capacidad_reparto r2 WHERE r2.capacidad_id = lc.id)
+            AND COALESCE(lp.concesionario_id, lc.concesionario_id, l.concesionario_id) = ?
+          )
+        )
+      GROUP BY es_concesionario
+      `,
+      [concesionarioId, ano, mes, ano, mes, concesionarioId, concesionarioId]
+    );
+    const topview = filas.find((f) => f.es_concesionario === 0);
+    const concesionario = filas.find((f) => f.es_concesionario === 1);
+    return {
+      ventasTopview: topview ? Number(topview.total) || 0 : 0,
+      ventasConcesionario: concesionario ? Number(concesionario.total) || 0 : 0,
+    };
+  }
+
+  static async calcularCuentaCorrienteComerciales(
+    concesionarioId: string,
+    mes: number,
+    ano: number
+  ): Promise<{
+    porcentaje_concesionario: number;
+    porcentaje_topview: number;
+    meses: Array<{
+      mes: number;
+      ano: number;
+      ventas_topview: number;
+      ventas_concesionario: number;
+      diferencia_mes: number;
+      saldo_acumulado: number;
+    }>;
+    saldo_acumulado: number;
+  } | null> {
+    const condicion = await this.obtenerCondicionComerciales(concesionarioId);
+    if (!condicion) return null;
+
+    const primerMes = await this.queryGet(
+      `
+      SELECT MIN(substr(o.periodo_desde, 1, 7)) as inicio
+      FROM ordenes_publicidad_detalles d
+      JOIN locaciones l ON l.id = d.locacion_id
+      JOIN ordenes_publicidad o ON o.id = d.orden_id
+      LEFT JOIN locaciones_capacidad lc ON lc.locacion_id = d.locacion_id AND lc.producto_id = d.producto_id
+      LEFT JOIN locaciones_puntos lp ON lp.capacidad_id = lc.id AND lp.nombre = d.punto_instalacion
+      LEFT JOIN locaciones_capacidad_reparto rep ON rep.capacidad_id = lc.id AND rep.concesionario_id = ?
+      WHERE (o.habilitado != 0 OR o.habilitado IS NULL)
+        AND (
+          rep.concesionario_id = ?
+          OR (
+            NOT EXISTS (SELECT 1 FROM locaciones_capacidad_reparto r2 WHERE r2.capacidad_id = lc.id)
+            AND COALESCE(lp.concesionario_id, lc.concesionario_id, l.concesionario_id) = ?
+          )
+        )
+      `,
+      [concesionarioId, concesionarioId, concesionarioId]
+    );
+
+    const base = { porcentaje_concesionario: condicion.porcentajeConcesionario, porcentaje_topview: condicion.porcentajeTopview };
+    if (!primerMes || !primerMes.inicio) {
+      return { ...base, meses: [], saldo_acumulado: 0 };
+    }
+
+    const [anoInicio, mesInicio] = String(primerMes.inicio).split('-').map(Number);
+    const meses: Array<{
+      mes: number;
+      ano: number;
+      ventas_topview: number;
+      ventas_concesionario: number;
+      diferencia_mes: number;
+      saldo_acumulado: number;
+    }> = [];
+    let saldo = 0;
+    let anoActual = anoInicio;
+    let mesActual = mesInicio;
+    // Tope defensivo (10 años) para nunca loopear infinito si algo raro
+    // pasa con las fechas de las órdenes.
+    let iteraciones = 0;
+    while ((anoActual < ano || (anoActual === ano && mesActual <= mes)) && iteraciones < 120) {
+      const { ventasTopview, ventasConcesionario } = await this.contarComercialesPeriodo(concesionarioId, mesActual, anoActual);
+      const totalImplicito = condicion.porcentajeConcesionario > 0 ? ventasConcesionario / (condicion.porcentajeConcesionario / 100) : 0;
+      const cuotaTopview = totalImplicito * (condicion.porcentajeTopview / 100);
+      const diferenciaMes = cuotaTopview - ventasTopview;
+      saldo += diferenciaMes;
+      meses.push({
+        mes: mesActual,
+        ano: anoActual,
+        ventas_topview: ventasTopview,
+        ventas_concesionario: ventasConcesionario,
+        diferencia_mes: diferenciaMes,
+        saldo_acumulado: saldo,
+      });
+      mesActual++;
+      if (mesActual > 12) {
+        mesActual = 1;
+        anoActual++;
+      }
+      iteraciones++;
+    }
+
+    return { ...base, meses, saldo_acumulado: saldo };
   }
 
   // Reutilizado por Oxant (necesita el Canon de 3 concesionarios distintos
