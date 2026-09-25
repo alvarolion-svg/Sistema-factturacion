@@ -471,7 +471,7 @@ function OrdenesTab({
       descuento_facturas_en_cascada: !!o.descuento_facturas_en_cascada,
       mes_ingreso: o.mes_ingreso ? String(o.mes_ingreso) : '',
       ano_ingreso: o.ano_ingreso ? String(o.ano_ingreso) : '',
-      facturado: o.facturado === undefined ? true : !!o.facturado,
+      facturado: o.vendido_por_concesionario ? false : o.facturado === undefined ? true : !!o.facturado,
       vendido_por_concesionario: !!o.vendido_por_concesionario,
       notas: o.notas || '',
       vigencia_hasta_nota: o.vigencia_hasta_nota || '',
@@ -2146,7 +2146,13 @@ function OrdenesTab({
                 id="orden_vendido_por_concesionario"
                 type="checkbox"
                 checked={ordenForm.vendido_por_concesionario}
-                onChange={(e) => handleChangeOrden('vendido_por_concesionario', e.target.checked)}
+                onChange={(e) =>
+                  setOrdenForm((p) => ({
+                    ...p,
+                    vendido_por_concesionario: e.target.checked,
+                    facturado: e.target.checked ? false : p.facturado,
+                  }))
+                }
                 disabled={guardando}
               />
               {' '}Vendida directamente por el concesionario, no por Topview
@@ -2385,11 +2391,16 @@ function OrdenesTab({
               <input
                 id="orden_facturado"
                 type="checkbox"
-                checked={ordenForm.facturado}
+                checked={ordenForm.vendido_por_concesionario ? false : ordenForm.facturado}
                 onChange={(e) => handleChangeOrden('facturado', e.target.checked)}
-                disabled={guardando}
+                disabled={guardando || ordenForm.vendido_por_concesionario}
               />
               {' '}Esta orden genera facturación
+              {ordenForm.vendido_por_concesionario && (
+                <small style={{ display: 'block', fontWeight: 'normal' }}>
+                  Deshabilitado: la vendió el concesionario, Topview no la factura.
+                </small>
+              )}
             </label>
           </div>
 
