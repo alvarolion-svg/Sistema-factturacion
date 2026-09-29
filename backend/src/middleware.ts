@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { AutenticacionService } from './services/autenticacion';
+import db from './database';
 
 export interface RequestConUsuario extends Request {
   usuario?: any;
@@ -53,27 +54,28 @@ export const requierePermisosCualquiera = (permisos: string[]) => {
 };
 
 /**
- * Middleware de rol mínimo
+ * Middleware de rol mínimo — nivel 1 es el más alto (Administrador), 6 el
+ * más bajo (Operario), igual que la columna `nivel` de la tabla `roles`.
+ * `req.usuario.rol_id` es el id del rol (uuid), no su nombre — antes esto
+ * comparaba contra un mapa indexado por nombre y nunca encontraba
+ * coincidencia, así que siempre rechazaba. Ahora consulta el nivel real.
  */
 export const requiereRol = (nivelMinimo: number) => {
   return (req: RequestConUsuario, res: Response, next: NextFunction) => {
-    // Mapeo de roles a niveles
-    const rolesNiveles: { [key: string]: number } = {
-      'Administrador': 1,
-      'Gerente': 2,
-      'Contador': 3,
-      'Vendedor': 4,
-      'Comprador': 5,
-      'Operario': 6,
-    };
-
-    const rolNivel = rolesNiveles[req.usuario?.rol_id] || 999;
-
-    if (rolNivel > nivelMinimo) {
+    if (!req.usuario?.rol_id) {
       return res.status(403).json({ error: 'Rol insuficiente para esta acción' });
     }
 
-    next();
+    db.get('SELECT nivel FROM roles WHERE id = ?', [req.usuario.rol_id], (err, rol: any) => {
+      if (err) return res.status(500).json({ error: err.message });
+
+      const rolNivel = rol?.nivel ?? 999;
+      if (rolNivel > nivelMinimo) {
+        return res.status(403).json({ error: 'Rol insuficiente para esta acción' });
+      }
+
+      next();
+    });
   };
 };
 

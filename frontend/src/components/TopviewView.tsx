@@ -9,6 +9,7 @@ import ProduccionTopviewTab from './ProduccionTopviewTab';
 import LocacionesTab from './LocacionesTab';
 import LiquidacionesTab, { SeleccionLiquidacion } from './LiquidacionesTab';
 import { InputMiles, InputPorcentaje } from './CamposMonto';
+import { TIPOS_ANUNCIANTE } from '../utils/constantesTopview';
 
 interface OrdenPublicidad {
   id: string;
@@ -90,14 +91,6 @@ interface TopviewViewProps {
   usuario: any;
 }
 
-const TIPOS_ANUNCIANTE = [
-  'Pequeños Anunciantes',
-  'Pautas Estado',
-  'Pautas Anuales',
-  'Pautas Mensuales',
-  'Pautas en dólares',
-  'Pauta Concesionario',
-];
 // Campaña vendida directamente por el concesionario, no por Topview (ej.
 // World Padel Pilar) — señal única en tipo_anunciante, sin tilde aparte
 // (se probó con uno y se fusionó a pedido del usuario). Ver

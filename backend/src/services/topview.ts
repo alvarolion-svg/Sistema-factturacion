@@ -5,6 +5,11 @@ import { AuditoriaService } from './auditoria';
 import { TesoreriaService } from './tesoreria';
 
 const PRODUCTO_SERVICIO_TOPVIEW_ID = 'topview-serv-1';
+// "Ingreso final" de una orden — monto_final si está registrada (pasa por
+// Colppy/comisiones), monto_neto si no (nunca las tocan). Único criterio de
+// "cuánto entró realmente" en todos los reportes/rankings que lo usan; antes
+// estaba copiado a mano en cada query, ahora es una sola fuente de verdad.
+const SQL_INGRESO_FINAL = 'CASE WHEN facturado = 0 THEN monto_neto ELSE monto_final END';
 // Campaña vendida directamente por el concesionario, no por Topview (ej.
 // World Padel Pilar) — señal única en tipo_anunciante, sin columna aparte.
 // Ver [[project_world_padel_cuenta_corriente_comerciales]].
@@ -1564,7 +1569,7 @@ export class TopviewService {
         SUM(costo_produccion) as costo_total,
         SUM(monto_neto) as monto_neto_total,
         SUM(monto_final) as monto_final_total,
-        SUM(CASE WHEN facturado = 0 THEN monto_neto ELSE monto_final END) as valor_final_total,
+        SUM(${SQL_INGRESO_FINAL}) as valor_final_total,
         SUM(monto_final - costo_produccion) as ganancia_total,
         ROUND(((SUM(monto_final - costo_produccion) / SUM(monto_final)) * 100), 2) as margen_ganancia
       FROM ordenes_publicidad
@@ -1632,6 +1637,8 @@ export class TopviewService {
           COALESCE(ano_ingreso, CAST(strftime('%Y', periodo_desde) AS INTEGER)),
           COALESCE(mes_ingreso, CAST(strftime('%m', periodo_desde) AS INTEGER))
         ) as mes,
+        -- Mismo criterio que SQL_INGRESO_FINAL, partido en las dos columnas
+        -- del gráfico (registrado/no registrado) en vez de una sola "valor".
         SUM(CASE WHEN facturado = 0 THEN monto_neto ELSE 0 END) as no_registrado_total,
         SUM(CASE WHEN facturado IS NULL OR facturado != 0 THEN monto_final ELSE 0 END) as registrado_total
       FROM ordenes_publicidad
@@ -1651,7 +1658,7 @@ export class TopviewService {
           COALESCE(mes_ingreso, CAST(strftime('%m', periodo_desde) AS INTEGER))
         ) as mes,
         tipo_anunciante,
-        SUM(CASE WHEN facturado = 0 THEN monto_neto ELSE monto_final END) as valor
+        SUM(${SQL_INGRESO_FINAL}) as valor
       FROM ordenes_publicidad
       WHERE (habilitado != 0 OR habilitado IS NULL)
       GROUP BY mes, tipo_anunciante
@@ -1674,9 +1681,7 @@ export class TopviewService {
     // usa el mismo "ingreso final" mixto que el resto de los gráficos de esta
     // pantalla (monto_final si está registrada, monto_neto si no — lo que no
     // pasa por Colppy nunca pasa por comisiones tampoco).
-    const campoTopClientes = incluirNetos
-      ? 'CASE WHEN facturado = 0 THEN monto_neto ELSE monto_final END'
-      : 'monto_neto';
+    const campoTopClientes = incluirNetos ? SQL_INGRESO_FINAL : 'monto_neto';
     const topClientes = await this.queryAll(`
       SELECT razon_social, SUM(${campoTopClientes}) as monto_total
       FROM ordenes_publicidad

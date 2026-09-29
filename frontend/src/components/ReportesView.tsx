@@ -14,22 +14,11 @@ import {
   Cell,
 } from 'recharts';
 import { authHeaders, mensajeError, formatMoney, formatFecha } from '../utils/api';
+import { TIPOS_ANUNCIANTE as TIPOS_ANUNCIANTE_ORDEN } from '../utils/constantesTopview';
 
 const COLORES_GRAFICO = ['#e81838', '#a8102c', '#707070', '#c4c4c4', '#f28ba0', '#4a4a4a', '#e89aab', '#9a9a9a'];
 
 const MESES_CORTOS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-
-// Mismo orden que TIPOS_ANUNCIANTE en TopviewView.tsx — se duplica acá (igual
-// que otras constantes chicas del proyecto) para no acoplar este componente
-// al de Topview solo por una lista de 6 nombres fijos.
-const TIPOS_ANUNCIANTE_ORDEN = [
-  'Pequeños Anunciantes',
-  'Pautas Estado',
-  'Pautas Anuales',
-  'Pautas Mensuales',
-  'Pautas en dólares',
-  'Pauta Concesionario',
-];
 
 // Color fijo por tipo de anunciante (no por posición en cada array, que
 // difiere entre gráficos según de dónde venga el dato) — así un mismo tipo
