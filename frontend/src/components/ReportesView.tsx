@@ -19,10 +19,75 @@ const COLORES_GRAFICO = ['#e81838', '#a8102c', '#707070', '#c4c4c4', '#f28ba0', 
 
 const MESES_CORTOS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 
+// Mismo orden que TIPOS_ANUNCIANTE en TopviewView.tsx — se duplica acá (igual
+// que otras constantes chicas del proyecto) para no acoplar este componente
+// al de Topview solo por una lista de 6 nombres fijos.
+const TIPOS_ANUNCIANTE_ORDEN = [
+  'Pequeños Anunciantes',
+  'Pautas Estado',
+  'Pautas Anuales',
+  'Pautas Mensuales',
+  'Pautas en dólares',
+  'Pauta Concesionario',
+];
+
+// Color fijo por tipo de anunciante (no por posición en cada array, que
+// difiere entre gráficos según de dónde venga el dato) — así un mismo tipo
+// se ve siempre del mismo color en todos los gráficos de esta pantalla.
+function colorTipoAnunciante(tipo: string): string {
+  const idx = TIPOS_ANUNCIANTE_ORDEN.indexOf(tipo);
+  return COLORES_GRAFICO[(idx >= 0 ? idx : TIPOS_ANUNCIANTE_ORDEN.length) % COLORES_GRAFICO.length];
+}
+
+// Los colores claros (gris claro, rosa) del mismo COLORES_GRAFICO necesitan
+// texto oscuro encima para leerse; el resto usa blanco.
+function colorTextoTipoAnunciante(tipo: string): string {
+  const idx = TIPOS_ANUNCIANTE_ORDEN.indexOf(tipo);
+  return idx === 3 || idx === 4 ? '#333' : '#fff';
+}
+
 function formatMesCorto(mesIso: string) {
   const [ano, mes] = (mesIso || '').split('-');
   if (!ano || !mes) return mesIso;
   return `${MESES_CORTOS[Number(mes) - 1] || mes} ${ano}`;
+}
+
+// Formato compacto para las etiquetas del eje Y de los gráficos — el monto completo
+// (ej. "$16.000.000,00") no entra en el ancho del eje y queda cortado por la izquierda.
+function formatMoneyEje(valor: number): string {
+  const abs = Math.abs(valor);
+  if (abs >= 1_000_000) return `$${(valor / 1_000_000).toLocaleString('es-AR', { maximumFractionDigits: 1 })}M`;
+  if (abs >= 1_000) return `$${(valor / 1_000).toLocaleString('es-AR', { maximumFractionDigits: 0 })}mil`;
+  return formatMoney(valor);
+}
+
+// Tooltip para gráficos de barras apiladas: además del valor de cada
+// segmento (lo que da Recharts por defecto), suma y muestra el total de la
+// barra completa — el default no lo calcula solo.
+function TooltipConTotal({ active, payload, label }: any) {
+  if (!active || !payload || !payload.length) return null;
+  const total = payload.reduce((acc: number, p: any) => acc + (Number(p.value) || 0), 0);
+  return (
+    <div
+      style={{
+        background: '#fff',
+        border: '1px solid #ccc',
+        borderRadius: 4,
+        padding: '0.5rem 0.75rem',
+        fontSize: '0.85rem',
+      }}
+    >
+      <div style={{ fontWeight: 600, marginBottom: '0.25rem' }}>{label}</div>
+      {payload.map((p: any, i: number) => (
+        <div key={i} style={{ color: p.color }}>
+          {p.name} : <strong>{formatMoney(p.value)}</strong>
+        </div>
+      ))}
+      <div style={{ marginTop: '0.25rem', paddingTop: '0.25rem', borderTop: '1px solid #eee', fontWeight: 700 }}>
+        Total : {formatMoney(total)}
+      </div>
+    </div>
+  );
 }
 
 interface ReportesViewProps {
@@ -508,10 +573,53 @@ function ReporteTopview({ datos }: { datos: any }) {
 
   const porAnunciante = datos.por_anunciante || [];
   const totales = datos.totales || {};
-  const porMes = (datos.por_mes || []).map((m: any) => ({ ...m, mesLabel: formatMesCorto(m.mes) }));
-  const porMesVenta = (datos.por_mes_venta || []).map((m: any) => ({ ...m, mesLabel: formatMesCorto(m.mes) }));
+  const porMesRegistro = (datos.por_mes_registro || []).map((m: any) => ({ ...m, mesLabel: formatMesCorto(m.mes) }));
   const porSoporte = datos.por_soporte || [];
   const topClientes = datos.top_clientes || [];
+
+  // Mismo total mensual que porMesRegistro, partido por tipo de anunciante en vez
+  // de registrado/no registrado — se pivotea de filas (mes, tipo, valor) a una fila
+  // por mes con una columna por tipo, para que Recharts las apile.
+  const filasSegmento = datos.por_mes_segmento || [];
+  const tiposEnSegmento = TIPOS_ANUNCIANTE_ORDEN.filter((t) => filasSegmento.some((f: any) => f.tipo_anunciante === t));
+  filasSegmento.forEach((f: any) => {
+    if (f.tipo_anunciante && !tiposEnSegmento.includes(f.tipo_anunciante)) tiposEnSegmento.push(f.tipo_anunciante);
+  });
+  const porMesesPorTipo: Record<string, any> = {};
+  filasSegmento.forEach((f: any) => {
+    if (!porMesesPorTipo[f.mes]) porMesesPorTipo[f.mes] = { mes: f.mes, mesLabel: formatMesCorto(f.mes) };
+    porMesesPorTipo[f.mes][f.tipo_anunciante] = f.valor;
+  });
+  const porMesSegmento = Object.values(porMesesPorTipo).sort((a: any, b: any) => a.mes.localeCompare(b.mes));
+
+  // % que representa cada segmento sobre el total de SU mes (no del total general)
+  // — se omite en segmentos muy chicos para no amontonar texto ilegible.
+  const renderLabelSegmento = (tipo: string) => (props: any) => {
+    const { x, y, width, height, index } = props;
+    // No se usa props.value: en un stack, Recharts lo resuelve al tope
+    // acumulado del segmento (no al valor propio) — se toma el dato crudo
+    // de porMesSegmento en su lugar, sin ambigüedad.
+    const fila: any = porMesSegmento[index];
+    const valorSegmento = fila?.[tipo] || 0;
+    if (!valorSegmento) return null;
+    const totalMes = tiposEnSegmento.reduce((acc, t) => acc + (fila?.[t] || 0), 0);
+    if (!totalMes) return null;
+    const pct = (valorSegmento / totalMes) * 100;
+    if (pct < 4) return null;
+    return (
+      <text
+        x={x + width / 2}
+        y={y + height / 2}
+        fill={colorTextoTipoAnunciante(tipo)}
+        textAnchor="middle"
+        dominantBaseline="middle"
+        fontSize={11}
+        fontWeight={600}
+      >
+        {pct.toFixed(1)}%
+      </text>
+    );
+  };
 
   return (
     <>
@@ -545,60 +653,105 @@ function ReporteTopview({ datos }: { datos: any }) {
         )}
       </div>
 
-      {porMesVenta.length > 0 && (
+      {mostrarNetos && porMesRegistro.length > 0 && (
         <>
-          <h3 className="reportes-subtitulo">Venta mensual (todas las órdenes, según mes de ingreso)</h3>
+          <h3 className="reportes-subtitulo">Registrado vs. no registrado, mes a mes (según mes de ingreso)</h3>
           <p className="totales-preview" style={{ marginTop: 0 }}>
-            Agrupa por "Mes de ingreso (venta)" de cada orden — el mes comercial en que se cargó la pauta, no
-            cuándo se termina facturando (eso está abajo, en "Facturación bruta mensual").
+            Mismo desglose que el resumen de Órdenes: "Registrado" es el neto Topview post-comisión de lo que
+            pasa por Colppy; "No registrado" es el bruto de lo que no se factura formalmente. Apilados, la barra
+            completa es el total de cada mes y se ve qué proporción representa cada uno.
           </p>
           <ResponsiveContainer width="100%" height={280}>
-            <BarChart data={porMesVenta}>
+            <BarChart data={porMesRegistro}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="mesLabel" />
-              <YAxis tickFormatter={(v) => formatMoney(v)} width={90} />
-              <Tooltip formatter={(v: any) => formatMoney(Number(v))} />
-              <Bar dataKey="monto_neto_total" name="Venta" fill={COLORES_GRAFICO[0]} />
+              <YAxis tickFormatter={(v) => formatMoneyEje(v)} width={70} />
+              <Tooltip content={<TooltipConTotal />} />
+              <Legend />
+              <Bar dataKey="registrado_total" name="Registrado (neto post-comisión)" stackId="a" fill={COLORES_GRAFICO[1]} />
+              <Bar dataKey="no_registrado_total" name="No registrado (bruto)" stackId="a" fill={COLORES_GRAFICO[4]} />
             </BarChart>
           </ResponsiveContainer>
         </>
       )}
 
-      {porMes.length > 0 && (
+      {mostrarNetos && porMesSegmento.length > 0 && (
         <>
-          <h3 className="reportes-subtitulo">Facturación bruta mensual (todas las órdenes, según fecha de facturación)</h3>
+          <h3 className="reportes-subtitulo">Por tipo de anunciante, mes a mes (según mes de ingreso)</h3>
+          <p className="totales-preview" style={{ marginTop: 0 }}>
+            Mismo total mensual que el gráfico anterior (registrado + no registrado), partido acá por tipo de
+            anunciante en vez de por circuito de facturación.
+          </p>
           <ResponsiveContainer width="100%" height={280}>
-            <BarChart data={porMes}>
+            <BarChart data={porMesSegmento}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="mesLabel" />
-              <YAxis tickFormatter={(v) => formatMoney(v)} width={90} />
-              <Tooltip formatter={(v: any) => formatMoney(Number(v))} />
-              <Bar dataKey="monto_neto_total" name="Facturación bruta" fill={COLORES_GRAFICO[1]} />
+              <YAxis tickFormatter={(v) => formatMoneyEje(v)} width={70} />
+              <Tooltip content={<TooltipConTotal />} />
+              <Legend />
+              {tiposEnSegmento.map((tipo) => (
+                <Bar
+                  key={tipo}
+                  dataKey={tipo}
+                  name={tipo}
+                  stackId="b"
+                  fill={colorTipoAnunciante(tipo)}
+                  label={renderLabelSegmento(tipo)}
+                />
+              ))}
             </BarChart>
           </ResponsiveContainer>
         </>
       )}
 
-      {porAnunciante.length > 0 && (
+      {mostrarNetos && porAnunciante.length > 0 && (
         <div>
-          <h3 className="reportes-subtitulo">Participación por tipo de anunciante (sobre facturación bruta)</h3>
+          <h3 className="reportes-subtitulo">Participación por tipo de anunciante (ingreso final)</h3>
+          <p className="totales-preview" style={{ marginTop: 0 }}>
+            Misma base que el gráfico de arriba: ingreso final por tipo (post NC/FC/comisiones, o bruto para lo no
+            registrado, que nunca pasa por comisiones) — no la facturación bruta.
+          </p>
           <ResponsiveContainer width="100%" height={300}>
             <PieChart>
               <Pie
                 data={porAnunciante}
-                dataKey="monto_neto_total"
+                dataKey="valor_final_total"
                 nameKey="tipo_anunciante"
                 outerRadius={110}
                 label={({ percent }: any) => `${(percent * 100).toFixed(1)}%`}
               >
-                {porAnunciante.map((_: any, i: number) => (
-                  <Cell key={i} fill={COLORES_GRAFICO[i % COLORES_GRAFICO.length]} />
+                {porAnunciante.map((a: any, i: number) => (
+                  <Cell key={i} fill={colorTipoAnunciante(a.tipo_anunciante)} />
                 ))}
               </Pie>
               <Tooltip formatter={(v: any) => formatMoney(Number(v))} />
               <Legend />
             </PieChart>
           </ResponsiveContainer>
+          <div className="totales-grid" style={{ marginTop: '1rem' }}>
+            {tiposEnSegmento.map((tipo) => (
+              <div className="totales-card" key={tipo}>
+                <span>Total {tipo}</span>
+                <strong>
+                  {formatMoney(porMesSegmento.reduce((acc: number, m: any) => acc + ((m as any)[tipo] || 0), 0))}
+                </strong>
+              </div>
+            ))}
+          </div>
+          <div className="totales-grid" style={{ marginTop: '0.75rem' }}>
+            <div className="totales-card">
+              <span>Total registrado (neto post-comisión)</span>
+              <strong>
+                {formatMoney(porMesRegistro.reduce((acc: number, m: any) => acc + (m.registrado_total || 0), 0))}
+              </strong>
+            </div>
+            <div className="totales-card">
+              <span>Total no registrado (bruto)</span>
+              <strong>
+                {formatMoney(porMesRegistro.reduce((acc: number, m: any) => acc + (m.no_registrado_total || 0), 0))}
+              </strong>
+            </div>
+          </div>
         </div>
       )}
 
@@ -623,14 +776,16 @@ function ReporteTopview({ datos }: { datos: any }) {
 
           {topClientes.length > 0 && (
             <div>
-              <h3 className="reportes-subtitulo">Top 10 clientes/agencias por monto facturado</h3>
+              <h3 className="reportes-subtitulo">
+                Top 10 clientes/agencias por {puedeVerNetos ? 'ingreso final' : 'monto facturado'}
+              </h3>
               <ResponsiveContainer width="100%" height={280}>
                 <BarChart data={topClientes} layout="vertical" margin={{ left: 40 }}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis type="number" tickFormatter={(v) => formatMoney(v)} />
                   <YAxis type="category" dataKey="razon_social" width={150} tick={{ fontSize: 11 }} />
                   <Tooltip formatter={(v: any) => formatMoney(Number(v))} />
-                  <Bar dataKey="monto_total" name={puedeVerNetos ? 'Monto final' : 'Facturación bruta'} fill={COLORES_GRAFICO[0]} />
+                  <Bar dataKey="monto_total" name={puedeVerNetos ? 'Ingreso final' : 'Facturación bruta'} fill={COLORES_GRAFICO[0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -642,52 +797,8 @@ function ReporteTopview({ datos }: { datos: any }) {
         <p className="empty-state">No hay órdenes de publicidad activas.</p>
       ) : mostrarNetos ? (
         <div>
-          <h3 className="reportes-subtitulo">Participación por tipo de anunciante — bruto vs. neto post-comisión</h3>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
-            <div>
-              <p style={{ textAlign: 'center', fontWeight: 600, fontSize: '0.85rem', color: '#666' }}>Monto neto (bruto)</p>
-              <ResponsiveContainer width="100%" height={280}>
-                <PieChart>
-                  <Pie
-                    data={porAnunciante}
-                    dataKey="monto_neto_total"
-                    nameKey="tipo_anunciante"
-                    outerRadius={100}
-                    label={({ percent }: any) => `${(percent * 100).toFixed(1)}%`}
-                  >
-                    {porAnunciante.map((_: any, i: number) => (
-                      <Cell key={i} fill={COLORES_GRAFICO[i % COLORES_GRAFICO.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip formatter={(v: any) => formatMoney(Number(v))} />
-                  <Legend />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-            <div>
-              <p style={{ textAlign: 'center', fontWeight: 600, fontSize: '0.85rem', color: '#666' }}>Monto final (neto post-comisión)</p>
-              <ResponsiveContainer width="100%" height={280}>
-                <PieChart>
-                  <Pie
-                    data={porAnunciante}
-                    dataKey="monto_final_total"
-                    nameKey="tipo_anunciante"
-                    outerRadius={100}
-                    label={({ percent }: any) => `${(percent * 100).toFixed(1)}%`}
-                  >
-                    {porAnunciante.map((_: any, i: number) => (
-                      <Cell key={i} fill={COLORES_GRAFICO[i % COLORES_GRAFICO.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip formatter={(v: any) => formatMoney(Number(v))} />
-                  <Legend />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
+          <h3 className="reportes-subtitulo">Participación por tipo de anunciante — neto post-comisión</h3>
           {(() => {
-            const totalNeto = porAnunciante.reduce((acc: number, a: any) => acc + (a.monto_neto_total || 0), 0);
             const totalFinal = porAnunciante.reduce((acc: number, a: any) => acc + (a.monto_final_total || 0), 0);
             return (
               <table className="data-table" style={{ marginTop: '1rem' }}>
@@ -695,8 +806,6 @@ function ReporteTopview({ datos }: { datos: any }) {
                   <tr>
                     <th>Tipo de anunciante</th>
                     <th>Cantidad</th>
-                    <th>Monto neto</th>
-                    <th>% bruto</th>
                     <th>Monto final</th>
                     <th>% neto</th>
                   </tr>
@@ -706,13 +815,27 @@ function ReporteTopview({ datos }: { datos: any }) {
                     <tr key={a.tipo_anunciante}>
                       <td>{a.tipo_anunciante}</td>
                       <td>{a.cantidad}</td>
-                      <td>{formatMoney(a.monto_neto_total)}</td>
-                      <td>{totalNeto > 0 ? `${((a.monto_neto_total / totalNeto) * 100).toFixed(1)}%` : '-'}</td>
                       <td>{formatMoney(a.monto_final_total)}</td>
                       <td>{totalFinal > 0 ? `${((a.monto_final_total / totalFinal) * 100).toFixed(1)}%` : '-'}</td>
                     </tr>
                   ))}
                 </tbody>
+                <tfoot>
+                  <tr>
+                    <td>
+                      <strong>Total</strong>
+                    </td>
+                    <td>
+                      <strong>{porAnunciante.reduce((acc: number, a: any) => acc + (a.cantidad || 0), 0)}</strong>
+                    </td>
+                    <td>
+                      <strong>{formatMoney(totalFinal)}</strong>
+                    </td>
+                    <td>
+                      <strong>100.0%</strong>
+                    </td>
+                  </tr>
+                </tfoot>
               </table>
             );
           })()}

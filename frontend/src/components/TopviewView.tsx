@@ -4,6 +4,7 @@ import ExcelJS from 'exceljs';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { authHeaders, mensajeError, formatMoney, formatFecha, scrollAlFormulario } from '../utils/api';
+import { usePdfPreview, PdfExportMenu, abrirPestañaPrevia } from '../hooks/usePdfPreview';
 import ProduccionTopviewTab from './ProduccionTopviewTab';
 import LocacionesTab from './LocacionesTab';
 import LiquidacionesTab, { SeleccionLiquidacion } from './LiquidacionesTab';
@@ -28,7 +29,11 @@ interface OrdenPublicidad {
   costo_produccion: number;
   monto_neto: number;
   descuento_porcentaje: number;
+  descuento_en_cascada: boolean;
   descuento_monto: number;
+  descuento_porcentaje_2: number;
+  descuento_en_cascada_2: boolean;
+  descuento_monto_2: number;
   monto_neto_aplicado: number;
   descuento_facturas_porcentaje: number;
   descuento_facturas_monto: number;
@@ -40,11 +45,15 @@ interface OrdenPublicidad {
   mes_ingreso: number | null;
   ano_ingreso: number | null;
   vigencia_hasta_nota: string | null;
+  vigencia_hasta_mes: number | null;
+  vigencia_hasta_ano: number | null;
   cantidades_por_producto?: Record<string, number>;
   numero_factura_colppy: string | null;
   numero_nc_colppy: string | null;
   cobrado: number;
   fecha_cobro: string | null;
+  asana_task_gid?: string | null;
+  asana_asignado?: boolean | number | null;
 }
 
 interface Agencia {
@@ -104,6 +113,26 @@ const NOMBRES_MES = [
   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
 ];
 
+// Suma un mes a 'YYYY-MM-DD', recortando el día al último real del mes
+// destino — misma lógica que el backend (topview.ts), usada acá solo para
+// la vista previa de los clones por "Vigencia hasta". Si la fecha de origen
+// ya era el último día de SU mes, el resultado es el último día del mes
+// destino (no un corrimiento mecánico del número de día) — ver comentario
+// completo en topview.ts.
+function addMonthClamped(fecha: string): string {
+  const [y, m, d] = fecha.split('-').map(Number);
+  let nuevoAno = y;
+  let nuevoMes = m + 1;
+  if (nuevoMes > 12) {
+    nuevoMes = 1;
+    nuevoAno += 1;
+  }
+  const ultimoDiaMesActual = new Date(y, m, 0).getDate();
+  const ultimoDiaMesNuevo = new Date(nuevoAno, nuevoMes, 0).getDate();
+  const nuevoDia = d === ultimoDiaMesActual ? ultimoDiaMesNuevo : Math.min(d, ultimoDiaMesNuevo);
+  return `${nuevoAno}-${String(nuevoMes).padStart(2, '0')}-${String(nuevoDia).padStart(2, '0')}`;
+}
+
 
 interface LineaProducto {
   id?: string;
@@ -154,6 +183,8 @@ const ORDEN_VACIA = {
   monto_neto: '',
   descuento_porcentaje: '0',
   descuento_en_cascada: false,
+  descuento_porcentaje_2: '0',
+  descuento_en_cascada_2: false,
   descuento_facturas_porcentaje: '0',
   descuento_facturas_en_cascada: false,
   mes_ingreso: '',
@@ -161,6 +192,8 @@ const ORDEN_VACIA = {
   facturado: true,
   notas: '',
   vigencia_hasta_nota: '',
+  vigencia_hasta_mes: '',
+  vigencia_hasta_ano: '',
 };
 
 function TopviewView({ token, usuario }: TopviewViewProps) {
@@ -180,6 +213,7 @@ function TopviewView({ token, usuario }: TopviewViewProps) {
   const puedeCargarLiquidaciones = permisos.has('liquidaciones_cargar');
 
   const [seccion, setSeccion] = useState<
+    | 'timeline'
     | 'ordenes'
     | 'produccion'
     | 'agencias'
@@ -189,6 +223,7 @@ function TopviewView({ token, usuario }: TopviewViewProps) {
     | 'comisiones'
     | 'vendedores'
     | 'liquidaciones'
+    | 'asana'
   >('ordenes');
 
   // Acceso directo Órdenes ↔ Liquidaciones: cada uno le pasa al otro qué
@@ -196,6 +231,10 @@ function TopviewView({ token, usuario }: TopviewViewProps) {
   // "pegado" si después el usuario navega por su cuenta).
   const [ordenIdParaAbrir, setOrdenIdParaAbrir] = useState<string | null>(null);
   const [liquidacionParaAbrir, setLiquidacionParaAbrir] = useState<SeleccionLiquidacion | null>(null);
+  // De qué solapa vino el usuario al abrir una orden desde afuera (ej.
+  // Comisionistas o Liquidaciones) — "‹ Volver a la lista" en el detalle
+  // vuelve ahí en vez de quedarse siempre en la lista general de Órdenes.
+  const [seccionOrigenOrden, setSeccionOrigenOrden] = useState<typeof seccion | null>(null);
 
   return (
     <section className="view-card">
@@ -204,6 +243,12 @@ function TopviewView({ token, usuario }: TopviewViewProps) {
       </div>
 
       <div className="reportes-tabs">
+        <button
+          className={`reportes-tab ${seccion === 'timeline' ? 'active' : ''}`}
+          onClick={() => setSeccion('timeline')}
+        >
+          Timeline
+        </button>
         <button
           className={`reportes-tab ${seccion === 'ordenes' ? 'active' : ''}`}
           onClick={() => setSeccion('ordenes')}
@@ -266,8 +311,27 @@ function TopviewView({ token, usuario }: TopviewViewProps) {
             Liquidaciones
           </button>
         )}
+        {puedeEditar && (
+          <button
+            className={`reportes-tab ${seccion === 'asana' ? 'active' : ''}`}
+            onClick={() => setSeccion('asana')}
+          >
+            Asana
+          </button>
+        )}
       </div>
 
+      {seccion === 'timeline' && (
+        <TimelineTab
+          token={token}
+          puedeCrear={puedeCrear}
+          onVerOrden={(ordenId) => {
+            setSeccionOrigenOrden(seccion);
+            setOrdenIdParaAbrir(ordenId);
+            setSeccion('ordenes');
+          }}
+        />
+      )}
       {seccion === 'ordenes' && (
         <OrdenesTab
           token={token}
@@ -276,6 +340,10 @@ function TopviewView({ token, usuario }: TopviewViewProps) {
           puedeVerLiquidaciones={puedeVerLiquidaciones}
           ordenIdParaAbrir={ordenIdParaAbrir}
           onOrdenAbierta={() => setOrdenIdParaAbrir(null)}
+          onVolverASeccionOrigen={() => {
+            setSeccion(seccionOrigenOrden || 'ordenes');
+            setSeccionOrigenOrden(null);
+          }}
           onVerLiquidacion={(concesionarioId, mesSel, anoSel) => {
             setLiquidacionParaAbrir({ concesionarioId, mes: mesSel, ano: anoSel });
             setSeccion('liquidaciones');
@@ -288,7 +356,15 @@ function TopviewView({ token, usuario }: TopviewViewProps) {
       {seccion === 'agencias' && <AgenciasTab token={token} puedeCrear={puedeCrear} />}
       {seccion === 'locaciones' && <LocacionesTab token={token} puedeCrear={puedeCrear} puedeEditar={puedeEditar} />}
       {seccion === 'intermediarios' && puedeVerComisionistas && (
-        <IntermediariosTab token={token} puedeCrear={puedeGestionarComisionistas} />
+        <IntermediariosTab
+          token={token}
+          puedeCrear={puedeGestionarComisionistas}
+          onVerOrden={(ordenId) => {
+            setSeccionOrigenOrden(seccion);
+            setOrdenIdParaAbrir(ordenId);
+            setSeccion('ordenes');
+          }}
+        />
       )}
       {seccion === 'condiciones' && (
         <CondicionesTab
@@ -311,12 +387,443 @@ function TopviewView({ token, usuario }: TopviewViewProps) {
           seleccionInicial={liquidacionParaAbrir}
           onSeleccionConsumida={() => setLiquidacionParaAbrir(null)}
           onVerOrden={(ordenId) => {
+            setSeccionOrigenOrden(seccion);
             setOrdenIdParaAbrir(ordenId);
             setSeccion('ordenes');
           }}
         />
       )}
+      {seccion === 'asana' && puedeEditar && <AsanaConfigTab token={token} />}
     </section>
+  );
+}
+
+const MESES_CORTOS_TIMELINE = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+
+interface FilaTimeline {
+  key: string;
+  razonSocial: string;
+  anunciante: string;
+  porMes: (OrdenPublicidad | null)[];
+  estado: { texto: string; tipo: 'urgente' | 'hueco' | 'cortoViejo' | 'nuevo' | 'estable' };
+  tipoAnunciante: string;
+  esNoRegistrada: boolean;
+}
+
+const COLORES_ESTADO_TIMELINE: Record<FilaTimeline['estado']['tipo'], { bg: string; text: string }> = {
+  urgente: { bg: '#fde8ea', text: '#e81838' },
+  hueco: { bg: '#fdf1e2', text: '#c2650a' },
+  cortoViejo: { bg: '#f0f0f0', text: '#71717a' },
+  nuevo: { bg: '#eaf1fe', text: '#2554c7' },
+  estable: { bg: '#e9f8ee', text: '#157f3d' },
+};
+
+// Continuidad mes a mes: cada cliente/anunciante es una fila, cada mes de
+// ingreso una columna. Una racha de meses seguidos se pinta como una sola
+// barra continua (redondeada solo en las puntas) para que la continuidad se
+// vea de un vistazo, igual que en la planilla de Excel que reemplaza — ver
+// [[mockup de referencia]]. La columna final ("próximo mes") deja clonar la
+// orden del último mes activo con un clic (mismo mecanismo/convención
+// "REVISAR" que el clonado automático por vigencia_hasta).
+function TimelineTab({
+  token,
+  puedeCrear,
+  onVerOrden,
+}: {
+  token: string;
+  puedeCrear: boolean;
+  onVerOrden: (ordenId: string) => void;
+}) {
+  const [ordenes, setOrdenes] = useState<OrdenPublicidad[] | null>(null);
+  const [error, setError] = useState('');
+  const [clonandoKey, setClonandoKey] = useState<string | null>(null);
+  const [filtroTipo, setFiltroTipo] = useState('');
+
+  const cargarOrdenes = () => {
+    setError('');
+    axios
+      .get('/api/ordenes-publicidad', authHeaders(token))
+      .then((res) => setOrdenes(res.data))
+      .catch((err) => setError(mensajeError(err, 'No se pudieron cargar las órdenes.')));
+  };
+
+  useEffect(() => {
+    cargarOrdenes();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Mismo fallback que en Órdenes: si no se cargó mes/año de ingreso a mano,
+  // se toma el de "Período desde".
+  const mesAnoIngresoDe = (o: OrdenPublicidad): [number, number] => {
+    const [anoDesde, mesDesde] = o.periodo_desde.split('-').map(Number);
+    return [o.ano_ingreso || anoDesde, o.mes_ingreso || mesDesde];
+  };
+
+  const datos = useMemo(() => {
+    if (!ordenes || ordenes.length === 0) return null;
+    const ordenesFiltradas = filtroTipo ? ordenes.filter((o) => o.tipo_anunciante === filtroTipo) : ordenes;
+    if (ordenesFiltradas.length === 0) return null;
+
+    const clavesMes = new Set<string>();
+    ordenesFiltradas.forEach((o) => {
+      const [ano, mes] = mesAnoIngresoDe(o);
+      clavesMes.add(`${ano}-${String(mes).padStart(2, '0')}`);
+    });
+    const mesesReales = Array.from(clavesMes)
+      .sort()
+      .map((clave) => {
+        const [ano, mes] = clave.split('-').map(Number);
+        return { ano, mes };
+      });
+    if (mesesReales.length === 0) return null;
+
+    const ultimoMesReal = mesesReales[mesesReales.length - 1];
+    let proxMes = ultimoMesReal.mes + 1;
+    let proxAno = ultimoMesReal.ano;
+    if (proxMes > 12) {
+      proxMes = 1;
+      proxAno += 1;
+    }
+    const proximo = { ano: proxAno, mes: proxMes, label: `${MESES_CORTOS_TIMELINE[proxMes - 1]} ${proxAno}` };
+
+    const primerMesReal = mesesReales[0];
+    let antMes = primerMesReal.mes - 1;
+    let antAno = primerMesReal.ano;
+    if (antMes < 1) {
+      antMes = 12;
+      antAno -= 1;
+    }
+    const anterior = { ano: antAno, mes: antMes, label: `${MESES_CORTOS_TIMELINE[antMes - 1]} ${antAno}` };
+
+    const grupos = new Map<string, { razonSocial: string; anunciante: string; porMes: (OrdenPublicidad | null)[] }>();
+    ordenesFiltradas.forEach((o) => {
+      const key = `${o.cliente_id}|${o.nombre_anunciante}`;
+      if (!grupos.has(key)) {
+        grupos.set(key, { razonSocial: o.razon_social, anunciante: o.nombre_anunciante, porMes: mesesReales.map(() => null) });
+      }
+      const [ano, mes] = mesAnoIngresoDe(o);
+      const idx = mesesReales.findIndex((m) => m.ano === ano && m.mes === mes);
+      const grupo = grupos.get(key)!;
+      if (idx >= 0 && !grupo.porMes[idx]) grupo.porMes[idx] = o;
+    });
+
+    const filas: FilaTimeline[] = Array.from(grupos.entries()).map(([key, g]) => {
+      const presencia = g.porMes.map((o) => !!o);
+      const runs: Array<{ start: number; end: number }> = [];
+      let actual: { start: number; end: number } | null = null;
+      presencia.forEach((activo, i) => {
+        if (activo) {
+          if (actual) actual.end = i;
+          else actual = { start: i, end: i };
+        } else if (actual) {
+          runs.push(actual);
+          actual = null;
+        }
+      });
+      if (actual) runs.push(actual);
+
+      const lastIdx = presencia.length - 1;
+      const activoUltimoMes = presencia[lastIdx];
+      let estado: FilaTimeline['estado'];
+
+      if (activoUltimoMes) {
+        const runActual = runs.find((r) => r.end === lastIdx)!;
+        const largo = runActual.end - runActual.start + 1;
+        if (runs.length === 1 && runActual.start === 0) {
+          estado = { texto: `${largo} ${largo === 1 ? 'mes' : 'meses'} seguidos`, tipo: 'estable' };
+        } else if (runs.length === 1) {
+          estado = { texto: `Nuevo (${largo} ${largo === 1 ? 'mes' : 'meses'})`, tipo: 'nuevo' };
+        } else {
+          const runAnterior = runs[runs.indexOf(runActual) - 1];
+          const mesHueco = mesesReales[runAnterior.end + 1];
+          estado = { texto: `Volvió tras hueco (${MESES_CORTOS_TIMELINE[mesHueco.mes - 1]})`, tipo: 'hueco' };
+        }
+      } else {
+        const ultimoRun = runs[runs.length - 1];
+        const gap = ultimoRun ? lastIdx - ultimoRun.end : presencia.length;
+        if (ultimoRun && gap === 1) {
+          const mesCorte = mesesReales[ultimoRun.end];
+          estado = { texto: `Cortó (${MESES_CORTOS_TIMELINE[mesCorte.mes - 1]})`, tipo: 'urgente' };
+        } else {
+          estado = { texto: `Cortó hace ${gap} meses`, tipo: 'cortoViejo' };
+        }
+      }
+
+      // Representativo del grupo para agrupar/ordenar (tipo de anunciante y si
+      // está registrada): se toma de la orden más reciente del grupo, no de
+      // una fija, porque a lo largo de los meses puede cambiar.
+      let ordenReciente: OrdenPublicidad | null = null;
+      for (let i = g.porMes.length - 1; i >= 0; i--) {
+        if (g.porMes[i]) {
+          ordenReciente = g.porMes[i];
+          break;
+        }
+      }
+      const tipoAnunciante = ordenReciente?.tipo_anunciante || '';
+      const esNoRegistrada = ordenReciente
+        ? !(ordenReciente.facturado === undefined || ordenReciente.facturado === null || !!ordenReciente.facturado)
+        : false;
+
+      return { key, razonSocial: g.razonSocial, anunciante: g.anunciante, porMes: g.porMes, estado, tipoAnunciante, esNoRegistrada };
+    });
+
+    // Mismo criterio de segmentación que el listado de Órdenes (Pequeños
+    // Anunciantes, Pautas Estado, Pautas Anuales, Pautas Mensuales, Pautas en
+    // dólares, Pauta Concesionario; dentro de cada tipo, las no registradas
+    // al final) — pero alfabético por anunciante dentro de cada bloque, no
+    // por fecha de carga, para que el timeline se lea como una planilla fija.
+    filas.sort((a, b) => {
+      const grupo = TIPOS_ANUNCIANTE.indexOf(a.tipoAnunciante) - TIPOS_ANUNCIANTE.indexOf(b.tipoAnunciante);
+      if (grupo !== 0) return grupo;
+      const registro = Number(a.esNoRegistrada) - Number(b.esNoRegistrada);
+      if (registro !== 0) return registro;
+      return a.anunciante.localeCompare(b.anunciante, 'es', { sensitivity: 'base' });
+    });
+
+    return {
+      mesesReales: mesesReales.map((m) => ({ ...m, label: `${MESES_CORTOS_TIMELINE[m.mes - 1]} ${m.ano}` })),
+      proximo,
+      anterior,
+      filas,
+    };
+  }, [ordenes, filtroTipo]);
+
+  // Libertad total: cualquier celda vacía de una fila se puede clickear para
+  // crear una orden en ESE mes puntual — no se puede prever de antemano si un
+  // cliente va a seguir el mes que viene o no (se sabe recién cuando llega el
+  // mes), así que la restricción anterior (solo el mes pegado al último/
+  // primero cargado) no tenía sentido. Clona desde la orden más cercana en el
+  // tiempo dentro de la misma fila, la que sea (antes o después), corriendo
+  // el período la cantidad de meses que corresponda.
+  const handleClonarACelda = async (fila: FilaTimeline, mesObjetivo: number, anoObjetivo: number) => {
+    if (!puedeCrear || !datos) return;
+    const candidatas = fila.porMes
+      .map((o, i) => {
+        if (!o) return null;
+        const m = datos.mesesReales[i];
+        return { orden: o, dist: Math.abs((anoObjetivo - m.ano) * 12 + (mesObjetivo - m.mes)) };
+      })
+      .filter((c) => c !== null)
+      .sort((a, b) => a!.dist - b!.dist);
+    const mejor = candidatas[0]?.orden;
+    if (!mejor) return;
+    const clave = `${fila.key}:${anoObjetivo}-${mesObjetivo}`;
+    setClonandoKey(clave);
+    setError('');
+    try {
+      const res = await axios.post(`/api/ordenes-publicidad/${mejor.id}/clonar-a-mes`, { mes: mesObjetivo, ano: anoObjetivo }, authHeaders(token));
+      onVerOrden(res.data.orden.id);
+    } catch (err: any) {
+      setError(mensajeError(err, 'No se pudo crear la orden para ese mes.'));
+    } finally {
+      setClonandoKey(null);
+    }
+  };
+
+  const PALETA_GHOST = {
+    azul: { border: '#6d87c9', bg: '#eef2fb', text: '#3454a8', textDisabled: '#a9b7dd' },
+    gris: { border: '#c9c9cf', bg: '#fff', text: '#9a9a9a', textDisabled: '#c4c4c4' },
+    ambar: { border: '#d38a3f', bg: '#fdf1e2', text: '#a15b12', textDisabled: '#d9b98c' },
+  } as const;
+
+  const anchoCelda = 96;
+  const anchoNombre = 240;
+  const anchoEstado = 220;
+
+  return (
+    <div>
+      <h3 className="reportes-subtitulo">Continuidad de clientes</h3>
+      <p style={{ marginTop: 0, marginBottom: '1rem', fontSize: '0.85rem', color: '#666', maxWidth: '640px' }}>
+        Qué anunciantes siguen pautando mes a mes, según "Mes de ingreso (venta)". Cada racha seguida se pinta como
+        una sola barra. Cualquier celda vacía se puede clickear para crear la orden de ese mes puntual — no se sabe
+        de antemano si un cliente sigue o no, así que no hace falta esperar a que sea "el mes siguiente": el "?" gris
+        es hacia adelante, el azul hacia atrás y el ámbar completa un hueco en el medio. Siempre queda con N° de
+        orden "REVISAR" hasta que lo corrijas, y te lleva directo a editarla.
+      </p>
+
+      <div className="form-group" style={{ margin: '0 0 1rem', maxWidth: '14rem' }}>
+        <label htmlFor="timeline_filtro_tipo">Tipo de anunciante</label>
+        <select id="timeline_filtro_tipo" value={filtroTipo} onChange={(e) => setFiltroTipo(e.target.value)}>
+          <option value="">Todos</option>
+          {TIPOS_ANUNCIANTE.map((tipo) => (
+            <option key={tipo} value={tipo}>
+              {tipo}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {error && <div className="error-message">{error}</div>}
+      {ordenes === null && !error && <p className="empty-state">Cargando línea de tiempo...</p>}
+      {ordenes && ordenes.length === 0 && !error && <p className="empty-state">Todavía no hay órdenes cargadas.</p>}
+
+      {datos && (
+        <>
+          <div style={{ overflowX: 'auto' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: 'fit-content' }}>
+              {/* Encabezado */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', paddingBottom: '8px', borderBottom: '1px solid #e7e5e4' }}>
+                <div style={{ width: anchoNombre, flexShrink: 0, fontSize: '11px', fontWeight: 700, color: '#6b6b70', textTransform: 'uppercase', letterSpacing: '.04em' }}>
+                  Cliente / Anunciante
+                </div>
+                <div style={{ width: anchoCelda, flexShrink: 0, textAlign: 'center', fontSize: '11px', fontWeight: 700, color: '#8ba3e0' }}>
+                  ¿? {datos.anterior.label.toUpperCase()}
+                </div>
+                {datos.mesesReales.map((m) => (
+                  <div key={`${m.ano}-${m.mes}`} style={{ width: anchoCelda, flexShrink: 0, textAlign: 'center', fontSize: '11px', fontWeight: 700, color: '#6b6b70' }}>
+                    {m.label.toUpperCase()}
+                  </div>
+                ))}
+                <div style={{ width: anchoCelda, flexShrink: 0, textAlign: 'center', fontSize: '11px', fontWeight: 700, color: '#b7b7bd' }}>
+                  {datos.proximo.label.toUpperCase()} ¿?
+                </div>
+                <div style={{ width: anchoEstado, flexShrink: 0, fontSize: '11px', fontWeight: 700, color: '#6b6b70', textTransform: 'uppercase', letterSpacing: '.04em' }}>
+                  Estado
+                </div>
+              </div>
+
+              {/* Filas */}
+              {datos.filas.map((fila) => {
+                const presencia = fila.porMes.map((o) => !!o);
+                // Columnas combinadas: fantasma "anterior" + meses reales + fantasma
+                // "próximo" — un solo recorrido en vez de tres bloques repetidos.
+                const columnas = [datos.anterior, ...datos.mesesReales, datos.proximo];
+                const ordenesCol = [null as OrdenPublicidad | null, ...fila.porMes, null as OrdenPublicidad | null];
+                const presenciaCol = [false, ...presencia, false];
+                const firstTrueIdx = presenciaCol.indexOf(true);
+                const lastTrueIdx = presenciaCol.lastIndexOf(true);
+                const colorEstado = COLORES_ESTADO_TIMELINE[fila.estado.tipo];
+
+                return (
+                  <div key={fila.key} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <div style={{ width: anchoNombre, flexShrink: 0 }}>
+                      <div style={{ fontSize: '13px', fontWeight: 700, color: '#18181b' }}>{fila.anunciante}</div>
+                      <div style={{ fontSize: '11.5px', color: '#6b6b70' }}>{fila.razonSocial}</div>
+                    </div>
+
+                    {columnas.map((col, j) => {
+                      const orden = ordenesCol[j];
+                      const activo = !!orden;
+                      const esHueco = !activo && j > firstTrueIdx && j < lastTrueIdx;
+                      const esAntes = !activo && j < firstTrueIdx;
+                      const roundL = activo && !presenciaCol[j - 1];
+                      const roundR = activo && !presenciaCol[j + 1];
+                      const clave = `${fila.key}:${col.ano}-${col.mes}`;
+                      const clonando = clonandoKey === clave;
+                      const paleta = esHueco ? PALETA_GHOST.ambar : esAntes ? PALETA_GHOST.azul : PALETA_GHOST.gris;
+                      const tituloVacia = esHueco
+                        ? `Completar el hueco de ${col.label}`
+                        : esAntes
+                        ? `Crear una orden anterior, para ${col.label}`
+                        : `Crear una orden nueva para ${col.label}`;
+
+                      return (
+                        <div key={j} style={{ width: anchoCelda, flexShrink: 0, height: '32px', position: 'relative' }}>
+                          {activo ? (
+                            <button
+                              onClick={() => onVerOrden(orden!.id)}
+                              title={`${orden!.numero_orden_agencia || 'sin número'} — hacé clic para abrir`}
+                              style={{
+                                position: 'absolute',
+                                top: 2,
+                                bottom: 2,
+                                left: 0,
+                                right: 0,
+                                background: '#e81838',
+                                border: 'none',
+                                cursor: 'pointer',
+                                color: '#fff',
+                                fontSize: '10.5px',
+                                fontWeight: 700,
+                                borderTopLeftRadius: roundL ? 8 : 0,
+                                borderBottomLeftRadius: roundL ? 8 : 0,
+                                borderTopRightRadius: roundR ? 8 : 0,
+                                borderBottomRightRadius: roundR ? 8 : 0,
+                                overflow: 'hidden',
+                                whiteSpace: 'nowrap',
+                                textOverflow: 'ellipsis',
+                                padding: '0 6px',
+                              }}
+                            >
+                              {orden!.numero_orden_agencia === 'REVISAR' ? 'REVISAR' : orden!.numero_orden_agencia || '—'}
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleClonarACelda(fila, col.mes, col.ano)}
+                              disabled={!puedeCrear || clonando}
+                              title={puedeCrear ? tituloVacia : 'Necesitás permiso para crear órdenes'}
+                              style={{
+                                position: 'absolute',
+                                top: 2,
+                                bottom: 2,
+                                left: 4,
+                                right: 4,
+                                border: `1.5px dashed ${paleta.border}`,
+                                borderRadius: 8,
+                                background: paleta.bg,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: '13px',
+                                color: puedeCrear ? paleta.text : paleta.textDisabled,
+                                fontWeight: 700,
+                                cursor: puedeCrear ? 'pointer' : 'default',
+                              }}
+                            >
+                              {clonando ? '…' : '?'}
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+
+                    <div style={{ width: anchoEstado, flexShrink: 0 }}>
+                      <span
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          padding: '5px 12px',
+                          borderRadius: 999,
+                          fontSize: '12.5px',
+                          fontWeight: 600,
+                          whiteSpace: 'nowrap',
+                          background: colorEstado.bg,
+                          color: colorEstado.text,
+                        }}
+                      >
+                        {fila.estado.tipo === 'urgente' ? '⚠ ' : ''}
+                        {fila.estado.texto}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Leyenda */}
+          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '16px', fontSize: '11.5px', color: '#6b6b70', marginTop: '1rem' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ width: 22, height: 12, background: '#e81838', borderRadius: 6, display: 'inline-block' }} />
+              Pautó ese mes (clic para abrir la orden)
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ width: 22, height: 12, border: '1.5px dashed #c9c9cf', borderRadius: 6, display: 'inline-block' }} />
+              Gris = crear una orden más adelante
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ width: 22, height: 12, border: '1.5px dashed #6d87c9', background: '#eef2fb', borderRadius: 6, display: 'inline-block' }} />
+              Azul = crear una orden anterior (reconstruir historia)
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ width: 22, height: 12, border: '1.5px dashed #d38a3f', background: '#fdf1e2', borderRadius: 6, display: 'inline-block' }} />
+              Ámbar = completar un hueco en el medio
+            </span>
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -327,6 +834,7 @@ function OrdenesTab({
   puedeVerLiquidaciones,
   ordenIdParaAbrir,
   onOrdenAbierta,
+  onVolverASeccionOrigen,
   onVerLiquidacion,
 }: {
   token: string;
@@ -335,6 +843,7 @@ function OrdenesTab({
   puedeVerLiquidaciones?: boolean;
   ordenIdParaAbrir?: string | null;
   onOrdenAbierta?: () => void;
+  onVolverASeccionOrigen?: () => void;
   onVerLiquidacion?: (concesionarioId: string, mes: string, ano: string) => void;
 }) {
   const [ordenes, setOrdenes] = useState<OrdenPublicidad[] | null>(null);
@@ -366,13 +875,38 @@ function OrdenesTab({
   const [condicionAgenciaId, setCondicionAgenciaId] = useState('');
 
   const [detalleId, setDetalleId] = useState<string | null>(null);
+  // Si la orden que se está viendo se abrió desde otra solapa (Comisionistas,
+  // Liquidaciones) — "‹ Volver a la lista" vuelve ahí en vez de a la lista
+  // general de Órdenes. Se apaga apenas el usuario navega por su cuenta
+  // dentro de Órdenes (abre otra orden a mano, o vuelve una vez).
+  const [vinoDeOtraPestana, setVinoDeOtraPestana] = useState(false);
   const [detalle, setDetalle] = useState<any>(null);
+  const { mostrarPdf } = usePdfPreview();
   const [cargandoDetalle, setCargandoDetalle] = useState(false);
   const [errorDetalle, setErrorDetalle] = useState('');
   const [generandoFacturas, setGenerandoFacturas] = useState(false);
   const [errorFacturas, setErrorFacturas] = useState('');
   const [mensajeFacturas, setMensajeFacturas] = useState('');
   const [cambiandoEstado, setCambiandoEstado] = useState(false);
+  const [mensajeClonado, setMensajeClonado] = useState('');
+  const [previewAsana, setPreviewAsana] = useState<{ name: string; notes: string } | null>(null);
+  const [cargandoAsana, setCargandoAsana] = useState(false);
+  const [errorAsana, setErrorAsana] = useState('');
+  const [mensajeAsana, setMensajeAsana] = useState('');
+  // gid de Asana de la orden que se está editando (si ya la tenía antes de
+  // entrar al formulario) — sirve para avisar "ya está en Asana" cuando se
+  // abre una orden hija que se generó en bloque desde la orden madre.
+  const [asanaGidActual, setAsanaGidActual] = useState<string | null>(null);
+  const [asanaAsignadoActual, setAsanaAsignadoActual] = useState(false);
+  // Selección de órdenes tildadas en el listado, para las acciones masivas
+  // de Asana (generar/asignar/borrar sobre varias a la vez) — persiste
+  // aunque se cambien los filtros, así se puede ir sumando de a un filtro
+  // por vez (ej. tildar "Pequeños Anunciantes" de agosto, después cambiar el
+  // filtro a septiembre y tildar también esas).
+  const [seleccionadasAsana, setSeleccionadasAsana] = useState<Set<string>>(new Set());
+  const [cargandoAsanaMasivo, setCargandoAsanaMasivo] = useState(false);
+  const [errorAsanaMasivo, setErrorAsanaMasivo] = useState('');
+  const [mensajeAsanaMasivo, setMensajeAsanaMasivo] = useState('');
   const [subiendoDocumento, setSubiendoDocumento] = useState(false);
   const [errorDocumento, setErrorDocumento] = useState('');
   const [descripcionDocumento, setDescripcionDocumento] = useState('');
@@ -445,6 +979,12 @@ function OrdenesTab({
     setLineasIntermediarios([]);
     setLineasArreglos([]);
     setErrorForm('');
+    setMensajeClonado('');
+    setErrorAsana('');
+    setMensajeAsana('');
+    setAsanaGidActual(null);
+    setAsanaAsignadoActual(false);
+    setPreviewAsana(null);
     setDetalleId(null);
     setEditandoOrdenId(null);
     setMostrarForm(true);
@@ -460,6 +1000,9 @@ function OrdenesTab({
   // de alta — se usa tanto para Clonar (arranca una orden nueva a partir de
   // otra) como para Editar (modifica la misma orden in situ).
   const cargarOrdenAlFormulario = (o: any) => {
+    setAsanaGidActual(o.asana_task_gid || null);
+    setAsanaAsignadoActual(!!o.asana_asignado);
+    setPreviewAsana(null);
     setOrdenForm({
       tipo_anunciante: o.tipo_anunciante || TIPOS_ANUNCIANTE[0],
       nombre_anunciante: o.nombre_anunciante || '',
@@ -477,6 +1020,8 @@ function OrdenesTab({
       monto_neto: o.monto_neto !== null && o.monto_neto !== undefined ? String(o.monto_neto) : '',
       descuento_porcentaje: String(o.descuento_porcentaje ?? 0),
       descuento_en_cascada: !!o.descuento_en_cascada,
+      descuento_porcentaje_2: String(o.descuento_porcentaje_2 ?? 0),
+      descuento_en_cascada_2: !!o.descuento_en_cascada_2,
       descuento_facturas_porcentaje: String(o.descuento_facturas_porcentaje ?? 0),
       descuento_facturas_en_cascada: !!o.descuento_facturas_en_cascada,
       mes_ingreso: o.mes_ingreso ? String(o.mes_ingreso) : '',
@@ -489,6 +1034,12 @@ function OrdenesTab({
           : !!o.facturado,
       notas: o.notas || '',
       vigencia_hasta_nota: o.vigencia_hasta_nota || '',
+      // Se muestra el valor guardado: guardar la edición también dispara el
+      // clonado automático (ver generarClonesVigencia en el backend), pero
+      // es seguro repetirlo — si el mes ya tiene una orden del mismo
+      // cliente/anunciante, se saltea en vez de duplicarla.
+      vigencia_hasta_mes: o.vigencia_hasta_mes ? String(o.vigencia_hasta_mes) : '',
+      vigencia_hasta_ano: o.vigencia_hasta_ano ? String(o.vigencia_hasta_ano) : '',
     });
     setLineasProductos(
       (o.detalles || []).length > 0
@@ -549,6 +1100,13 @@ function OrdenesTab({
       setEditandoOrdenId(null);
       setDetalleId(null);
       setMostrarForm(true);
+      setMensajeClonado('');
+      setErrorAsana('');
+      setMensajeAsana('');
+      // Es un clon nuevo (todavía sin guardar) — nunca hereda la tarea de
+      // Asana de la orden original.
+      setAsanaGidActual(null);
+      setAsanaAsignadoActual(false);
       scrollAlFormulario();
     } catch (err: any) {
       setError(mensajeError(err, 'No se pudo clonar la orden.'));
@@ -568,7 +1126,387 @@ function OrdenesTab({
     setEditandoOrdenId(detalleId);
     setDetalleId(null);
     setMostrarForm(true);
+    setMensajeClonado('');
+    setErrorAsana('');
+    setMensajeAsana('');
     scrollAlFormulario();
+  };
+
+  // Muestra qué datos de la orden se mandarían a Asana (nombre + cuerpo de la
+  // tarea) sin llamar a Asana todavía — solo arma el texto en el backend.
+  const handleVerPreviewAsana = (ordenId: string) => {
+    setErrorAsana('');
+    setMensajeAsana('');
+    setCargandoAsana(true);
+    axios
+      .get(`/api/ordenes-publicidad/${ordenId}/asana-preview`, authHeaders(token))
+      .then((res) => setPreviewAsana(res.data))
+      .catch((err) => setErrorAsana(mensajeError(err, 'No se pudo armar la vista previa.')))
+      .finally(() => setCargandoAsana(false));
+  };
+
+  // Crea (o actualiza, si ya se había generado antes) la tarea principal +
+  // subtareas de esta orden en Asana — sin asignar a nadie todavía, para no
+  // notificar hasta que se pida explícitamente con "Asignar responsables".
+  const handleGenerarAsana = (ordenId: string) => {
+    setErrorAsana('');
+    setMensajeAsana('');
+    setCargandoAsana(true);
+    axios
+      .post(`/api/ordenes-publicidad/${ordenId}/asana`, {}, authHeaders(token))
+      .then((res) => {
+        const resultados: Array<{ ordenId: string; mes: number; ano: number; url?: string; yaExistia?: boolean; error?: string }> =
+          res.data;
+        const resultado = resultados[0];
+
+        if (resultado.error) {
+          setErrorAsana(resultado.error);
+        } else {
+          setMensajeAsana(
+            resultado.yaExistia ? `Tarea actualizada en Asana: ${resultado.url}` : `Tarea generada en Asana: ${resultado.url}`
+          );
+        }
+        if (detalleId) cargarDetalle(detalleId);
+        if (!resultado.error) setAsanaGidActual((prev) => prev || 'generada');
+        // Si esta orden se creó recién (no ya existía), la tarea arranca sin
+        // asignar — si ya existía, la asignación previa no se toca (generar
+        // nunca reasigna).
+        if (!resultado.error && !resultado.yaExistia) {
+          setAsanaAsignadoActual(false);
+        }
+      })
+      .catch((err) => setErrorAsana(mensajeError(err, 'No se pudo generar la tarea en Asana.')))
+      .finally(() => setCargandoAsana(false));
+  };
+
+  // Asigna la tarea principal y cada subtarea ya generada a sus responsables
+  // fijos (trafico@/operaciones@/administracion@) — requiere que ya exista
+  // la tarea (botón "Generar tarea en Asana" primero).
+  const handleAsignarAsana = (ordenId: string) => {
+    setErrorAsana('');
+    setMensajeAsana('');
+    setCargandoAsana(true);
+    axios
+      .post(`/api/ordenes-publicidad/${ordenId}/asana/asignar`, {}, authHeaders(token))
+      .then(() => {
+        setMensajeAsana('Responsables asignados en Asana.');
+        setAsanaAsignadoActual(true);
+        if (detalleId) cargarDetalle(detalleId);
+      })
+      .catch((err) => setErrorAsana(mensajeError(err, 'No se pudo asignar la tarea en Asana.')))
+      .finally(() => setCargandoAsana(false));
+  };
+
+  // Borra la tarea de Asana de esta orden puntual únicamente. Irreversible
+  // en Asana, por eso confirma antes.
+  const handleBorrarAsana = (ordenId: string, nombreAnunciante: string) => {
+    if (!window.confirm(`¿Borrar la tarea de Asana de "${nombreAnunciante}"? No se puede deshacer desde acá.`)) {
+      return;
+    }
+    setErrorAsana('');
+    setMensajeAsana('');
+    setCargandoAsana(true);
+    axios
+      .delete(`/api/ordenes-publicidad/${ordenId}/asana`, authHeaders(token))
+      .then((res) => {
+        const resultados: Array<{ mes: number; ano: number; borrada: boolean; error?: string }> = res.data;
+        const resultado = resultados[0];
+        if (resultado.error) {
+          setErrorAsana(`No se pudo borrar: ${resultado.error}`);
+        } else if (resultado.borrada) {
+          setMensajeAsana('Tarea borrada en Asana.');
+        } else {
+          setMensajeAsana('No había ninguna tarea generada para borrar.');
+        }
+        if (detalleId) cargarDetalle(detalleId);
+        setAsanaGidActual(null);
+        setAsanaAsignadoActual(false);
+      })
+      .catch((err) => setErrorAsana(mensajeError(err, 'No se pudo borrar la tarea en Asana.')))
+      .finally(() => setCargandoAsana(false));
+  };
+
+  // Las 3 acciones de Asana del listado, pero masivas: corren sobre todas
+  // las órdenes tildadas en seleccionadasAsana en un solo pedido al backend
+  // (que igual las procesa una por una, así una orden con error no frena al
+  // resto). Actualizan en memoria las filas afectadas para no perder el
+  // scroll con un refetch completo (mismo motivo que handleCambiarEstadoLista).
+  const handleGenerarAsanaMasivo = () => {
+    const ids = Array.from(seleccionadasAsana);
+    if (ids.length === 0) return;
+    setErrorAsanaMasivo('');
+    setMensajeAsanaMasivo('');
+    setCargandoAsanaMasivo(true);
+    axios
+      .post('/api/ordenes-publicidad/asana/generar-masivo', { ids }, authHeaders(token))
+      .then((res) => {
+        const resultados: Array<{ ordenId: string; gid?: string; yaExistia?: boolean; error?: string }> = res.data;
+        const exitosos = resultados.filter((r) => !r.error);
+        const fallidos = resultados.filter((r) => r.error);
+        setOrdenes((prev) =>
+          prev
+            ? prev.map((o) => {
+                const r = exitosos.find((x) => x.ordenId === o.id);
+                return r ? { ...o, asana_task_gid: r.gid || o.asana_task_gid } : o;
+              })
+            : prev
+        );
+        const nuevas = exitosos.filter((r) => !r.yaExistia).length;
+        const actualizadas = exitosos.length - nuevas;
+        setMensajeAsanaMasivo(
+          `Tareas en Asana: ${exitosos.length} ok (${nuevas} nuevas, ${actualizadas} actualizadas)` +
+            (fallidos.length ? `, ${fallidos.length} con error.` : '.')
+        );
+        if (fallidos.length > 0) setErrorAsanaMasivo(fallidos.map((r) => r.error).join(' — '));
+      })
+      .catch((err) => setErrorAsanaMasivo(mensajeError(err, 'No se pudieron generar las tareas en Asana.')))
+      .finally(() => setCargandoAsanaMasivo(false));
+  };
+
+  const handleAsignarAsanaMasivo = () => {
+    const ids = Array.from(seleccionadasAsana);
+    if (ids.length === 0) return;
+    setErrorAsanaMasivo('');
+    setMensajeAsanaMasivo('');
+    setCargandoAsanaMasivo(true);
+    axios
+      .post('/api/ordenes-publicidad/asana/asignar-masivo', { ids }, authHeaders(token))
+      .then((res) => {
+        const resultados: Array<{ ordenId: string; error?: string }> = res.data;
+        const exitosos = resultados.filter((r) => !r.error);
+        const fallidos = resultados.filter((r) => r.error);
+        setOrdenes((prev) =>
+          prev ? prev.map((o) => (exitosos.some((r) => r.ordenId === o.id) ? { ...o, asana_asignado: true } : o)) : prev
+        );
+        setMensajeAsanaMasivo(
+          `Responsables asignados: ${exitosos.length} ok` + (fallidos.length ? `, ${fallidos.length} con error.` : '.')
+        );
+        if (fallidos.length > 0) setErrorAsanaMasivo(fallidos.map((r) => r.error).join(' — '));
+      })
+      .catch((err) => setErrorAsanaMasivo(mensajeError(err, 'No se pudieron asignar responsables.')))
+      .finally(() => setCargandoAsanaMasivo(false));
+  };
+
+  const handleBorrarAsanaMasivo = () => {
+    const ids = Array.from(seleccionadasAsana);
+    if (ids.length === 0) return;
+    if (!window.confirm(`¿Borrar la tarea de Asana de las ${ids.length} órdenes tildadas? No se puede deshacer desde acá.`)) {
+      return;
+    }
+    setErrorAsanaMasivo('');
+    setMensajeAsanaMasivo('');
+    setCargandoAsanaMasivo(true);
+    axios
+      .delete('/api/ordenes-publicidad/asana/borrar-masivo', { ...authHeaders(token), data: { ids } })
+      .then((res) => {
+        const resultados: Array<{ ordenId: string; borrada: boolean; error?: string }> = res.data;
+        const borradas = resultados.filter((r) => r.borrada);
+        const sinTarea = resultados.filter((r) => !r.borrada && !r.error);
+        const fallidas = resultados.filter((r) => r.error);
+        setOrdenes((prev) =>
+          prev
+            ? prev.map((o) =>
+                borradas.some((r) => r.ordenId === o.id) ? { ...o, asana_task_gid: null, asana_asignado: false } : o
+              )
+            : prev
+        );
+        setMensajeAsanaMasivo(
+          `Borradas: ${borradas.length}` +
+            (sinTarea.length ? ` — sin tarea previa: ${sinTarea.length}` : '') +
+            (fallidas.length ? ` — con error: ${fallidas.length}.` : '.')
+        );
+        if (fallidas.length > 0) setErrorAsanaMasivo(fallidas.map((r) => r.error).join(' — '));
+      })
+      .catch((err) => setErrorAsanaMasivo(mensajeError(err, 'No se pudieron borrar las tareas en Asana.')))
+      .finally(() => setCargandoAsanaMasivo(false));
+  };
+
+  // Convierte una imagen servida por la app (ej. el logo) a dataURL para que
+  // jsPDF pueda embeberla — jsPDF no acepta una URL de archivo directamente.
+  const cargarImagenComoDataUrl = (src: string, anchoMaximo = 600): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        // El logo fuente es de altísima resolución (pensado para impresión) —
+        // se achica acá antes de embeber, si no el PDF pesa decenas de MB.
+        const escala = Math.min(1, anchoMaximo / img.naturalWidth);
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(img.naturalWidth * escala);
+        canvas.height = Math.round(img.naturalHeight * escala);
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return reject(new Error('sin contexto de canvas'));
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/png'));
+      };
+      img.onerror = () => reject(new Error('no se pudo cargar la imagen'));
+      img.src = src;
+    });
+
+  // Export de una orden individual en PDF, formato "documento" (logo,
+  // datos de facturación reales del cliente, grilla de días de emisión por
+  // línea) — igual al mockup aprobado por el usuario. Por ahora solo PDF,
+  // sin Excel.
+  const handleExportarOrdenPDF = async (accion: 'preview' | 'descargar' = 'descargar') => {
+    if (!detalle) return;
+    // Se abre ACÁ, antes del await de la imagen del logo — si se abre
+    // después, el navegador la trata como pop-up no solicitado y la bloquea.
+    const previewTab = accion === 'preview' ? abrirPestañaPrevia() : null;
+    const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const marginX = 40;
+
+    try {
+      const logoDataUrl = await cargarImagenComoDataUrl('/img/logo-topview.png');
+      const props = doc.getImageProperties(logoDataUrl);
+      const logoH = 32;
+      const logoW = (props.width / props.height) * logoH;
+      doc.addImage(logoDataUrl, 'PNG', marginX, 30, logoW, logoH);
+    } catch {
+      // Sin logo no se bloquea el export, solo no aparece.
+    }
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(14);
+    doc.setTextColor(20, 20, 19);
+    doc.text('ORDEN DE PUBLICIDAD', pageWidth - marginX, 44, { align: 'right' });
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(120, 116, 105);
+    doc.text(`Nro. orden agencia: ${detalle.numero_orden_agencia || '-'}`, pageWidth - marginX, 58, { align: 'right' });
+    doc.text(`Fecha de emisión: ${formatFecha(new Date().toISOString().slice(0, 10))}`, pageWidth - marginX, 70, {
+      align: 'right',
+    });
+
+    let y = 96;
+    doc.setDrawColor(20, 20, 19);
+    doc.setLineWidth(1.2);
+    doc.line(marginX, y, pageWidth - marginX, y);
+    y += 18;
+
+    const cliente = detalle.cliente;
+    const nombreFacturado = cliente?.razon_social || detalle.razon_social;
+    const boxH = cliente ? 72 : 32;
+    doc.setFillColor(252, 251, 248);
+    doc.setDrawColor(229, 225, 216);
+    doc.setLineWidth(0.75);
+    doc.roundedRect(marginX, y, pageWidth - marginX * 2, boxH, 4, 4, 'FD');
+    doc.setFontSize(8);
+    doc.setTextColor(138, 133, 120);
+    doc.text('FACTURAR A', marginX + 12, y + 14);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.setTextColor(20, 20, 19);
+    doc.text(nombreFacturado, marginX + 12, y + 29);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    if (cliente) {
+      doc.setTextColor(20, 20, 19);
+      doc.text(`CUIT ${cliente.cuit || '-'} — ${cliente.condicion_iva || ''}`, marginX + 12, y + 42);
+      const dirLinea = [cliente.direccion, cliente.ciudad, cliente.provincia].filter(Boolean).join(' — ');
+      doc.setTextColor(138, 133, 120);
+      if (dirLinea) doc.text(dirLinea, marginX + 12, y + 54);
+    }
+    if (detalle.nombre_anunciante && nombreFacturado !== detalle.nombre_anunciante) {
+      doc.setFontSize(8);
+      doc.setTextColor(138, 133, 120);
+      doc.text(`Anunciante real: ${detalle.nombre_anunciante}`, marginX + 12, y + (cliente ? 66 : 26));
+    }
+    y += boxH + 16;
+
+    doc.setFontSize(9);
+    doc.setTextColor(20, 20, 19);
+    const infoLineas = [
+      [`Tipo: ${detalle.tipo_anunciante}`, `Período: ${formatFecha(detalle.periodo_desde)} al ${formatFecha(detalle.periodo_hasta)}`],
+      [`Importe: ${formatMoney(detalle.monto_neto)} + IVA`, ''],
+    ];
+    infoLineas.forEach((fila, i) => {
+      doc.text(fila[0], marginX, y + i * 14);
+      if (fila[1]) doc.text(fila[1], marginX + 260, y + i * 14);
+    });
+    y += infoLineas.length * 14 + 10;
+
+    // El período de una orden acá no siempre coincide con un mes calendario
+    // (ej. 26/8 al 26/10) — a diferencia de un documento tipo APESAU, que
+    // siempre es un mes exacto. Por eso la grilla no es "días del mes con
+    // algunos prendidos": son TODOS los días reales del período, del primero
+    // al último, siempre prendidos.
+    const inicio = new Date(`${detalle.periodo_desde}T00:00:00`);
+    const fin = new Date(`${detalle.periodo_hasta}T00:00:00`);
+    const msPorDia = 24 * 60 * 60 * 1000;
+    const totalDias = Math.max(1, Math.round((fin.getTime() - inicio.getTime()) / msPorDia) + 1);
+    const tituloDias = `Días de emisión — ${formatFecha(detalle.periodo_desde)} al ${formatFecha(detalle.periodo_hasta)} (${totalDias})`;
+
+    autoTable(doc, {
+      startY: y,
+      margin: { left: marginX, right: marginX },
+      head: [['Ubicación / elemento', tituloDias, 'Cant.', 'Monto']],
+      body: (detalle.detalles || []).map((d: any) => [
+        `${d.locacion_nombre || d.ubicacion || '-'}\n${d.tipo_producto}${
+          d.punto_instalacion ? ' — ' + d.punto_instalacion : ''
+        }`,
+        '',
+        String(d.cantidad),
+        formatMoney(d.precio || 0),
+      ]),
+      foot: [['TOTAL', '', '', formatMoney(detalle.monto_neto)]],
+      rowPageBreak: 'avoid',
+      styles: { fontSize: 8, cellPadding: 6, valign: 'middle', lineColor: [229, 225, 216] },
+      headStyles: { fillColor: [20, 20, 19], textColor: 255, fontSize: 8 },
+      footStyles: { fillColor: [240, 236, 225], textColor: [20, 20, 19], fontStyle: 'bold' },
+      columnStyles: {
+        0: { cellWidth: 150 },
+        1: { cellWidth: pageWidth - marginX * 2 - 150 - 40 - 70 },
+        2: { cellWidth: 40, halign: 'right' },
+        3: { cellWidth: 70, halign: 'right' },
+      },
+      didDrawCell: (data) => {
+        if (data.section !== 'body' || data.column.index !== 1) return;
+        const cellW = Math.min(10, (data.cell.width - 4) / totalDias);
+        const cellH = 9;
+        const startX = data.cell.x + 2;
+        // El número que va arriba de cada celda es el día del mes REAL de esa
+        // fecha (1 al 31), no el número de orden dentro del período — igual
+        // que en un documento real, donde un período que cruza fin de mes
+        // sigue mostrando 29, 30, 1, 2... y no una numeración propia.
+        const mostrarNumeros = cellW >= 6;
+        const grupoAlto = mostrarNumeros ? cellH + 7 : cellH;
+        const grupoTop = data.cell.y + (data.cell.height - grupoAlto) / 2;
+        const barY = grupoTop + (mostrarNumeros ? 7 : 0);
+        doc.setDrawColor(180, 175, 160);
+        // Con muchos días el borde de cada celda se pisa entre sí y ensucia
+        // el dibujo — a partir de cierto ancho por celda se deja de dibujar
+        // el borde individual y queda una barra sólida continua.
+        if (cellW > 2) doc.setLineWidth(0.3);
+        for (let dia = 0; dia < totalDias; dia++) {
+          if (mostrarNumeros) {
+            const fecha = new Date(inicio.getTime() + dia * msPorDia);
+            doc.setFontSize(5);
+            doc.setTextColor(120, 116, 105);
+            doc.text(String(fecha.getDate()), startX + dia * cellW + cellW / 2, grupoTop + 5, { align: 'center' });
+          }
+          doc.setFillColor(244, 211, 94);
+          if (cellW > 2) doc.rect(startX + dia * cellW, barY, cellW, cellH, 'FD');
+          else doc.rect(startX + dia * cellW, barY, cellW, cellH, 'F');
+        }
+      },
+    });
+
+    doc.setFontSize(7.5);
+    doc.setTextColor(138, 133, 120);
+    const finalY = (doc as any).lastAutoTable?.finalY || y + 20;
+    doc.text('En la factura debe estar detallado el número de orden, para poder recibirla.', marginX, finalY + 18);
+
+    // Nombre identificable — cliente, número de orden interno y mes/año de
+    // ingreso — en vez de solo el id interno OPB-... (imposible de ubicar en
+    // una carpeta de descargas llena de archivos).
+    const sanear = (s: string) => s.trim().replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+    const mesAno =
+      detalle.mes_ingreso && detalle.ano_ingreso
+        ? `${String(detalle.mes_ingreso).padStart(2, '0')}-${detalle.ano_ingreso}`
+        : detalle.periodo_desde?.slice(0, 7).replace('-', '_') || '';
+    const archivoNombre = `Orden_${sanear(detalle.razon_social)}_${detalle.numero_orden}_${mesAno}.pdf`;
+    if (accion === 'preview') mostrarPdf(doc, archivoNombre, previewTab);
+    else doc.save(archivoNombre);
   };
 
   const [modificandoId, setModificandoId] = useState<string | null>(null);
@@ -585,6 +1523,9 @@ function OrdenesTab({
       setEditandoOrdenId(id);
       setDetalleId(null);
       setMostrarForm(true);
+      setMensajeClonado('');
+      setErrorAsana('');
+      setMensajeAsana('');
       scrollAlFormulario();
     } catch (err: any) {
       setError(mensajeError(err, 'No se pudo abrir la orden para editar.'));
@@ -620,7 +1561,11 @@ function OrdenesTab({
     setError('');
     try {
       await axios.put(`/api/ordenes-publicidad/${id}/estado`, { nuevoEstado }, authHeaders(token));
-      cargarOrdenes();
+      // Se actualiza solo esa fila en memoria en vez de recargar toda la lista
+      // (cargarOrdenes hace setOrdenes(null) mientras trae los datos, lo que
+      // colapsa la tabla entera y tira el scroll al principio — molesto al
+      // cambiar estado fila por fila en un listado largo).
+      setOrdenes((prev) => (prev ? prev.map((o) => (o.id === id ? { ...o, estado: nuevoEstado } : o)) : prev));
     } catch (err: any) {
       setError(mensajeError(err, 'No se pudo cambiar el estado.'));
     } finally {
@@ -851,13 +1796,15 @@ function OrdenesTab({
     // Estado, Pautas Anuales, Pautas Mensuales, Pautas en dólares); dentro de
     // cada tipo, las no registradas van al final — sigue el mismo correlato
     // que el xls de referencia (ej. la sección CHICOS trae primero las
-    // regulares y al final las "No se factura"). sort() es estable, así que
-    // dentro de cada combinación tipo+facturado se mantiene el orden que ya
-    // traían (más nuevas primero).
+    // regulares y al final las "No se factura"). Alfabético por anunciante
+    // dentro de cada combinación tipo+facturado (mismo criterio que el
+    // Timeline, para que ambas vistas se lean igual).
     .sort((a, b) => {
       const grupo = TIPOS_ANUNCIANTE.indexOf(a.tipo_anunciante) - TIPOS_ANUNCIANTE.indexOf(b.tipo_anunciante);
       if (grupo !== 0) return grupo;
-      return Number(!esOrdenFacturado(a)) - Number(!esOrdenFacturado(b));
+      const registro = Number(!esOrdenFacturado(a)) - Number(!esOrdenFacturado(b));
+      if (registro !== 0) return registro;
+      return a.nombre_anunciante.localeCompare(b.nombre_anunciante, 'es', { sensitivity: 'base' });
     });
 
   const ordenesFiltradas = !filtroFacturado
@@ -885,7 +1832,7 @@ function OrdenesTab({
   ];
 
   const filaExport = (o: OrdenPublicidad, soportes: typeof productos, paraExcel: boolean) => {
-    const netoBlanco = (o.monto_neto || 0) - (o.descuento_monto || 0) - (o.descuento_facturas_monto || 0);
+    const netoBlanco = (o.monto_neto || 0) - (o.descuento_monto || 0) - (o.descuento_monto_2 || 0) - (o.descuento_facturas_monto || 0);
     return [
       o.numero_orden_agencia || '',
       o.razon_social,
@@ -955,7 +1902,7 @@ function OrdenesTab({
     ws.getColumn(4).width = 20; // Vigencia hasta
 
     ordenesFiltradas.forEach((o) => {
-      const netoBlanco = (o.monto_neto || 0) - (o.descuento_monto || 0) - (o.descuento_facturas_monto || 0);
+      const netoBlanco = (o.monto_neto || 0) - (o.descuento_monto || 0) - (o.descuento_monto_2 || 0) - (o.descuento_facturas_monto || 0);
       ws.addRow([
         o.numero_orden_agencia || '',
         o.razon_social,
@@ -1036,7 +1983,7 @@ function OrdenesTab({
     URL.revokeObjectURL(url);
   };
 
-  const handleExportarPDF = () => {
+  const handleExportarPDF = (accion: 'preview' | 'descargar' = 'descargar') => {
     const soportes = productosSoportes;
     const columnas = columnasExport(soportes);
     const filas = ordenesFiltradas.map((o) => filaExport(o, soportes, false));
@@ -1090,7 +2037,9 @@ function OrdenesTab({
       footStyles: { fillColor: [240, 240, 240], textColor: [0, 0, 0], fontStyle: 'bold' },
       columnStyles,
     });
-    doc.save(nombreArchivoExport('pdf'));
+    const archivoNombre = nombreArchivoExport('pdf');
+    if (accion === 'preview') mostrarPdf(doc, archivoNombre);
+    else doc.save(archivoNombre);
   };
 
   const handleChangeOrden = (campo: keyof typeof ORDEN_VACIA, valor: string | boolean) => {
@@ -1151,22 +2100,52 @@ function OrdenesTab({
   const montoNetoManual = Number(ordenForm.monto_neto) || 0;
   const montoNeto = montoNetoManual || sumaPreciosLineas;
   let descuentoMonto = 0;
+  let descuentoMonto2 = 0;
   let descuentoFacturasMonto = 0;
   {
     let montoActual = montoNeto;
     [
       { pct: Number(ordenForm.descuento_porcentaje) || 0, cascada: ordenForm.descuento_en_cascada },
+      { pct: Number(ordenForm.descuento_porcentaje_2) || 0, cascada: ordenForm.descuento_en_cascada_2 },
       { pct: Number(ordenForm.descuento_facturas_porcentaje) || 0, cascada: ordenForm.descuento_facturas_en_cascada },
     ].forEach(({ pct, cascada }, idx) => {
       const base = cascada ? montoActual : montoNeto;
       const monto = base * (pct / 100);
       if (cascada) montoActual -= monto;
       if (idx === 0) descuentoMonto = monto;
+      else if (idx === 1) descuentoMonto2 = monto;
       else descuentoFacturasMonto = monto;
     });
   }
-  const montoNetoAplicado = montoNeto - descuentoMonto;
-  const montoFinal = montoNeto - descuentoMonto - descuentoFacturasMonto;
+  const montoNetoAplicado = montoNeto - descuentoMonto - descuentoMonto2;
+  const montoFinal = montoNeto - descuentoMonto - descuentoMonto2 - descuentoFacturasMonto;
+
+  // Vista previa de qué órdenes se van a clonar automáticamente al guardar
+  // (ver crearOrden en el backend) — mismo cálculo, solo para mostrar antes
+  // de mandar el formulario. Sale vacío si falta período o si "Vigencia
+  // hasta" no es posterior al mes de ingreso de esta orden.
+  const clonesVigenciaPreview: Array<{ mes: number; ano: number; periodoDesde: string; periodoHasta: string }> = [];
+  if (ordenForm.vigencia_hasta_mes && ordenForm.vigencia_hasta_ano && ordenForm.periodo_desde && ordenForm.periodo_hasta) {
+    const vigenciaMes = Number(ordenForm.vigencia_hasta_mes);
+    const vigenciaAno = Number(ordenForm.vigencia_hasta_ano);
+    const [anoDesde0, mesDesde0] = ordenForm.periodo_desde.split('-').map(Number);
+    let mesActual = ordenForm.mes_ingreso ? Number(ordenForm.mes_ingreso) : mesDesde0;
+    let anoActual = ordenForm.ano_ingreso ? Number(ordenForm.ano_ingreso) : anoDesde0;
+    let desdeActual = ordenForm.periodo_desde;
+    let hastaActual = ordenForm.periodo_hasta;
+    let guarda = 0;
+    while ((anoActual < vigenciaAno || (anoActual === vigenciaAno && mesActual < vigenciaMes)) && guarda < 36) {
+      desdeActual = addMonthClamped(desdeActual);
+      hastaActual = addMonthClamped(hastaActual);
+      mesActual += 1;
+      if (mesActual > 12) {
+        mesActual = 1;
+        anoActual += 1;
+      }
+      clonesVigenciaPreview.push({ mes: mesActual, ano: anoActual, periodoDesde: desdeActual, periodoHasta: hastaActual });
+      guarda += 1;
+    }
+  }
 
   // 'base': cada comisionista cobra su % directo del mismo monto final (varios
   // actores en paralelo, ej. comisión con factura + comisión en efectivo, que no
@@ -1338,6 +2317,8 @@ function OrdenesTab({
           monto_neto: montoNeto,
           descuento_porcentaje: Number(ordenForm.descuento_porcentaje) || 0,
           descuento_en_cascada: ordenForm.descuento_en_cascada,
+          descuento_porcentaje_2: Number(ordenForm.descuento_porcentaje_2) || 0,
+          descuento_en_cascada_2: ordenForm.descuento_en_cascada_2,
           descuento_facturas_porcentaje: Number(ordenForm.descuento_facturas_porcentaje) || 0,
           descuento_facturas_en_cascada: ordenForm.descuento_facturas_en_cascada,
           mes_ingreso: ordenForm.mes_ingreso ? Number(ordenForm.mes_ingreso) : undefined,
@@ -1345,6 +2326,8 @@ function OrdenesTab({
           facturado: ordenForm.facturado,
           notas: ordenForm.notas,
           vigencia_hasta_nota: ordenForm.vigencia_hasta_nota.trim() || undefined,
+          vigencia_hasta_mes: ordenForm.vigencia_hasta_mes ? Number(ordenForm.vigencia_hasta_mes) : undefined,
+          vigencia_hasta_ano: ordenForm.vigencia_hasta_ano ? Number(ordenForm.vigencia_hasta_ano) : undefined,
           detalles_productos: productosValidos.map((l) => ({
             id: l.id || undefined,
             producto_id: l.producto_id,
@@ -1374,16 +2357,32 @@ function OrdenesTab({
             })),
       };
 
+      let respuesta;
       if (editandoOrdenId) {
-        await axios.put(`/api/ordenes-publicidad/${editandoOrdenId}`, payload, authHeaders(token));
+        respuesta = await axios.put(`/api/ordenes-publicidad/${editandoOrdenId}`, payload, authHeaders(token));
         setMostrarForm(false);
         cargarOrdenes();
         cargarDetalle(editandoOrdenId);
         setEditandoOrdenId(null);
       } else {
-        await axios.post('/api/ordenes-publicidad', payload, authHeaders(token));
+        respuesta = await axios.post('/api/ordenes-publicidad', payload, authHeaders(token));
         setMostrarForm(false);
         cargarOrdenes();
+      }
+
+      const clonado = respuesta.data?._clonado;
+      if (clonado) {
+        const partes: string[] = [];
+        if (clonado.creadas > 0) {
+          partes.push(`Se crearon ${clonado.creadas} orden(es) más (mes a mes, con N° de orden "REVISAR").`);
+        }
+        if (clonado.saltadas?.length > 0) {
+          const listado = clonado.saltadas.map((s: { mes: number; ano: number }) => `${NOMBRES_MES[s.mes - 1]} ${s.ano}`).join(', ');
+          partes.push(`Ya existía una orden de este cliente para: ${listado} — no se duplicó.`);
+        }
+        setMensajeClonado(partes.join(' '));
+      } else {
+        setMensajeClonado('');
       }
     } catch (err: any) {
       setErrorForm(mensajeError(err, editandoOrdenId ? 'No se pudo guardar los cambios de la orden.' : 'No se pudo crear la orden.'));
@@ -1401,6 +2400,9 @@ function OrdenesTab({
     setMensajeFacturas('');
     setErrorDocumento('');
     setDescripcionDocumento('');
+    setPreviewAsana(null);
+    setErrorAsana('');
+    setMensajeAsana('');
     axios
       .get(`/api/ordenes-publicidad/${id}`, authHeaders(token))
       .then((res) => setDetalle(res.data))
@@ -1408,11 +2410,15 @@ function OrdenesTab({
       .finally(() => setCargandoDetalle(false));
   };
 
-  // Acceso directo desde Liquidaciones: si llega un id (vía "Ver orden" en
-  // esa pantalla), lo abre acá y avisa para que el padre limpie el pedido.
+  // Acceso directo desde Liquidaciones/Comisionistas: si llega un id (vía
+  // "Ver orden"/N° de orden en esa pantalla), lo abre acá y avisa para que
+  // el padre limpie el pedido. Marca que esta orden puntual vino de otra
+  // solapa, para que "‹ Volver a la lista" vuelva ahí en vez de quedarse
+  // siempre en la lista general de Órdenes.
   useEffect(() => {
     if (ordenIdParaAbrir) {
       cargarDetalle(ordenIdParaAbrir);
+      setVinoDeOtraPestana(true);
       onOrdenAbierta?.();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1484,6 +2490,32 @@ function OrdenesTab({
       .catch(() => setErrorDocumento('No se pudo descargar el archivo.'));
   };
 
+  const handleVerDocumento = (docId: string) => {
+    // La pestaña se abre en blanco de forma síncrona con el click (si no,
+    // el navegador bloquea el window.open posterior a la respuesta async).
+    const nuevaVentana = window.open('', '_blank');
+    axios
+      .get(`/api/ordenes-publicidad/documentos/${docId}/descargar`, {
+        ...authHeaders(token),
+        responseType: 'blob',
+      })
+      .then((res) => {
+        const tipo = String(res.headers['content-type'] || 'application/octet-stream');
+        const url = window.URL.createObjectURL(new Blob([res.data], { type: tipo }));
+        if (nuevaVentana) {
+          nuevaVentana.location.href = url;
+        } else {
+          window.open(url, '_blank');
+        }
+        // No se revoca enseguida: la pestaña nueva necesita la URL para cargar el archivo.
+        setTimeout(() => window.URL.revokeObjectURL(url), 60000);
+      })
+      .catch(() => {
+        nuevaVentana?.close();
+        setErrorDocumento('No se pudo abrir el archivo.');
+      });
+  };
+
   const handleCambiarEstado = async (nuevoEstado: string) => {
     if (!detalleId) return;
     setCambiandoEstado(true);
@@ -1522,14 +2554,70 @@ function OrdenesTab({
 
     return (
       <>
-        <div className="view-header" style={{ flexWrap: 'wrap', gap: '0.5rem' }}>
-          <button className="btn-link" onClick={() => setDetalleId(null)}>
+        <div className="view-header" style={{ flexWrap: 'wrap', gap: '0.5rem', alignItems: 'flex-start' }}>
+          <button
+            className="btn-link"
+            onClick={() => {
+              setDetalleId(null);
+              if (vinoDeOtraPestana) {
+                setVinoDeOtraPestana(false);
+                onVolverASeccionOrigen?.();
+              }
+            }}
+          >
             ‹ Volver a la lista
           </button>
           {puedeEditar && detalle && (
-            <button className="btn-secondary" onClick={handleEditarOrden}>
+            <button className="btn btn-editar-orden" onClick={handleEditarOrden}>
               Editar orden
             </button>
+          )}
+          {detalle && (
+            <PdfExportMenu
+              etiqueta="PDF"
+              onPreview={() => handleExportarOrdenPDF('preview')}
+              onDescargar={() => handleExportarOrdenPDF('descargar')}
+            />
+          )}
+          {puedeEditar && detalle && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+              <button className="btn btn-asana-generar" onClick={() => handleGenerarAsana(detalle.id)} disabled={cargandoAsana}>
+                {cargandoAsana ? 'Generando...' : detalle.asana_task_gid ? 'Actualizar tarea en Asana' : 'Generar tarea en Asana'}
+              </button>
+              <button
+                type="button"
+                className="btn-link"
+                style={{ fontSize: '0.8rem', alignSelf: 'flex-start' }}
+                onClick={() => handleVerPreviewAsana(detalle.id)}
+                disabled={cargandoAsana}
+              >
+                Ver qué se manda a Asana
+              </button>
+            </div>
+          )}
+          {puedeEditar && detalle && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+              <button className="btn btn-asana-asignar" onClick={() => handleAsignarAsana(detalle.id)} disabled={cargandoAsana}>
+                {cargandoAsana ? 'Asignando...' : 'Asignar responsables'}
+              </button>
+              <span className="btn-link" style={{ fontSize: '0.8rem', cursor: 'default' }}>
+                {detalle.asana_asignado ? 'Asignado' : 'No Asignado'}
+              </span>
+            </div>
+          )}
+          {puedeEditar && detalle && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+              <button
+                className="btn btn-asana-borrar"
+                onClick={() => handleBorrarAsana(detalle.id, detalle.nombre_anunciante)}
+                disabled={cargandoAsana}
+              >
+                {cargandoAsana ? 'Borrando...' : 'Borrar tareas Asana'}
+              </button>
+              {detalle.asana_task_gid && (
+                <span style={{ color: '#2f855a', fontWeight: 500, fontSize: '0.8rem' }}>✓ Ya tiene una tarea en Asana</span>
+              )}
+            </div>
           )}
           {puedeVerLiquidaciones &&
             onVerLiquidacion &&
@@ -1569,6 +2657,29 @@ function OrdenesTab({
               </label>
             )}
         </div>
+
+        {errorAsana && <div className="error-message">{errorAsana}</div>}
+        {mensajeAsana && <div className="success-message">{mensajeAsana}</div>}
+        {previewAsana && (
+          <div
+            style={{
+              border: '1px solid #ddd',
+              borderRadius: '8px',
+              padding: '0.9rem 1rem',
+              margin: '0.5rem 0 1rem',
+              background: '#fafafa',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+              <strong>Esto es lo que se manda a Asana (nombre de la tarea + cuerpo):</strong>
+              <button type="button" className="btn-link" onClick={() => setPreviewAsana(null)}>
+                Cerrar
+              </button>
+            </div>
+            <div style={{ fontWeight: 600, marginBottom: '0.4rem' }}>{previewAsana.name}</div>
+            <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', margin: 0 }}>{previewAsana.notes}</pre>
+          </div>
+        )}
 
         {cargandoDetalle && <p className="empty-state">Cargando orden...</p>}
         {errorDetalle && <div className="error-message">{errorDetalle}</div>}
@@ -1668,14 +2779,39 @@ function OrdenesTab({
               <dt>Se factura al cliente</dt>
               <dd><strong>{formatMoney(detalle.monto_neto)}</strong> + IVA (el bruto de la pauta)</dd>
 
-              <dt>Descuento comercial (NC)</dt>
+              <dt>Descuento comercial (NC 1)</dt>
               <dd>{detalle.descuento_porcentaje}% ({formatMoney(detalle.descuento_monto)})</dd>
+
+              {!!detalle.descuento_porcentaje_2 && (
+                <>
+                  <dt>Descuento comercial (NC 2)</dt>
+                  <dd>
+                    {detalle.descuento_porcentaje_2}% ({formatMoney(detalle.descuento_monto_2)}) —{' '}
+                    {detalle.descuento_en_cascada_2 ? 'en cascada sobre el remanente del NC 1' : 'directo sobre el bruto'}
+                  </dd>
+                </>
+              )}
 
               <dt>Descuento facturas (FC)</dt>
               <dd>
                 {detalle.descuento_facturas_porcentaje}% ({formatMoney(detalle.descuento_facturas_monto)}) —{' '}
                 {detalle.descuento_facturas_en_cascada ? 'en cascada sobre el remanente' : 'directo sobre el bruto'}
               </dd>
+
+              {/* Desagregado de comisiones a comisionistas — solo llega del
+                  servidor si el usuario tiene topview_netos_ver (Administrador/
+                  socios); el resto de la jerarquía nunca ve este bloque. */}
+              {(detalle.comisiones_desagregado || []).map((c: any, i: number) => (
+                <Fragment key={i}>
+                  <dt>
+                    Comisión {c.intermediario_nombre} ({c.factura_formal ? 'Tipo 1' : 'Tipo 2'})
+                  </dt>
+                  <dd>
+                    {c.porcentaje_comision}% ({formatMoney(c.monto_comision)}) —{' '}
+                    {c.tipo_calculo === 'cascada' ? 'en cascada sobre el remanente' : 'sobre el neto blanco'}
+                  </dd>
+                </Fragment>
+              ))}
 
               <dt>Neto Topview (después de NC/FC y comisiones)</dt>
               <dd>{formatMoney(detalle.monto_final)}</dd>
@@ -1814,9 +2950,14 @@ function OrdenesTab({
                       <td>{formatFecha(d.fecha_carga)}</td>
                       <td>
                         {d.ruta_archivo ? (
-                          <button className="btn-link" onClick={() => handleDescargarDocumento(d.id, d.nombre_archivo)}>
-                            Descargar
-                          </button>
+                          <div style={{ display: 'flex', gap: '0.75rem' }}>
+                            <button className="btn-link" onClick={() => handleVerDocumento(d.id)}>
+                              Previsualizar
+                            </button>
+                            <button className="btn-link" onClick={() => handleDescargarDocumento(d.id, d.nombre_archivo)}>
+                              Descargar
+                            </button>
+                          </div>
                         ) : d.url_drive ? (
                           <a href={d.url_drive} target="_blank" rel="noreferrer">
                             Abrir
@@ -1931,7 +3072,7 @@ function OrdenesTab({
   const calcularTotales = (lista: OrdenPublicidad[]) =>
     lista.reduce(
       (acc, o) => {
-        const netoBlanco = (o.monto_neto || 0) - (o.descuento_monto || 0) - (o.descuento_facturas_monto || 0);
+        const netoBlanco = (o.monto_neto || 0) - (o.descuento_monto || 0) - (o.descuento_monto_2 || 0) - (o.descuento_facturas_monto || 0);
         acc.montoNeto += o.monto_neto || 0;
         acc.netoBlanco += netoBlanco;
         acc.montoFinal += o.monto_final || 0;
@@ -1957,30 +3098,214 @@ function OrdenesTab({
   const totalesNoRegistradoCobrado = calcularTotales(noRegistradasCobradas);
   const totalesNoRegistradoPendiente = calcularTotales(noRegistradasPendientes);
 
+  // Mismo desglose de arriba pero acotado a lo tildado para Asana — sirve
+  // para controlar (ej. tildar un lote y comparar la suma contra lo que se
+  // espera facturar) sin tener que armar el filtro exacto de esas órdenes.
+  const ordenesSeleccionadas = (ordenes || []).filter((o) => seleccionadasAsana.has(o.id));
+  const seleccionRegistradas = ordenesSeleccionadas.filter(esOrdenFacturado);
+  const seleccionNoRegistradas = ordenesSeleccionadas.filter((o) => !esOrdenFacturado(o));
+  const totalesSeleccionRegistrado = calcularTotales(seleccionRegistradas);
+  const totalesSeleccionNoRegistrado = calcularTotales(seleccionNoRegistradas);
+
   return (
     <>
       <div className="view-header">
-        {puedeCrear && (
-          <button
-            className="btn-primary"
-            onClick={
-              mostrarForm
-                ? () => {
-                    setMostrarForm(false);
-                    setEditandoOrdenId(null);
-                  }
-                : handleNueva
-            }
-          >
-            {mostrarForm ? 'Cancelar' : '+ Nueva orden'}
-          </button>
-        )}
+        <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.25rem', flexWrap: 'wrap', alignItems: 'center' }}>
+          {puedeCrear && (
+            <button
+              className="btn-primary"
+              style={{ whiteSpace: 'nowrap', flexShrink: 0, width: '15.75rem', textAlign: 'center' }}
+              onClick={
+                mostrarForm
+                  ? () => {
+                      setMostrarForm(false);
+                      setEditandoOrdenId(null);
+                    }
+                  : handleNueva
+              }
+            >
+              {mostrarForm ? 'Cancelar' : '+ Nueva orden'}
+            </button>
+          )}
+          {puedeCrear && mostrarForm && (
+            <button type="submit" form="orden-form" className="btn btn-success" disabled={guardando}>
+              {guardando ? 'Guardando...' : 'Guardar'}
+            </button>
+          )}
+          {puedeEditar && mostrarForm && editandoOrdenId && (
+            <div style={{ position: 'relative' }}>
+              <button
+                type="button"
+                className="btn btn-asana-generar"
+                onClick={() => handleGenerarAsana(editandoOrdenId)}
+                disabled={cargandoAsana}
+              >
+                {cargandoAsana ? 'Generando...' : asanaGidActual ? 'Actualizar tarea en Asana' : 'Generar tarea en Asana'}
+              </button>
+              <button
+                type="button"
+                className="btn-link"
+                style={{
+                  position: 'absolute',
+                  top: '100%',
+                  left: 0,
+                  marginTop: '0.3rem',
+                  whiteSpace: 'nowrap',
+                  fontSize: '0.8rem',
+                }}
+                onClick={() => handleVerPreviewAsana(editandoOrdenId)}
+                disabled={cargandoAsana}
+              >
+                Ver qué se manda a Asana
+              </button>
+            </div>
+          )}
+          {puedeEditar && mostrarForm && editandoOrdenId && (
+            <div style={{ position: 'relative' }}>
+              <button
+                type="button"
+                className="btn btn-asana-asignar"
+                onClick={() => handleAsignarAsana(editandoOrdenId)}
+                disabled={cargandoAsana}
+              >
+                {cargandoAsana ? 'Asignando...' : 'Asignar responsables'}
+              </button>
+              <span
+                className="btn-link"
+                style={{
+                  position: 'absolute',
+                  top: '100%',
+                  left: 0,
+                  marginTop: '0.3rem',
+                  whiteSpace: 'nowrap',
+                  fontSize: '0.8rem',
+                  cursor: 'default',
+                }}
+              >
+                {asanaAsignadoActual ? 'Asignado' : 'No Asignado'}
+              </span>
+            </div>
+          )}
+          {puedeEditar && mostrarForm && editandoOrdenId && (
+            <div style={{ position: 'relative' }}>
+              <button
+                type="button"
+                className="btn btn-asana-borrar"
+                onClick={() => handleBorrarAsana(editandoOrdenId, ordenForm.nombre_anunciante)}
+                disabled={cargandoAsana}
+              >
+                {cargandoAsana ? 'Borrando...' : 'Borrar tareas Asana'}
+              </button>
+              {asanaGidActual && (
+                <span
+                  style={{
+                    position: 'absolute',
+                    top: '100%',
+                    left: 0,
+                    marginTop: '0.3rem',
+                    whiteSpace: 'nowrap',
+                    color: '#2f855a',
+                    fontWeight: 500,
+                    fontSize: '0.8rem',
+                  }}
+                >
+                  ✓ Ya tiene una tarea en Asana
+                </span>
+              )}
+            </div>
+          )}
+          {puedeEditar && !mostrarForm && ordenes && ordenes.length > 0 && (
+            <>
+            <button
+              type="button"
+              className="btn btn-asana-generar"
+              style={{ whiteSpace: 'nowrap', flexShrink: 0, width: '15.75rem', textAlign: 'center' }}
+              onClick={handleGenerarAsanaMasivo}
+              disabled={cargandoAsanaMasivo || seleccionadasAsana.size === 0}
+            >
+              {cargandoAsanaMasivo ? 'Generando...' : 'Generar/actualizar en Asana'}
+            </button>
+            <button
+              type="button"
+              className="btn btn-asana-asignar"
+              style={{ whiteSpace: 'nowrap', flexShrink: 0, width: '15.75rem', textAlign: 'center' }}
+              onClick={handleAsignarAsanaMasivo}
+              disabled={cargandoAsanaMasivo || seleccionadasAsana.size === 0}
+            >
+              {cargandoAsanaMasivo ? 'Asignando...' : 'Asignar responsables'}
+            </button>
+            <button
+              type="button"
+              className="btn btn-asana-borrar"
+              style={{ whiteSpace: 'nowrap', flexShrink: 0, width: '15.75rem', textAlign: 'center' }}
+              onClick={handleBorrarAsanaMasivo}
+              disabled={cargandoAsanaMasivo || seleccionadasAsana.size === 0}
+            >
+              {cargandoAsanaMasivo ? 'Borrando...' : 'Borrar tareas Asana'}
+            </button>
+            <span
+              title="Tildá órdenes en la tabla para aplicar estas acciones de Asana a todas de una"
+              style={{ fontSize: '0.85rem', color: '#555', whiteSpace: 'nowrap' }}
+            >
+              {seleccionadasAsana.size} orden(es) tildada(s)
+            </span>
+            <button
+              type="button"
+              className="btn-link"
+              style={{ whiteSpace: 'nowrap', visibility: seleccionadasAsana.size > 0 ? 'visible' : 'hidden' }}
+              onClick={() => setSeleccionadasAsana(new Set())}
+              disabled={cargandoAsanaMasivo}
+            >
+              Vaciar selección
+            </button>
+            </>
+          )}
+        </div>
       </div>
 
+      {mostrarForm && errorAsana && <div className="error-message">{errorAsana}</div>}
+      {mostrarForm && mensajeAsana && <div className="success-message">{mensajeAsana}</div>}
+      {!mostrarForm && errorAsanaMasivo && <div className="error-message">{errorAsanaMasivo}</div>}
+      {!mostrarForm && mensajeAsanaMasivo && (
+        <div className="success-message" style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem' }}>
+          <span>{mensajeAsanaMasivo}</span>
+          <button type="button" className="btn-link" onClick={() => setMensajeAsanaMasivo('')}>
+            Cerrar
+          </button>
+        </div>
+      )}
+      {mostrarForm && previewAsana && (
+        <div
+          style={{
+            border: '1px solid #ddd',
+            borderRadius: '8px',
+            padding: '0.9rem 1rem',
+            margin: '0.5rem 0 1rem',
+            background: '#fafafa',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+            <strong>Esto es lo que se manda a Asana (nombre de la tarea + cuerpo):</strong>
+            <button type="button" className="btn-link" onClick={() => setPreviewAsana(null)}>
+              Cerrar
+            </button>
+          </div>
+          <div style={{ fontWeight: 600, marginBottom: '0.4rem' }}>{previewAsana.name}</div>
+          <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', margin: 0 }}>{previewAsana.notes}</pre>
+        </div>
+      )}
       {error && ordenes && ordenes.length > 0 && <div className="error-message">{error}</div>}
+      {mensajeClonado && (
+        <div className="success-message" style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem' }}>
+          <span>{mensajeClonado}</span>
+          <button type="button" className="btn-link" onClick={() => setMensajeClonado('')}>
+            Cerrar
+          </button>
+        </div>
+      )}
 
       {mostrarForm && (
-        <form className="cliente-form" onSubmit={handleSubmit}>
+        <form id="orden-form" className="cliente-form" onSubmit={handleSubmit}>
           {editandoOrdenId && (
             <div style={{ gridColumn: '1 / -1', marginBottom: '0.5rem', fontWeight: 600 }}>
               Editando orden existente — las facturas ya generadas no se modifican.
@@ -2135,17 +3460,6 @@ function OrdenesTab({
               </button>
             </div>
 
-            <div className="form-group">
-              <label htmlFor="orden_vigencia_hasta">Vigencia hasta (nota libre, opcional)</label>
-              <input
-                id="orden_vigencia_hasta"
-                value={ordenForm.vigencia_hasta_nota}
-                onChange={(e) => handleChangeOrden('vigencia_hasta_nota', e.target.value)}
-                disabled={guardando}
-                placeholder='Ej: "Diciembre" o "Noviembre (oct y nov 2.8M)"'
-              />
-              <small>Hasta qué mes seguís facturando esta pauta — es solo una referencia, no dispara nada automático.</small>
-            </div>
           </div>
 
           <div className="form-group">
@@ -2280,6 +3594,104 @@ function OrdenesTab({
               <small className="ayuda-error" style={{ color: '#666' }}>
                 Mes/año a efectos comerciales — puede diferir del período de vigencia.
               </small>
+            </div>
+          </div>
+
+          <div
+            style={{
+              gridColumn: '1 / -1',
+              display: 'grid',
+              gridTemplateColumns: '1.3fr 1fr',
+              gap: '1.25rem',
+              alignItems: 'stretch',
+            }}
+          >
+            <div
+              className="form-group"
+              style={{ border: '1.5px dashed #e81838', borderRadius: '8px', padding: '0.9rem 1rem', background: '#fff7f8', margin: 0 }}
+            >
+              <label
+                style={{
+                  fontSize: '0.75rem',
+                  letterSpacing: '0.04em',
+                  textTransform: 'uppercase',
+                  color: '#e81838',
+                }}
+              >
+                Repetir automáticamente hasta (opcional)
+              </label>
+              <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                <label style={{ fontWeight: 'normal', margin: 0 }}>
+                  Mes
+                  <select
+                    value={ordenForm.vigencia_hasta_mes}
+                    onChange={(e) => handleChangeOrden('vigencia_hasta_mes', e.target.value)}
+                    disabled={guardando}
+                    style={{ display: 'block', marginTop: '0.25rem' }}
+                  >
+                    <option value="">Sin repetir</option>
+                    {NOMBRES_MES.map((nombre, i) => (
+                      <option key={i + 1} value={i + 1}>
+                        {nombre}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label style={{ fontWeight: 'normal', margin: 0 }}>
+                  Año
+                  <select
+                    value={ordenForm.vigencia_hasta_ano}
+                    onChange={(e) => handleChangeOrden('vigencia_hasta_ano', e.target.value)}
+                    disabled={guardando || !ordenForm.vigencia_hasta_mes}
+                    style={{ display: 'block', marginTop: '0.25rem', width: '7rem' }}
+                  >
+                    <option value="">—</option>
+                    {[2025, 2026, 2027, 2028].map((ano) => (
+                      <option key={ano} value={ano}>
+                        {ano}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <small style={{ paddingBottom: '0.4rem' }}>Vacío = no repite (comportamiento de siempre)</small>
+              </div>
+
+              {clonesVigenciaPreview.length > 0 && (
+                <div
+                  style={{
+                    marginTop: '0.75rem',
+                    background: '#f4f6f4',
+                    border: '1px solid #dde3dd',
+                    borderRadius: '6px',
+                    padding: '0.6rem 0.75rem',
+                    fontSize: '0.85rem',
+                  }}
+                >
+                  <div style={{ fontWeight: 600, color: '#2e7d32', marginBottom: '0.3rem' }}>
+                    Al guardar se van a crear automáticamente (los meses que ya tengan una orden de este cliente se saltean):
+                  </div>
+                  <ul style={{ margin: 0, paddingLeft: '1.1rem' }}>
+                    {clonesVigenciaPreview.map((c) => (
+                      <li key={`${c.mes}-${c.ano}`}>
+                        {NOMBRES_MES[c.mes - 1]} {c.ano} — {formatFecha(c.periodoDesde)} al {formatFecha(c.periodoHasta)} —{' '}
+                        <span style={{ color: '#e81838', fontWeight: 600 }}>REVISAR</span> (mismo desglose que esta)
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+
+            <div className="form-group" style={{ margin: 0 }}>
+              <label htmlFor="orden_vigencia_hasta">Vigencia hasta (nota libre, opcional)</label>
+              <input
+                id="orden_vigencia_hasta"
+                value={ordenForm.vigencia_hasta_nota}
+                onChange={(e) => handleChangeOrden('vigencia_hasta_nota', e.target.value)}
+                disabled={guardando}
+                placeholder='Ej: "Diciembre" o "Noviembre (oct y nov 2.8M)"'
+              />
+              <small>Hasta qué mes seguís facturando esta pauta — es solo una referencia, no dispara nada automático.</small>
             </div>
           </div>
 
@@ -2429,7 +3841,7 @@ function OrdenesTab({
           <div className="lineas-factura" style={{ gridColumn: '1 / -1' }}>
             <label>Montos y descuentos en cascada</label>
 
-            <div className="linea-factura" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
+            <div className="linea-factura" style={{ gridTemplateColumns: '1fr 1fr 1fr 1fr' }}>
               <InputMiles
                 placeholder="Monto neto (vacío = suma de líneas)"
                 value={ordenForm.monto_neto}
@@ -2437,9 +3849,15 @@ function OrdenesTab({
                 disabled={guardando}
               />
               <InputPorcentaje
-                placeholder="Descuento comercial (NC)"
+                placeholder="Descuento comercial (NC 1)"
                 value={ordenForm.descuento_porcentaje}
                 onChange={(v) => handleChangeOrden('descuento_porcentaje', v)}
+                disabled={guardando}
+              />
+              <InputPorcentaje
+                placeholder="Descuento comercial (NC 2, opcional)"
+                value={ordenForm.descuento_porcentaje_2}
+                onChange={(v) => handleChangeOrden('descuento_porcentaje_2', v)}
                 disabled={guardando}
               />
               <InputPorcentaje
@@ -2452,7 +3870,9 @@ function OrdenesTab({
             <small style={{ color: '#666' }}>
               "Monto neto" es solo la exhibición. La producción (impresión, colocación, cambio o reposición de
               gráfica) se carga como su propia orden en "Órdenes de Producción", no acá. Si lo dejás vacío, se arma
-              solo sumando el precio de cada línea en "Productos / soportes" de arriba.
+              solo sumando el precio de cada línea en "Productos / soportes" de arriba. El NC 2 es opcional — algunas
+              agencias negocian un segundo descuento comercial además del primero, se aplica NC 1 → NC 2 → FC en ese
+              orden.
             </small>
 
             <label htmlFor="orden_desc_cascada" style={{ fontWeight: 'normal', marginTop: '0.5rem', display: 'block' }}>
@@ -2463,7 +3883,18 @@ function OrdenesTab({
                 onChange={(e) => handleChangeOrden('descuento_en_cascada', e.target.checked)}
                 disabled={guardando}
               />
-              {' '}Descuento comercial en cascada (reduce la base antes de calcular el de facturas — solo importa si además el de facturas está en cascada más abajo; si no, da lo mismo tildado o no)
+              {' '}Descuento comercial (NC 1) en cascada (reduce la base antes de calcular el NC 2 y el de facturas — solo importa si esos también están en cascada; si no, da lo mismo tildado o no)
+            </label>
+
+            <label htmlFor="orden_desc_cascada_2" style={{ fontWeight: 'normal', marginTop: '0.5rem', display: 'block' }}>
+              <input
+                id="orden_desc_cascada_2"
+                type="checkbox"
+                checked={ordenForm.descuento_en_cascada_2}
+                onChange={(e) => handleChangeOrden('descuento_en_cascada_2', e.target.checked)}
+                disabled={guardando}
+              />
+              {' '}Descuento comercial (NC 2) en cascada sobre el remanente del NC 1 (si no, se calcula directo sobre el mismo bruto que el NC 1 — depende de lo negociado con cada agencia)
             </label>
 
             <label htmlFor="orden_desc_facturas_cascada" style={{ fontWeight: 'normal', marginTop: '0.5rem', display: 'block' }}>
@@ -2478,8 +3909,11 @@ function OrdenesTab({
             </label>
 
             <p className="totales-preview">
-              Monto neto: {formatMoney(montoNeto)} · Menos desc. comercial: -{formatMoney(descuentoMonto)} · Menos
-              desc. facturas: -{formatMoney(descuentoFacturasMonto)} · Monto final:{' '}
+              Monto neto: {formatMoney(montoNeto)} · Menos desc. comercial (NC 1): -{formatMoney(descuentoMonto)}
+              {Number(ordenForm.descuento_porcentaje_2) > 0 && (
+                <> · Menos desc. comercial (NC 2): -{formatMoney(descuentoMonto2)}</>
+              )}
+              {' '}· Menos desc. facturas: -{formatMoney(descuentoFacturasMonto)} · Monto final:{' '}
               <strong>{formatMoney(montoFinal)}</strong>
             </p>
           </div>
@@ -2504,7 +3938,7 @@ function OrdenesTab({
                   type="number"
                   min="0"
                   max="100"
-                  step="0.01"
+                  step="any"
                   placeholder="% comisión"
                   value={linea.porcentaje_comision}
                   onChange={(e) => handleChangeIntermediario(i, 'porcentaje_comision', e.target.value)}
@@ -2605,8 +4039,8 @@ function OrdenesTab({
           </div>
 
           <div className="cliente-form-actions">
-            <button type="submit" className="btn-primary" disabled={guardando}>
-              {guardando ? 'Guardando...' : editandoOrdenId ? 'Guardar cambios' : 'Crear orden'}
+            <button type="submit" className="btn btn-success" disabled={guardando}>
+              {guardando ? 'Guardando...' : 'Guardar'}
             </button>
           </div>
         </form>
@@ -2714,27 +4148,32 @@ function OrdenesTab({
               ))}
             </select>
           </div>
-          {(filtroMes !== String(hoyOrdenes.getMonth() + 1) ||
-            filtroAno !== String(hoyOrdenes.getFullYear()) ||
-            busqueda ||
-            filtroFacturado ||
-            filtroTipoAnunciante ||
-            filtroMesTipo !== 'ingreso') && (
-            <button
-              type="button"
-              className="btn-link"
-              onClick={() => {
-                setFiltroMes('');
-                setFiltroAno('');
-                setBusqueda('');
-                setFiltroFacturado('');
-                setFiltroTipoAnunciante('');
-                setFiltroMesTipo('ingreso');
-              }}
-            >
-              Limpiar filtro
-            </button>
-          )}
+          <button
+            type="button"
+            className="btn-link"
+            style={{
+              visibility:
+                filtroMes !== String(hoyOrdenes.getMonth() + 1) ||
+                filtroAno !== String(hoyOrdenes.getFullYear()) ||
+                busqueda ||
+                filtroFacturado ||
+                filtroTipoAnunciante ||
+                filtroMesTipo !== 'ingreso'
+                  ? 'visible'
+                  : 'hidden',
+            }}
+            onClick={() => {
+              setFiltroMes('');
+              setFiltroAno('');
+              setBusqueda('');
+              setFiltroFacturado('');
+              setFiltroTipoAnunciante('');
+              setFiltroMesTipo('ingreso');
+              setSeleccionadasAsana(new Set());
+            }}
+          >
+            Limpiar filtro
+          </button>
         </div>
       )}
 
@@ -2743,28 +4182,69 @@ function OrdenesTab({
           <button type="button" className="btn-secondary" onClick={handleExportarExcel} disabled={ordenesFiltradas.length === 0}>
             Exportar Excel
           </button>
-          <button type="button" className="btn-secondary" onClick={handleExportarPDF} disabled={ordenesFiltradas.length === 0}>
-            Exportar PDF
-          </button>
+          <PdfExportMenu
+            etiqueta="PDF"
+            disabled={ordenesFiltradas.length === 0}
+            onPreview={() => handleExportarPDF('preview')}
+            onDescargar={() => handleExportarPDF('descargar')}
+          />
         </div>
       )}
 
-      {ordenes && ordenes.length > 0 && (
-        <p className="empty-state" style={{ textAlign: 'left' }}>
-          Registrado ({ordenesRegistradas.length} órdenes): <strong>{formatMoney(totalesRegistrado.montoNeto)}</strong>
-          {' · '}
-          No registrado ({ordenesNoRegistradas.length} órdenes):{' '}
-          <strong>{formatMoney(totalesNoRegistrado.montoNeto)}</strong>
-          {ordenesNoRegistradas.length > 0 && (
-            <span style={{ fontSize: '0.85em', color: '#666' }}>
-              {' '}
-              (cobrado {noRegistradasCobradas.length}: {formatMoney(totalesNoRegistradoCobrado.montoNeto)} · pendiente{' '}
-              {noRegistradasPendientes.length}: {formatMoney(totalesNoRegistradoPendiente.montoNeto)})
-            </span>
-          )}
-          {' · '}
-          Total general: <strong>{formatMoney(totalesRegistrado.montoNeto + totalesNoRegistrado.montoNeto)}</strong>
-        </p>
+      {ordenes && ordenes.length > 0 && seleccionadasAsana.size > 0 && (
+        <div
+          className="empty-state"
+          style={{ textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '0.2rem', border: '1px solid #90cdf4', background: '#ebf8ff' }}
+        >
+          <div style={{ fontWeight: 600 }}>Selección ({ordenesSeleccionadas.length} orden{ordenesSeleccionadas.length === 1 ? '' : 'es'} tildada{ordenesSeleccionadas.length === 1 ? '' : 's'})</div>
+          <div>
+            Registrado ({seleccionRegistradas.length}): <strong>{formatMoney(totalesSeleccionRegistrado.montoNeto)}</strong>
+          </div>
+          <div>
+            No registrado ({seleccionNoRegistradas.length}): <strong>{formatMoney(totalesSeleccionNoRegistrado.montoNeto)}</strong>
+          </div>
+          <div>
+            Total seleccionado:{' '}
+            <strong>{formatMoney(totalesSeleccionRegistrado.montoNeto + totalesSeleccionNoRegistrado.montoNeto)}</strong>
+          </div>
+          <div>
+            Total Neto blanco:{' '}
+            <strong>{formatMoney(totalesSeleccionRegistrado.netoBlanco + totalesSeleccionNoRegistrado.netoBlanco)}</strong>
+          </div>
+          <div>
+            Neto Topview (post-comisión):{' '}
+            <strong>{formatMoney(totalesSeleccionRegistrado.montoFinal + totalesSeleccionNoRegistrado.montoFinal)}</strong>
+          </div>
+        </div>
+      )}
+
+      {ordenes && ordenes.length > 0 && seleccionadasAsana.size === 0 && (
+        <div className="empty-state" style={{ textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+          <div>
+            Registrado ({ordenesRegistradas.length} órdenes): <strong>{formatMoney(totalesRegistrado.montoNeto)}</strong>
+          </div>
+          <div>
+            No registrado ({ordenesNoRegistradas.length} órdenes):{' '}
+            <strong>{formatMoney(totalesNoRegistrado.montoNeto)}</strong>
+            {ordenesNoRegistradas.length > 0 && (
+              <span style={{ fontSize: '0.85em', color: '#666' }}>
+                {' '}
+                (cobrado {noRegistradasCobradas.length}: {formatMoney(totalesNoRegistradoCobrado.montoNeto)} · pendiente{' '}
+                {noRegistradasPendientes.length}: {formatMoney(totalesNoRegistradoPendiente.montoNeto)})
+              </span>
+            )}
+          </div>
+          <div>
+            Total general: <strong>{formatMoney(totalesRegistrado.montoNeto + totalesNoRegistrado.montoNeto)}</strong>
+          </div>
+          <div>
+            Total Neto blanco: <strong>{formatMoney(totalesRegistrado.netoBlanco + totalesNoRegistrado.netoBlanco)}</strong>
+          </div>
+          <div>
+            Neto Topview (post-comisión):{' '}
+            <strong>{formatMoney(totalesRegistrado.montoFinal + totalesNoRegistrado.montoFinal)}</strong>
+          </div>
+        </div>
       )}
 
       {ordenes && ordenes.length > 0 && ordenesFiltradas.length === 0 && (
@@ -2776,6 +4256,23 @@ function OrdenesTab({
         <table className="data-table">
           <thead>
             <tr>
+              {puedeEditar && (
+                <th>
+                  <input
+                    type="checkbox"
+                    title="Tildar todas las que quedaron con este filtro"
+                    checked={ordenesFiltradas.every((o) => seleccionadasAsana.has(o.id))}
+                    onChange={(e) => {
+                      const marcar = e.target.checked;
+                      setSeleccionadasAsana((prev) => {
+                        const next = new Set(prev);
+                        ordenesFiltradas.forEach((o) => (marcar ? next.add(o.id) : next.delete(o.id)));
+                        return next;
+                      });
+                    }}
+                  />
+                </th>
+              )}
               <th>N° orden (agencia)</th>
               <th>Cliente/Agencia</th>
               <th>Anunciante</th>
@@ -2803,11 +4300,33 @@ function OrdenesTab({
           </thead>
           <tbody>
             {ordenesFiltradas.map((o) => {
-              const netoBlanco = (o.monto_neto || 0) - (o.descuento_monto || 0) - (o.descuento_facturas_monto || 0);
+              const netoBlanco = (o.monto_neto || 0) - (o.descuento_monto || 0) - (o.descuento_monto_2 || 0) - (o.descuento_facturas_monto || 0);
               return (
               <tr key={o.id}>
+                {puedeEditar && (
+                  <td>
+                    <input
+                      type="checkbox"
+                      checked={seleccionadasAsana.has(o.id)}
+                      onChange={() => {
+                        setSeleccionadasAsana((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(o.id)) next.delete(o.id);
+                          else next.add(o.id);
+                          return next;
+                        });
+                      }}
+                    />
+                  </td>
+                )}
                 <td>
-                  <button className="btn-link" onClick={() => cargarDetalle(o.id)}>
+                  <button
+                    className="btn-link"
+                    onClick={() => {
+                      setVinoDeOtraPestana(false);
+                      cargarDetalle(o.id);
+                    }}
+                  >
                     {o.numero_orden_agencia || '(sin número)'}
                   </button>
                 </td>
@@ -2926,7 +4445,7 @@ function OrdenesTab({
           </tbody>
           <tfoot>
             <tr style={{ fontWeight: 600, borderTop: '2px solid #ccc' }}>
-              <td colSpan={8}>Totales ({ordenesFiltradas.length} órdenes)</td>
+              <td colSpan={puedeEditar ? 9 : 8}>Totales ({ordenesFiltradas.length} órdenes)</td>
               {productosSoportes.map((p) => (
                 <td key={p.id}>{totalesFila.porProducto[p.id] || '-'}</td>
               ))}
@@ -3247,7 +4766,15 @@ const INTERMEDIARIO_VACIO = {
 const CLASIFICACION_LABEL = (facturaFormal: boolean | number) =>
   facturaFormal ? 'Tipo 1 (facturas)' : 'Tipo 2 (efectivo)';
 
-function IntermediariosTab({ token, puedeCrear }: { token: string; puedeCrear: boolean }) {
+function IntermediariosTab({
+  token,
+  puedeCrear,
+  onVerOrden,
+}: {
+  token: string;
+  puedeCrear: boolean;
+  onVerOrden?: (ordenId: string) => void;
+}) {
   const [intermediarios, setIntermediarios] = useState<Intermediario[] | null>(null);
   const [reporte, setReporte] = useState<ReporteIntermediario[] | null>(null);
   const [proveedores, setProveedores] = useState<{ id: string; razon_social: string }[]>([]);
@@ -3262,6 +4789,8 @@ function IntermediariosTab({ token, puedeCrear }: { token: string; puedeCrear: b
   const [filtroAnoCom, setFiltroAnoCom] = useState('');
   const [filtroTipoCom, setFiltroTipoCom] = useState(''); // '' = ambas, '1' = con factura, '2' = efectivo
   const [expandidoId, setExpandidoId] = useState<string | null>(null);
+  const [subVistaCom, setSubVistaCom] = useState<'reporte' | 'ficha'>('reporte');
+  const { mostrarPdf } = usePdfPreview();
 
   const cargar = () => {
     setError('');
@@ -3385,9 +4914,10 @@ function IntermediariosTab({ token, puedeCrear }: { token: string; puedeCrear: b
         comision_total: comision_tipo1 + comision_tipo2,
       };
     })
+    // Si no tiene nada que reportar en el período/tipo filtrado, no aparece
+    // en la lista — antes se mostraba igual con un badge "sin órdenes".
+    .filter((r) => r.cantidad_ordenes > 0)
     .sort((a, b) => b.comision_total - a.comision_total);
-
-  const hayFiltroPeriodo = !!(filtroMesCom || filtroAnoCom);
 
   const nombreArchivoExportCom = (ext: string) => {
     const sufijo =
@@ -3429,7 +4959,7 @@ function IntermediariosTab({ token, puedeCrear }: { token: string; puedeCrear: b
     URL.revokeObjectURL(url);
   };
 
-  const handleExportarComisionistasPDF = () => {
+  const handleExportarComisionistasPDF = (accion: 'preview' | 'descargar' = 'descargar') => {
     const doc = new jsPDF({ orientation: 'landscape' });
     autoTable(doc, {
       head: [['Nombre', 'Tipo', 'Órdenes', 'Comisión Tipo 1', 'Comisión Tipo 2', 'Comisión total']],
@@ -3444,20 +4974,39 @@ function IntermediariosTab({ token, puedeCrear }: { token: string; puedeCrear: b
       styles: { fontSize: 8, cellPadding: 2 },
       headStyles: { fillColor: [232, 24, 56] },
     });
-    doc.save(nombreArchivoExportCom('pdf'));
+    const archivoNombre = nombreArchivoExportCom('pdf');
+    if (accion === 'preview') mostrarPdf(doc, archivoNombre);
+    else doc.save(archivoNombre);
   };
 
   return (
     <>
-      <div className="view-header">
-        {puedeCrear && (
-          <button className="btn-primary" onClick={mostrarForm ? () => setMostrarForm(false) : handleNuevo}>
-            {mostrarForm ? 'Cancelar' : '+ Nuevo comisionista'}
-          </button>
-        )}
+      <div className="reportes-tabs">
+        <button
+          className={`reportes-tab ${subVistaCom === 'reporte' ? 'active' : ''}`}
+          onClick={() => setSubVistaCom('reporte')}
+        >
+          Cuánto traccionan las ventas
+        </button>
+        <button
+          className={`reportes-tab ${subVistaCom === 'ficha' ? 'active' : ''}`}
+          onClick={() => setSubVistaCom('ficha')}
+        >
+          Ficha de comisionistas
+        </button>
       </div>
 
-      {mostrarForm && (
+      {subVistaCom === 'ficha' && (
+        <div className="view-header">
+          {puedeCrear && (
+            <button className="btn-primary" onClick={mostrarForm ? () => setMostrarForm(false) : handleNuevo}>
+              {mostrarForm ? 'Cancelar' : '+ Nuevo comisionista'}
+            </button>
+          )}
+        </div>
+      )}
+
+      {subVistaCom === 'ficha' && mostrarForm && (
         <form className="cliente-form" onSubmit={handleSubmit}>
           {errorForm && (
             <div className="error-message" style={{ gridColumn: '1 / -1' }}>
@@ -3548,7 +5097,8 @@ function IntermediariosTab({ token, puedeCrear }: { token: string; puedeCrear: b
         </form>
       )}
 
-      <h3 className="reportes-subtitulo">Cuánto traccionan las ventas</h3>
+      {subVistaCom === 'reporte' && (
+      <>
       {reporte === null && <p className="empty-state">Cargando...</p>}
       {reporte && reporte.length === 0 && <p className="empty-state">No hay comisionistas cargados.</p>}
       {reporte && reporte.length > 0 && (
@@ -3601,11 +5151,17 @@ function IntermediariosTab({ token, puedeCrear }: { token: string; puedeCrear: b
             <button type="button" onClick={handleExportarComisionistasExcel}>
               Exportar Excel
             </button>
-            <button type="button" onClick={handleExportarComisionistasPDF}>
-              Exportar PDF
-            </button>
+            <PdfExportMenu
+              etiqueta="PDF"
+              onPreview={() => handleExportarComisionistasPDF('preview')}
+              onDescargar={() => handleExportarComisionistasPDF('descargar')}
+            />
           </div>
 
+          {reporteFiltrado.length === 0 && (
+            <p className="empty-state">Ningún comisionista tiene órdenes en este período/tipo.</p>
+          )}
+          {reporteFiltrado.length > 0 && (
           <table className="data-table">
             <thead>
               <tr>
@@ -3624,14 +5180,7 @@ function IntermediariosTab({ token, puedeCrear }: { token: string; puedeCrear: b
                   <tr>
                     <td>{r.nombre}</td>
                     <td>{r.tipo}</td>
-                    <td>
-                      {r.cantidad_ordenes}
-                      {r.cantidad_ordenes === 0 && (
-                        <span className="estado-badge estado-pendiente" style={{ marginLeft: '0.5rem', fontSize: '0.75rem' }}>
-                          sin órdenes{hayFiltroPeriodo ? ' este período' : ''}
-                        </span>
-                      )}
-                    </td>
+                    <td>{r.cantidad_ordenes}</td>
                     {filtroTipoCom !== '2' && <td>{formatMoney(r.comision_tipo1)}</td>}
                     {filtroTipoCom !== '1' && <td>{formatMoney(r.comision_tipo2)}</td>}
                     <td>{formatMoney(r.comision_total)}</td>
@@ -3664,7 +5213,15 @@ function IntermediariosTab({ token, puedeCrear }: { token: string; puedeCrear: b
                             {r.ordenesFiltradas.map((o) => (
                               <tr key={o.orden_id}>
                                 <td>{o.nombre_anunciante}</td>
-                                <td>{o.numero_orden_agencia || o.numero_orden}</td>
+                                <td>
+                                  {onVerOrden ? (
+                                    <button type="button" className="btn-link" onClick={() => onVerOrden(o.orden_id)}>
+                                      {o.numero_orden_agencia || o.numero_orden}
+                                    </button>
+                                  ) : (
+                                    o.numero_orden_agencia || o.numero_orden
+                                  )}
+                                </td>
                                 <td>
                                   {NOMBRES_MES[o.mes_ingreso - 1]} {o.ano_ingreso}
                                 </td>
@@ -3681,16 +5238,22 @@ function IntermediariosTab({ token, puedeCrear }: { token: string; puedeCrear: b
               ))}
             </tbody>
           </table>
+          )}
+          {reporteFiltrado.length > 0 && (
           <p className="totales-preview" style={{ marginBottom: '2rem' }}>
             Total Tipo 1 (facturas):{' '}
             <strong>{formatMoney(reporteFiltrado.reduce((acc, r) => acc + r.comision_tipo1, 0))}</strong>
             {' · '}Total Tipo 2 (efectivo):{' '}
             <strong>{formatMoney(reporteFiltrado.reduce((acc, r) => acc + r.comision_tipo2, 0))}</strong>
           </p>
+          )}
         </>
       )}
+      </>
+      )}
 
-      <h3 className="reportes-subtitulo">Ficha de comisionistas</h3>
+      {subVistaCom === 'ficha' && (
+      <>
       {intermediarios === null && !error && <p className="empty-state">Cargando...</p>}
       {error && intermediarios && intermediarios.length === 0 && <div className="error-message">{error}</div>}
       {intermediarios && intermediarios.length === 0 && !error && (
@@ -3737,6 +5300,8 @@ function IntermediariosTab({ token, puedeCrear }: { token: string; puedeCrear: b
             ))}
           </tbody>
         </table>
+      )}
+      </>
       )}
     </>
   );
@@ -3963,7 +5528,7 @@ function CondicionesTab({
               type="number"
               min="0"
               max="100"
-              step="0.01"
+              step="any"
               value={formAgencia.porcentaje_nc}
               onChange={(e) => setFormAgencia({ ...formAgencia, porcentaje_nc: e.target.value })}
               disabled={guardandoAgencia}
@@ -3986,7 +5551,7 @@ function CondicionesTab({
               type="number"
               min="0"
               max="100"
-              step="0.01"
+              step="any"
               value={formAgencia.porcentaje_factura}
               onChange={(e) => setFormAgencia({ ...formAgencia, porcentaje_factura: e.target.value })}
               disabled={guardandoAgencia}
@@ -4104,7 +5669,7 @@ function CondicionesTab({
               type="number"
               min="0"
               max="100"
-              step="0.01"
+              step="any"
               value={formInter.porcentaje_comision}
               onChange={(e) => setFormInter({ ...formInter, porcentaje_comision: e.target.value })}
               disabled={guardandoInter}
@@ -4766,7 +6331,7 @@ function VendedoresTab({ token, puedeCrear }: { token: string; puedeCrear: boole
               type="number"
               min="0"
               max="100"
-              step="0.01"
+              step="any"
               value={formTramo.porcentaje}
               onChange={(e) => setFormTramo({ ...formTramo, porcentaje: e.target.value })}
               disabled={guardandoTramo}
@@ -4874,6 +6439,258 @@ function VendedoresTab({ token, puedeCrear }: { token: string; puedeCrear: boole
           <p className="totales-preview">
             Total a comisionar en {NOMBRES_MES[mesReporte - 1]} {anoReporte}: <strong>{formatMoney(totalComisionMes)}</strong>
           </p>
+        </>
+      )}
+    </>
+  );
+}
+
+// Configuración de a dónde van las tareas de Asana (proyecto + sección de
+// cada mes/año) — antes vivía hardcodeada en el backend, ahora se administra
+// acá para no depender de un cambio de código cada vez que pasa un mes/año
+// nuevo. Ver AsanaService/AsanaConfigService en el backend.
+interface AsanaProyecto {
+  gid: string | null;
+  nombre: string | null;
+}
+interface AsanaSeccionMes {
+  id: string;
+  ano: number;
+  mes: number;
+  seccion_gid: string;
+  seccion_nombre: string | null;
+}
+interface AsanaOpcion {
+  gid: string;
+  name: string;
+}
+
+function AsanaConfigTab({ token }: { token: string }) {
+  const [proyecto, setProyecto] = useState<AsanaProyecto | null>(null);
+  const [secciones, setSecciones] = useState<AsanaSeccionMes[] | null>(null);
+  const [error, setError] = useState('');
+  const [cargando, setCargando] = useState(false);
+
+  const [editandoProyecto, setEditandoProyecto] = useState(false);
+  const [proyectosDisponibles, setProyectosDisponibles] = useState<AsanaOpcion[] | null>(null);
+  const [proyectoElegido, setProyectoElegido] = useState('');
+  const [errorProyectos, setErrorProyectos] = useState('');
+
+  const [seccionesDisponibles, setSeccionesDisponibles] = useState<AsanaOpcion[] | null>(null);
+  const [errorSecciones, setErrorSecciones] = useState('');
+  const hoy = new Date();
+  const [nuevoMes, setNuevoMes] = useState(String(hoy.getMonth() + 1));
+  const [nuevoAno, setNuevoAno] = useState(String(hoy.getFullYear()));
+  const [nuevaSeccionGid, setNuevaSeccionGid] = useState('');
+  const [guardandoSeccion, setGuardandoSeccion] = useState(false);
+  const [errorForm, setErrorForm] = useState('');
+
+  const cargar = () => {
+    setError('');
+    setCargando(true);
+    axios
+      .get('/api/asana/config', authHeaders(token))
+      .then((res) => {
+        setProyecto(res.data.proyecto);
+        setSecciones(res.data.secciones);
+      })
+      .catch((err) => setError(mensajeError(err, 'No se pudo cargar la configuración de Asana.')))
+      .finally(() => setCargando(false));
+  };
+
+  useEffect(() => {
+    cargar();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Trae la lista de secciones reales del proyecto activo apenas se sabe
+  // cuál es — así el desplegable de "agregar sección" ya tiene opciones
+  // reales listas, sin un paso extra.
+  useEffect(() => {
+    if (!proyecto?.gid) return;
+    setErrorSecciones('');
+    axios
+      .get(`/api/asana/proyectos/${proyecto.gid}/secciones-disponibles`, authHeaders(token))
+      .then((res) => setSeccionesDisponibles(res.data))
+      .catch((err) => setErrorSecciones(mensajeError(err, 'No se pudieron traer las secciones de Asana.')));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [proyecto?.gid]);
+
+  const handleElegirProyecto = () => {
+    setEditandoProyecto(true);
+    setErrorProyectos('');
+    setProyectoElegido(proyecto?.gid || '');
+    if (proyectosDisponibles) return;
+    axios
+      .get('/api/asana/proyectos-disponibles', authHeaders(token))
+      .then((res) => setProyectosDisponibles(res.data))
+      .catch((err) => setErrorProyectos(mensajeError(err, 'No se pudieron traer los proyectos de Asana.')));
+  };
+
+  const handleGuardarProyecto = async () => {
+    const elegido = (proyectosDisponibles || []).find((p) => p.gid === proyectoElegido);
+    if (!elegido) return;
+    try {
+      await axios.put('/api/asana/config/proyecto', { gid: elegido.gid, nombre: elegido.name }, authHeaders(token));
+      setEditandoProyecto(false);
+      setSeccionesDisponibles(null);
+      cargar();
+    } catch (err: any) {
+      setErrorProyectos(mensajeError(err, 'No se pudo guardar el proyecto.'));
+    }
+  };
+
+  const handleAgregarSeccion = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorForm('');
+    if (!nuevoMes || !nuevoAno || !nuevaSeccionGid) {
+      setErrorForm('Completá mes, año y sección.');
+      return;
+    }
+    const seccionElegida = (seccionesDisponibles || []).find((s) => s.gid === nuevaSeccionGid);
+    setGuardandoSeccion(true);
+    try {
+      await axios.post(
+        '/api/asana/config/secciones',
+        { ano: Number(nuevoAno), mes: Number(nuevoMes), seccion_gid: nuevaSeccionGid, seccion_nombre: seccionElegida?.name },
+        authHeaders(token)
+      );
+      setNuevaSeccionGid('');
+      cargar();
+    } catch (err: any) {
+      setErrorForm(mensajeError(err, 'No se pudo guardar la sección.'));
+    } finally {
+      setGuardandoSeccion(false);
+    }
+  };
+
+  const handleQuitarSeccion = async (s: AsanaSeccionMes) => {
+    if (!window.confirm(`¿Quitar la sección de ${NOMBRES_MES[s.mes - 1]} ${s.ano}?`)) return;
+    try {
+      await axios.delete(`/api/asana/config/secciones/${s.id}`, authHeaders(token));
+      cargar();
+    } catch (err: any) {
+      setError(mensajeError(err, 'No se pudo quitar la sección.'));
+    }
+  };
+
+  return (
+    <>
+      <p style={{ maxWidth: 720, color: '#555' }}>
+        Acá se configura a dónde va cada tarea cuando se manda una orden a Asana: en qué proyecto, y en qué sección según su mes de
+        ingreso. Cuando se cree un mes nuevo en Asana (o el proyecto cambie), se agrega o cambia acá — no requiere tocar código.
+      </p>
+
+      {error && <div className="error-message">{error}</div>}
+      {cargando && <p className="empty-state">Cargando...</p>}
+
+      {!cargando && (
+        <>
+          <h3>Proyecto activo</h3>
+          {!editandoProyecto ? (
+            <p>
+              <strong>{proyecto?.nombre || 'Sin configurar'}</strong>
+              {proyecto?.gid && <span style={{ color: '#888' }}> ({proyecto.gid})</span>}{' '}
+              <button className="btn-link" onClick={handleElegirProyecto}>
+                Cambiar
+              </button>
+            </p>
+          ) : (
+            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+              {errorProyectos && <div className="error-message">{errorProyectos}</div>}
+              <select
+                value={proyectoElegido}
+                onChange={(e) => setProyectoElegido(e.target.value)}
+                style={{ minWidth: '22rem' }}
+              >
+                <option value="">Elegir proyecto...</option>
+                {(proyectosDisponibles || []).map((p) => (
+                  <option key={p.gid} value={p.gid}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+              <button className="btn btn-success" type="button" onClick={handleGuardarProyecto} disabled={!proyectoElegido}>
+                Guardar
+              </button>
+              <button className="btn-link" type="button" onClick={() => setEditandoProyecto(false)}>
+                Cancelar
+              </button>
+            </div>
+          )}
+
+          <h3 style={{ marginTop: '2rem' }}>Secciones por mes</h3>
+          {(secciones || []).length === 0 ? (
+            <p className="empty-state">Todavía no hay ninguna sección configurada.</p>
+          ) : (
+            <table className="tabla-datos">
+              <thead>
+                <tr>
+                  <th>Mes</th>
+                  <th>Año</th>
+                  <th>Sección en Asana</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {(secciones || []).map((s) => (
+                  <tr key={s.id}>
+                    <td>{NOMBRES_MES[s.mes - 1]}</td>
+                    <td>{s.ano}</td>
+                    <td>{s.seccion_nombre || s.seccion_gid}</td>
+                    <td>
+                      <button className="btn-link btn-link-danger" onClick={() => handleQuitarSeccion(s)}>
+                        Quitar
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          <form onSubmit={handleAgregarSeccion} style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-end', marginTop: '1rem' }}>
+            <label style={{ fontWeight: 'normal', margin: 0 }}>
+              Mes
+              <select value={nuevoMes} onChange={(e) => setNuevoMes(e.target.value)} style={{ display: 'block', marginTop: '0.25rem' }}>
+                {NOMBRES_MES.map((nombre, i) => (
+                  <option key={i + 1} value={i + 1}>
+                    {nombre}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label style={{ fontWeight: 'normal', margin: 0 }}>
+              Año
+              <input
+                type="number"
+                value={nuevoAno}
+                onChange={(e) => setNuevoAno(e.target.value)}
+                style={{ display: 'block', marginTop: '0.25rem', width: '6rem' }}
+              />
+            </label>
+            <label style={{ fontWeight: 'normal', margin: 0 }}>
+              Sección
+              <select
+                value={nuevaSeccionGid}
+                onChange={(e) => setNuevaSeccionGid(e.target.value)}
+                style={{ display: 'block', marginTop: '0.25rem', minWidth: '12rem' }}
+                disabled={!proyecto?.gid}
+              >
+                <option value="">Elegir sección...</option>
+                {(seccionesDisponibles || []).map((s) => (
+                  <option key={s.gid} value={s.gid}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button className="btn btn-success" type="submit" disabled={guardandoSeccion || !proyecto?.gid}>
+              {guardandoSeccion ? 'Guardando...' : '+ Agregar sección'}
+            </button>
+          </form>
+          {errorSecciones && <div className="error-message">{errorSecciones}</div>}
+          {errorForm && <div className="error-message">{errorForm}</div>}
         </>
       )}
     </>
