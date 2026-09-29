@@ -1,24 +1,50 @@
+import bcrypt from 'bcryptjs';
 import { v4 as uuid } from 'uuid';
 import db from '../database';
 import { Usuario, Sesion, LoginResponse, Permiso } from '../types';
 
-// Simulación de bcrypt (en producción usar librería real)
-const simpleHash = (str: string): string => Buffer.from(str).toString('base64');
-const simpleCompare = (plain: string, hash: string): boolean =>
-  simpleHash(plain) === hash;
+const BCRYPT_SALT_ROUNDS = 10;
 
 export class AutenticacionService {
+  /**
+   * Migración única: las contraseñas viejas se guardaron con
+   * Buffer.from(str).toString('base64') (reversible, no es un hash real).
+   * Un hash de bcrypt siempre arranca con "$2" — cualquier fila que no
+   * empiece así todavía tiene el formato viejo. Se decodifica el Base64
+   * (recupera la contraseña en texto plano, algo que el formato viejo nunca
+   * protegió) y se reemplaza por un hash de bcrypt. Corre una vez al
+   * arrancar el server (index.ts) y es idempotente — en runs siguientes no
+   * encuentra filas para migrar.
+   */
+  static async migrarPasswordsViejas(): Promise<number> {
+    const usuarios: any[] = await new Promise((resolve, reject) => {
+      db.all(`SELECT id, password FROM usuarios WHERE password NOT LIKE '$2%'`, [], (err, rows) =>
+        err ? reject(err) : resolve(rows || [])
+      );
+    });
+
+    for (const u of usuarios) {
+      const passwordPlana = Buffer.from(u.password, 'base64').toString('utf8');
+      const nuevoHash = await bcrypt.hash(passwordPlana, BCRYPT_SALT_ROUNDS);
+      await new Promise<void>((resolve, reject) => {
+        db.run('UPDATE usuarios SET password = ? WHERE id = ?', [nuevoHash, u.id], (err) => (err ? reject(err) : resolve()));
+      });
+    }
+
+    return usuarios.length;
+  }
+
   /**
    * Login de usuario
    */
   static async login(email: string, password: string, ip?: string): Promise<LoginResponse> {
     return new Promise((resolve, reject) => {
-      db.get('SELECT * FROM usuarios WHERE email = ? AND activo = 1', [email], (err, usuario: any) => {
+      db.get('SELECT * FROM usuarios WHERE email = ? AND activo = 1', [email], async (err, usuario: any) => {
         if (err) return reject(err);
         if (!usuario) return reject(new Error('Usuario o contraseña incorrectos'));
 
-        // Comparar contraseña (en producción usar bcrypt)
-        if (!simpleCompare(password, usuario.password)) {
+        const passwordValida = await bcrypt.compare(password, usuario.password);
+        if (!passwordValida) {
           return reject(new Error('Usuario o contraseña incorrectos'));
         }
 
@@ -197,9 +223,9 @@ export class AutenticacionService {
     rol_id: string;
     departamento?: string;
   }): Promise<Usuario> {
+    const passwordHash = await bcrypt.hash(datos.password, BCRYPT_SALT_ROUNDS);
     return new Promise((resolve, reject) => {
       const id = uuid();
-      const passwordHash = simpleHash(datos.password);
 
       db.run(
         `

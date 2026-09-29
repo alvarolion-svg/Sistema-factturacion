@@ -2091,8 +2091,16 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 
 // ==================== START SERVER ====================
 
-app.listen(PORT, () => {
-  console.log(`
+// Migra a bcrypt cualquier contraseña que haya quedado con el formato viejo
+// (Base64 reversible) antes de aceptar conexiones — ver
+// AutenticacionService.migrarPasswordsViejas. Idempotente: en arranques
+// siguientes no encuentra nada para migrar.
+AutenticacionService.migrarPasswordsViejas()
+  .then((cantidad) => {
+    if (cantidad > 0) console.log(`✓ ${cantidad} contraseña(s) migrada(s) a bcrypt`);
+
+    app.listen(PORT, () => {
+      console.log(`
 ╔════════════════════════════════════════╗
 ║   Sistema de Facturación - Backend     ║
 ╚════════════════════════════════════════╝
@@ -2102,4 +2110,9 @@ app.listen(PORT, () => {
 ✓ Database: facturacion.db (SQLite)
 ✓ CORS enabled from: ${process.env.CORS_ORIGIN || '*'}
   `);
-});
+    });
+  })
+  .catch((err) => {
+    console.error('No se pudo migrar las contraseñas viejas a bcrypt:', err);
+    process.exit(1);
+  });

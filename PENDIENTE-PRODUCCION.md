@@ -13,24 +13,20 @@ tener que volver a investigar desde cero.
 
 ## 🔴 Hay que tocar sí o sí antes de publicarla
 
-### 1. Las contraseñas no están hasheadas de verdad
+### 1. Las contraseñas no están hasheadas de verdad — ✅ RESUELTO (2026-09-29)
 
-Archivo: `backend/src/services/autenticacion.ts`, líneas 5-8:
+Se agregó `bcryptjs` (pura JS, sin compilación nativa — más portable entre hostings que `bcrypt`)
+y se reemplazó el Base64 simulado en `backend/src/services/autenticacion.ts`:
+`crearUsuario` ahora hashea con `bcrypt.hash` y `login` compara con `bcrypt.compare`.
 
-```ts
-// Simulación de bcrypt (en producción usar librería real)
-const simpleHash = (str: string): string => Buffer.from(str).toString('base64');
-const simpleCompare = (plain: string, hash: string): boolean =>
-  simpleHash(plain) === hash;
-```
-
-Esto es Base64, no un hash — es reversible en un segundo. El comentario en el propio código ya
-avisa que es un simulacro. Cualquiera con acceso al archivo `backend/facturacion.db` puede leer
-la contraseña real de cada usuario sin esfuerzo.
-
-`bcrypt` **no está instalada** en `backend/package.json` — hay que agregarla y reemplazar
-`simpleHash`/`simpleCompare`, y también el hasheo al crear usuario (`crearUsuario`, línea ~202,
-usa `simpleHash(datos.password)`).
+Se agregó `AutenticacionService.migrarPasswordsViejas()`, que corre una vez al arrancar el server
+(`backend/src/index.ts`, antes de `app.listen`): busca filas de `usuarios` cuya `password` no
+empiece con `$2` (formato de bcrypt), decodifica el Base64 viejo (recupera la contraseña en texto
+plano — el formato viejo nunca la protegió) y la reemplaza por un hash de bcrypt real. Es
+idempotente: en arranques siguientes no encuentra nada para migrar. Verificado en esta sesión:
+el usuario admin existente se migró solo al reiniciar, el login siguió funcionando con la misma
+contraseña, una contraseña incorrecta se sigue rechazando, y un usuario nuevo creado con
+`crearUsuario` queda con hash de bcrypt desde el alta.
 
 ### 2. El token de sesión es predecible, no un JWT real
 
@@ -182,7 +178,7 @@ persistente y las contraseñas bien protegidas (puntos 1 y 5 de arriba).
 
 ## Orden sugerido de trabajo
 
-1. Contraseñas con `bcrypt` (punto 1) — es el más urgente, no requiere decidir hosting antes.
+1. ~~Contraseñas con `bcrypt` (punto 1)~~ — ✅ hecho 2026-09-29.
 2. CORS restringido + token de sesión no predecible (puntos 2 y 3).
 3. Servir `frontend/dist` desde el backend (punto 4).
 4. Elegir hosting con disco persistente y desplegar (punto 5).
