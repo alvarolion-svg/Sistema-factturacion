@@ -1,6 +1,7 @@
 import { v4 as uuid } from 'uuid';
 import db from '../database';
 import { AuditoriaService } from './auditoria';
+import { calcularLineaEstebanVivo, calcularOxantMontos, calcularCutIrisChiterer } from './calculosLiquidaciones';
 
 // Liquidaciones a concesionarios: cuánto le paga Topview a cada concesionario
 // por cada línea de orden, mes a mes. Cantidad/locación/punto se toman de la
@@ -285,24 +286,23 @@ export class LiquidacionesService {
     const lineas = Array.from(porOrden.values())
       .filter((l) => l.declarado !== 0)
       .map((l) => {
-        const comisionVendedor = l.declarado * (condicionVivo.porcentajeComisionVendedor / 100);
-        const neto1 = l.declarado - comisionVendedor;
-        const canon = neto1 * (condicionVivo.porcentajeCanon / 100);
-        const neto2 = neto1 - canon;
-        const gastosTop = neto2 * (condicionVivo.porcentajeGastosTop / 100);
-        const neto3 = neto2 - gastosTop;
-        const comVivo = neto3 * (condicionVivo.porcentajeVivo / 100);
+        const c = calcularLineaEstebanVivo(l.declarado, {
+          comisionVendedor: condicionVivo.porcentajeComisionVendedor,
+          canon: condicionVivo.porcentajeCanon,
+          gastosTop: condicionVivo.porcentajeGastosTop,
+          vivo: condicionVivo.porcentajeVivo,
+        });
         return {
           anunciante: l.anunciante,
           numero_orden: l.numeroOrden,
           declarado: l.declarado,
-          comision_vendedor: comisionVendedor,
-          neto1,
-          canon,
-          neto2,
-          gastos_top: gastosTop,
-          neto3,
-          com_vivo: comVivo,
+          comision_vendedor: c.comisionVendedor,
+          neto1: c.neto1,
+          canon: c.canon,
+          neto2: c.neto2,
+          gastos_top: c.gastosTop,
+          neto3: c.neto3,
+          com_vivo: c.comVivo,
         };
       });
     return {
@@ -403,7 +403,7 @@ export class LiquidacionesService {
         anunciante: l.anunciante,
         numero_orden: l.numeroOrden,
         declarado: l.declarado,
-        cut: l.declarado * (condicion.porcentaje / 100),
+        cut: calcularCutIrisChiterer(l.declarado, condicion.porcentaje),
       }));
     return {
       porcentaje: condicion.porcentaje,
@@ -740,8 +740,7 @@ export class LiquidacionesService {
       }))
     );
     const totalCanon = detalle.reduce((s, d) => s + d.canon, 0);
-    const comision = totalCanon * (condicion.porcentajeComision / 100);
-    const iva = comision * (condicion.ivaPorcentaje / 100);
+    const { comision, iva, total_a_pagar } = calcularOxantMontos(totalCanon, condicion.porcentajeComision, condicion.ivaPorcentaje);
     return {
       porcentaje_comision: condicion.porcentajeComision,
       iva_porcentaje: condicion.ivaPorcentaje,
@@ -749,7 +748,7 @@ export class LiquidacionesService {
       total_canon: totalCanon,
       comision,
       iva,
-      total_a_pagar: comision + iva,
+      total_a_pagar,
     };
   }
 

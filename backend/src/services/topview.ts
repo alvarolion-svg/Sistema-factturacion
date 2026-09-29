@@ -3,6 +3,9 @@ import db from '../database';
 import { OrdenPublicidad, ReplicacionFacturacion } from '../types';
 import { AuditoriaService } from './auditoria';
 import { TesoreriaService } from './tesoreria';
+import { addMonthClamped, subtractMonthClamped, calcularDescuentosCascada, calcularComisionesCascada } from './calculosTopview';
+
+export { addMonthClamped, subtractMonthClamped, calcularDescuentosCascada, calcularComisionesCascada };
 
 const PRODUCTO_SERVICIO_TOPVIEW_ID = 'topview-serv-1';
 // "Ingreso final" de una orden — monto_final si está registrada (pasa por
@@ -14,44 +17,6 @@ const SQL_INGRESO_FINAL = 'CASE WHEN facturado = 0 THEN monto_neto ELSE monto_fi
 // World Padel Pilar) — señal única en tipo_anunciante, sin columna aparte.
 // Ver [[project_world_padel_cuenta_corriente_comerciales]].
 const TIPO_ANUNCIANTE_PAUTA_CONCESIONARIO = 'Pauta Concesionario';
-
-// Suma un mes a una fecha 'YYYY-MM-DD', recortando el día al último real del
-// mes destino (ej. 31/8 + 1 mes = 30/9, no 1/10) — usado para clonar
-// mensualmente una orden según su "vigencia hasta". Si la fecha de origen ya
-// era el último día de SU mes (ej. 30/9, mes de 30 días), el resultado es el
-// último día del mes destino (31/10), no un corrimiento mecánico del número
-// de día — si no, un período "todo septiembre" (1/9 al 30/9) clonaba a
-// "1/10 al 30/10" en vez de "1/10 al 31/10" (bug real, 2026-09-28).
-function addMonthClamped(fecha: string): string {
-  const [y, m, d] = fecha.split('-').map(Number);
-  let nuevoAno = y;
-  let nuevoMes = m + 1;
-  if (nuevoMes > 12) {
-    nuevoMes = 1;
-    nuevoAno += 1;
-  }
-  const ultimoDiaMesActual = new Date(y, m, 0).getDate();
-  const ultimoDiaMesNuevo = new Date(nuevoAno, nuevoMes, 0).getDate();
-  const nuevoDia = d === ultimoDiaMesActual ? ultimoDiaMesNuevo : Math.min(d, ultimoDiaMesNuevo);
-  return `${nuevoAno}-${String(nuevoMes).padStart(2, '0')}-${String(nuevoDia).padStart(2, '0')}`;
-}
-
-// Simétrico a addMonthClamped, pero restando un mes — usado para completar
-// meses anteriores a la base del sistema (timeline hacia atrás).
-function subtractMonthClamped(fecha: string): string {
-  const [y, m, d] = fecha.split('-').map(Number);
-  let nuevoAno = y;
-  let nuevoMes = m - 1;
-  if (nuevoMes < 1) {
-    nuevoMes = 12;
-    nuevoAno -= 1;
-  }
-  const ultimoDiaMesActual = new Date(y, m, 0).getDate();
-  const ultimoDiaMesNuevo = new Date(nuevoAno, nuevoMes, 0).getDate();
-  const nuevoDia = d === ultimoDiaMesActual ? ultimoDiaMesNuevo : Math.min(d, ultimoDiaMesNuevo);
-  return `${nuevoAno}-${String(nuevoMes).padStart(2, '0')}-${String(nuevoDia).padStart(2, '0')}`;
-}
-
 
 interface DatosOrden {
   tipo_anunciante: string;
@@ -150,68 +115,20 @@ export class TopviewService {
           factura_formal: !!inter.factura_formal,
         }));
 
-        // Descuentos NC1 (comercial), NC2 (comercial, opcional — algunas agencias
-        // negocian dos NC sucesivos) y FC (facturas): cada uno puede ser directo
-        // sobre el bruto o en cascada sobre lo que van dejando los anteriores —
-        // depende de lo pactado con cada agencia. Misma lógica que las comisiones
-        // a comisionistas (más abajo), para que ambos mecanismos se comporten igual.
-        const descuentosOrdenados: Array<{ pct: number; cascada: boolean }> = [
-          { pct: datos.descuento_porcentaje, cascada: !!datos.descuento_en_cascada },
-          { pct: datos.descuento_porcentaje_2 || 0, cascada: !!datos.descuento_en_cascada_2 },
-          { pct: datos.descuento_facturas_porcentaje, cascada: !!datos.descuento_facturas_en_cascada },
-        ];
-        let descuentoMonto = 0;
-        let descuentoMonto2 = 0;
-        let descuentoFacturasMonto = 0;
-        {
-          let montoActual = datos.monto_neto;
-          descuentosOrdenados.forEach(({ pct, cascada }, idx) => {
-            const base = cascada ? montoActual : datos.monto_neto;
-            const monto = base * (pct / 100);
-            if (cascada) montoActual -= monto;
-            if (idx === 0) descuentoMonto = monto;
-            else if (idx === 1) descuentoMonto2 = monto;
-            else descuentoFacturasMonto = monto;
-          });
-        }
-        const montoNetoAplicado = datos.monto_neto - descuentoMonto - descuentoMonto2;
-        // "Neto blanco": lo que queda después de NC1/NC2/FC, antes de comisiones a intermediarios.
-        const montoNetoBlanco = datos.monto_neto - descuentoMonto - descuentoMonto2 - descuentoFacturasMonto;
+        // Descuentos NC1/NC2/FC y comisiones a comisionistas — ver
+        // calcularDescuentosCascada/calcularComisionesCascada más arriba en
+        // este archivo para el detalle de la lógica (misma que actualizarOrden).
+        const { descuentoMonto, descuentoMonto2, descuentoFacturasMonto, montoNetoAplicado, montoNetoBlanco } =
+          calcularDescuentosCascada(datos.monto_neto, [
+            { pct: datos.descuento_porcentaje, cascada: !!datos.descuento_en_cascada },
+            { pct: datos.descuento_porcentaje_2 || 0, cascada: !!datos.descuento_en_cascada_2 },
+            { pct: datos.descuento_facturas_porcentaje, cascada: !!datos.descuento_facturas_en_cascada },
+          ]);
 
-        // Comisiones a comisionistas: 'cascada' aplica sobre lo que va quedando
-        // DESPUÉS de todas las comisiones anteriores (sean cascada o base) — un
-        // nivel "base" también resta de ese remanente, solo que su propio % se
-        // calcula sobre el neto blanco fijo, no sobre el remanente. 'base' sirve
-        // para comisionistas que cobran cada uno su % directo del mismo neto
-        // blanco, en paralelo entre sí (ej. GCBA/YPF: comisionista 15% + 25%,
-        // ambos sobre el mismo neto, sin descontarse uno a otro). Un tercer nivel
-        // en cascada después de dos "base" cobra sobre lo que quedó después de
-        // restar ambos — validado contra el caso real IPG/AMEX (LatamNet 15%
-        // base + Pupy 5% base + Juan 5% cascada sobre el remanente de los dos
-        // anteriores, no sobre el neto blanco entero).
-        // Se calcula una sola vez acá y se reutiliza tanto para persistir monto_final
-        // como para las filas de ordenes_intermediarios, para que nunca diverjan.
-        const comisionesCalculadas: Array<{
-          intermediario_id: string;
-          porcentaje_comision: number;
-          tipo_calculo: 'base' | 'cascada';
-          factura_formal?: boolean;
-          monto_comision: number;
-        }> = [];
-        let montoFinal = montoNetoBlanco;
-        {
-          let montoActual = montoNetoBlanco;
-          (intermediariosConFacturaFormal || []).forEach((inter) => {
-            const tipoCalculo = inter.tipo_calculo || 'cascada';
-            const montoComision =
-              tipoCalculo === 'base'
-                ? montoNetoBlanco * (inter.porcentaje_comision / 100)
-                : montoActual * (inter.porcentaje_comision / 100);
-            montoActual -= montoComision;
-            montoFinal -= montoComision;
-            comisionesCalculadas.push({ ...inter, tipo_calculo: tipoCalculo, monto_comision: montoComision });
-          });
-        }
+        const { comisionesCalculadas, montoFinal } = calcularComisionesCascada(
+          montoNetoBlanco,
+          intermediariosConFacturaFormal || []
+        );
 
         // Mes/año de ingreso: si no se especifica, se toma por defecto el mes/año de
         // inicio del período — pero es un campo discrecional, editable en la carga.
@@ -611,51 +528,19 @@ export class TopviewService {
       factura_formal: !!inter.factura_formal,
     }));
 
-    const descuentosOrdenados: Array<{ pct: number; cascada: boolean }> = [
-      { pct: datos.descuento_porcentaje, cascada: !!datos.descuento_en_cascada },
-      { pct: datos.descuento_porcentaje_2 || 0, cascada: !!datos.descuento_en_cascada_2 },
-      { pct: datos.descuento_facturas_porcentaje, cascada: !!datos.descuento_facturas_en_cascada },
-    ];
-    let descuentoMonto = 0;
-    let descuentoMonto2 = 0;
-    let descuentoFacturasMonto = 0;
-    {
-      let montoActual = datos.monto_neto;
-      descuentosOrdenados.forEach(({ pct, cascada }, idx) => {
-        const base = cascada ? montoActual : datos.monto_neto;
-        const monto = base * (pct / 100);
-        if (cascada) montoActual -= monto;
-        if (idx === 0) descuentoMonto = monto;
-        else if (idx === 1) descuentoMonto2 = monto;
-        else descuentoFacturasMonto = monto;
-      });
-    }
-    const montoNetoAplicado = datos.monto_neto - descuentoMonto - descuentoMonto2;
-    const montoNetoBlanco = datos.monto_neto - descuentoMonto - descuentoMonto2 - descuentoFacturasMonto;
+    // Ver calcularDescuentosCascada/calcularComisionesCascada más arriba en
+    // este archivo (misma lógica que crearOrdenUnica).
+    const { descuentoMonto, descuentoMonto2, descuentoFacturasMonto, montoNetoAplicado, montoNetoBlanco } =
+      calcularDescuentosCascada(datos.monto_neto, [
+        { pct: datos.descuento_porcentaje, cascada: !!datos.descuento_en_cascada },
+        { pct: datos.descuento_porcentaje_2 || 0, cascada: !!datos.descuento_en_cascada_2 },
+        { pct: datos.descuento_facturas_porcentaje, cascada: !!datos.descuento_facturas_en_cascada },
+      ]);
 
-    // Ver el comentario equivalente en crearOrden: 'cascada' cobra sobre el
-    // remanente después de TODAS las comisiones anteriores (cascada o base).
-    const comisionesCalculadas: Array<{
-      intermediario_id: string;
-      porcentaje_comision: number;
-      tipo_calculo: 'base' | 'cascada';
-      factura_formal?: boolean;
-      monto_comision: number;
-    }> = [];
-    let montoFinal = montoNetoBlanco;
-    {
-      let montoActual = montoNetoBlanco;
-      intermediariosConFacturaFormal.forEach((inter) => {
-        const tipoCalculo = inter.tipo_calculo || 'cascada';
-        const montoComision =
-          tipoCalculo === 'base'
-            ? montoNetoBlanco * (inter.porcentaje_comision / 100)
-            : montoActual * (inter.porcentaje_comision / 100);
-        montoActual -= montoComision;
-        montoFinal -= montoComision;
-        comisionesCalculadas.push({ ...inter, tipo_calculo: tipoCalculo, monto_comision: montoComision });
-      });
-    }
+    const { comisionesCalculadas, montoFinal } = calcularComisionesCascada(
+      montoNetoBlanco,
+      intermediariosConFacturaFormal
+    );
 
     const [anoDesde, mesDesde] = datos.periodo_desde.split('-').map(Number);
     const mesIngreso = datos.mes_ingreso || mesDesde;
