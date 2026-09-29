@@ -5,6 +5,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { authHeaders, mensajeError, formatMoney, formatFecha } from '../utils/api';
 import { InputMiles, InputPorcentaje } from './CamposMonto';
+import { usePdfPreview, PdfExportMenu } from '../hooks/usePdfPreview';
 
 const NOMBRES_MES = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -139,6 +140,7 @@ function LiquidacionesTab({
   onVerOrden?: (ordenId: string) => void;
 }) {
   const hoy = new Date();
+  const { mostrarPdf } = usePdfPreview();
   const [concesionarios, setConcesionarios] = useState<Concesionario[]>([]);
   const [concesionarioId, setConcesionarioId] = useState('');
   const [mes, setMes] = useState(String(hoy.getMonth() + 1));
@@ -644,7 +646,7 @@ function LiquidacionesTab({
     URL.revokeObjectURL(url);
   };
 
-  const handleExportarPDF = () => {
+  const handleExportarPDF = (accion: 'preview' | 'descargar' = 'descargar') => {
     const doc = new jsPDF();
     doc.setFontSize(13);
     doc.text(nombreConcesionario, 14, 15);
@@ -708,7 +710,9 @@ function LiquidacionesTab({
       styles: { fontSize: 9, fontStyle: 'bold' },
       theme: 'plain',
     });
-    doc.save(nombreArchivoExport('pdf'));
+    const archivoNombre = nombreArchivoExport('pdf');
+    if (accion === 'preview') mostrarPdf(doc, archivoNombre);
+    else doc.save(archivoNombre);
   };
 
   const nombreArchivoComerciales = (ext: string) =>
@@ -767,7 +771,7 @@ function LiquidacionesTab({
     URL.revokeObjectURL(url);
   };
 
-  const handleExportarComercialesPDF = () => {
+  const handleExportarComercialesPDF = (accion: 'preview' | 'descargar' = 'descargar') => {
     if (!comerciales) return;
     const doc = new jsPDF();
     doc.setFontSize(13);
@@ -819,7 +823,9 @@ function LiquidacionesTab({
       footStyles: { fillColor: [240, 240, 240], textColor: [0, 0, 0], fontStyle: 'bold' },
     });
 
-    doc.save(nombreArchivoComerciales('pdf'));
+    const archivoNombre = nombreArchivoComerciales('pdf');
+    if (accion === 'preview') mostrarPdf(doc, archivoNombre);
+    else doc.save(archivoNombre);
   };
 
   return (
@@ -958,9 +964,11 @@ function LiquidacionesTab({
                 <button type="button" className="btn-secondary" onClick={handleExportarExcel}>
                   Exportar Excel
                 </button>
-                <button type="button" className="btn-secondary" onClick={handleExportarPDF}>
-                  Exportar PDF
-                </button>
+                <PdfExportMenu
+                  etiqueta="PDF"
+                  onPreview={() => handleExportarPDF('preview')}
+                  onDescargar={() => handleExportarPDF('descargar')}
+                />
                 {filas.some((f) => f.excluida && !f.inicio_tardio) && (
                   <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontWeight: 'normal' }}>
                     <input type="checkbox" checked={mostrarExcluidas} onChange={(e) => setMostrarExcluidas(e.target.checked)} />
@@ -1280,9 +1288,11 @@ function LiquidacionesTab({
                     <button type="button" className="btn-secondary" onClick={handleExportarComercialesExcel}>
                       Exportar Excel (Comerciales)
                     </button>
-                    <button type="button" className="btn-secondary" onClick={handleExportarComercialesPDF}>
-                      Exportar PDF (Comerciales)
-                    </button>
+                    <PdfExportMenu
+                      etiqueta="PDF (Comerciales)"
+                      onPreview={() => handleExportarComercialesPDF('preview')}
+                      onDescargar={() => handleExportarComercialesPDF('descargar')}
+                    />
                   </div>
 
                   {(comerciales.detalle_mes_actual.topview.length > 0 || comerciales.detalle_mes_actual.concesionario.length > 0) && (
@@ -1581,6 +1591,8 @@ function CondicionesConcesionarioTab({ token }: { token: string }) {
   const [guardadoId, setGuardadoId] = useState<string | null>(null);
   const [expandidoId, setExpandidoId] = useState<string | null>(null);
   const [percepcionForm, setPercepcionForm] = useState({ nombre: '', porcentaje: '', tipo: 'suma' as 'suma' | 'resta' });
+  const [editandoPercepcionId, setEditandoPercepcionId] = useState<string | null>(null);
+  const [percepcionEditForm, setPercepcionEditForm] = useState({ nombre: '', porcentaje: '', tipo: 'suma' as 'suma' | 'resta' });
   const [vivoLocal, setVivoLocal] = useState<Record<string, { comisionVendedor: string; canon: string; gastosTop: string; vivo: string }>>({});
   const [guardandoVivoId, setGuardandoVivoId] = useState<string | null>(null);
   const [guardadoVivoId, setGuardadoVivoId] = useState<string | null>(null);
@@ -1698,6 +1710,34 @@ function CondicionesConcesionarioTab({ token }: { token: string }) {
       cargar();
     } catch (err: any) {
       setError(mensajeError(err, 'No se pudo agregar la percepción.'));
+    }
+  };
+
+  const handleEmpezarEditarPercepcion = (p: Percepcion) => {
+    setEditandoPercepcionId(p.id);
+    setPercepcionEditForm({ nombre: p.nombre, porcentaje: String(p.porcentaje), tipo: p.tipo });
+  };
+
+  const handleGuardarEditarPercepcion = async (id: string) => {
+    if (!percepcionEditForm.nombre.trim()) {
+      setError('El nombre de la percepción es obligatorio.');
+      return;
+    }
+    setError('');
+    try {
+      await axios.put(
+        `/api/liquidaciones/condiciones/percepciones/${id}`,
+        {
+          nombre: percepcionEditForm.nombre,
+          porcentaje: Number(percepcionEditForm.porcentaje) || 0,
+          tipo: percepcionEditForm.tipo,
+        },
+        authHeaders(token)
+      );
+      setEditandoPercepcionId(null);
+      cargar();
+    } catch (err: any) {
+      setError(mensajeError(err, 'No se pudo guardar la percepción.'));
     }
   };
 
@@ -1825,13 +1865,16 @@ function CondicionesConcesionarioTab({ token }: { token: string }) {
           <tbody>
             {condiciones.map((c) => (
               <Fragment key={c.concesionario_id}>
-                <tr>
+                <tr
+                  style={{ cursor: 'pointer' }}
+                  onClick={() => setExpandidoId((actual) => (actual === c.concesionario_id ? null : c.concesionario_id))}
+                >
                   <td>{c.razon_social}</td>
-                  <td>
+                  <td onClick={(e) => e.stopPropagation()}>
                     <input
                       type="number"
                       min="0"
-                      step="0.01"
+                      step="any"
                       value={valoresLocal[c.concesionario_id]?.canon ?? ''}
                       onChange={(e) =>
                         setValoresLocal((actual) => ({
@@ -1843,11 +1886,11 @@ function CondicionesConcesionarioTab({ token }: { token: string }) {
                     />{' '}
                     %
                   </td>
-                  <td>
+                  <td onClick={(e) => e.stopPropagation()}>
                     <input
                       type="number"
                       min="0"
-                      step="0.01"
+                      step="any"
                       value={valoresLocal[c.concesionario_id]?.iva ?? ''}
                       onChange={(e) =>
                         setValoresLocal((actual) => ({
@@ -1866,7 +1909,7 @@ function CondicionesConcesionarioTab({ token }: { token: string }) {
                           .map((p) => `${p.nombre} ${p.porcentaje}%${p.tipo === 'resta' ? ' (resta)' : ''}`)
                           .join(', ')}
                   </td>
-                  <td style={{ fontSize: '0.85rem', whiteSpace: 'nowrap' }}>
+                  <td style={{ fontSize: '0.85rem', whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
                     <button type="button" className="btn-link" onClick={() => handleGuardar(c.concesionario_id)} style={{ marginRight: '0.5rem' }}>
                       Guardar
                     </button>
@@ -1897,14 +1940,52 @@ function CondicionesConcesionarioTab({ token }: { token: string }) {
                     <td colSpan={5} style={{ background: '#fafafa' }}>
                       {c.percepciones.length > 0 && (
                         <ul style={{ margin: '0.4rem 0' }}>
-                          {c.percepciones.map((p) => (
-                            <li key={p.id} style={p.tipo === 'resta' ? { color: 'var(--color-peligro, #c62828)' } : undefined}>
-                              {p.nombre}: {p.porcentaje}%{p.tipo === 'resta' ? ' (resta del Canon — ej. tasas municipales)' : ' (suma — ej. IIBB)'}{' '}
-                              <button type="button" className="btn-link btn-link-danger" onClick={() => handleEliminarPercepcion(p)}>
-                                Quitar
-                              </button>
-                            </li>
-                          ))}
+                          {c.percepciones.map((p) =>
+                            editandoPercepcionId === p.id ? (
+                              <li key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                <input
+                                  type="text"
+                                  placeholder="Nombre"
+                                  value={percepcionEditForm.nombre}
+                                  onChange={(e) => setPercepcionEditForm((f) => ({ ...f, nombre: e.target.value }))}
+                                  style={{ width: '10rem' }}
+                                />
+                                <input
+                                  type="number"
+                                  placeholder="%"
+                                  value={percepcionEditForm.porcentaje}
+                                  onChange={(e) => setPercepcionEditForm((f) => ({ ...f, porcentaje: e.target.value }))}
+                                  style={{ width: '4.5rem' }}
+                                />
+                                <label style={{ fontWeight: 'normal', fontSize: '0.85rem' }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={percepcionEditForm.tipo === 'resta'}
+                                    onChange={(e) =>
+                                      setPercepcionEditForm((f) => ({ ...f, tipo: e.target.checked ? 'resta' : 'suma' }))
+                                    }
+                                  />
+                                  {' '}Resta del Canon
+                                </label>
+                                <button type="button" className="btn-link" onClick={() => handleGuardarEditarPercepcion(p.id)}>
+                                  Guardar
+                                </button>
+                                <button type="button" className="btn-link" onClick={() => setEditandoPercepcionId(null)}>
+                                  Cancelar
+                                </button>
+                              </li>
+                            ) : (
+                              <li key={p.id} style={p.tipo === 'resta' ? { color: 'var(--color-peligro, #c62828)' } : undefined}>
+                                {p.nombre}: {p.porcentaje}%{p.tipo === 'resta' ? ' (resta del Canon — ej. tasas municipales)' : ' (suma — ej. IIBB)'}{' '}
+                                <button type="button" className="btn-link" onClick={() => handleEmpezarEditarPercepcion(p)}>
+                                  Editar
+                                </button>{' '}
+                                <button type="button" className="btn-link btn-link-danger" onClick={() => handleEliminarPercepcion(p)}>
+                                  Quitar
+                                </button>
+                              </li>
+                            )
+                          )}
                         </ul>
                       )}
                       <form
@@ -1921,7 +2002,7 @@ function CondicionesConcesionarioTab({ token }: { token: string }) {
                         <input
                           type="number"
                           min="0"
-                          step="0.01"
+                          step="any"
                           placeholder="%"
                           value={percepcionForm.porcentaje}
                           onChange={(e) => setPercepcionForm((f) => ({ ...f, porcentaje: e.target.value }))}
@@ -2175,6 +2256,7 @@ interface OxantData {
 // solo se calcula y se exporta.
 function OxantTab({ token }: { token: string }) {
   const hoy = new Date();
+  const { mostrarPdf } = usePdfPreview();
   const [mes, setMes] = useState(String(hoy.getMonth() + 1));
   const [ano, setAno] = useState(String(hoy.getFullYear()));
   const [data, setData] = useState<OxantData | null>(null);
@@ -2236,7 +2318,7 @@ function OxantTab({ token }: { token: string }) {
     URL.revokeObjectURL(url);
   };
 
-  const handleExportarPDF = () => {
+  const handleExportarPDF = (accion: 'preview' | 'descargar' = 'descargar') => {
     if (!data) return;
     const doc = new jsPDF();
     doc.setFontSize(13);
@@ -2257,7 +2339,9 @@ function OxantTab({ token }: { token: string }) {
       theme: 'plain',
       columnStyles: { 1: { halign: 'right' } },
     });
-    doc.save(nombreArchivo('pdf'));
+    const archivoNombre = nombreArchivo('pdf');
+    if (accion === 'preview') mostrarPdf(doc, archivoNombre);
+    else doc.save(archivoNombre);
   };
 
   return (
@@ -2301,9 +2385,11 @@ function OxantTab({ token }: { token: string }) {
             <button type="button" className="btn-secondary" onClick={handleExportarExcel}>
               Exportar Excel (Oxant)
             </button>
-            <button type="button" className="btn-secondary" onClick={handleExportarPDF}>
-              Exportar PDF (Oxant)
-            </button>
+            <PdfExportMenu
+              etiqueta="PDF (Oxant)"
+              onPreview={() => handleExportarPDF('preview')}
+              onDescargar={() => handleExportarPDF('descargar')}
+            />
           </div>
           <table className="data-table" style={{ maxWidth: '32rem' }}>
             <tbody>
@@ -2352,6 +2438,7 @@ function OxantTab({ token }: { token: string }) {
 // [[project_esteban_vivo_comisiona_no_comisionista]].
 function EstebanVivoTab({ token }: { token: string }) {
   const hoy = new Date();
+  const { mostrarPdf } = usePdfPreview();
   const [mes, setMes] = useState(String(hoy.getMonth() + 1));
   const [ano, setAno] = useState(String(hoy.getFullYear()));
   const [data, setData] = useState<EstebanVivoData | null>(null);
@@ -2451,7 +2538,7 @@ function EstebanVivoTab({ token }: { token: string }) {
     URL.revokeObjectURL(url);
   };
 
-  const handleExportarPDF = () => {
+  const handleExportarPDF = (accion: 'preview' | 'descargar' = 'descargar') => {
     if (!data) return;
     const doc = new jsPDF({ orientation: 'landscape' });
     doc.setFontSize(13);
@@ -2499,7 +2586,9 @@ function EstebanVivoTab({ token }: { token: string }) {
     });
     doc.setFontSize(11);
     doc.text(`TOTAL A PAGAR: ${formatMoney(data.total_a_pagar)}`, 14, startY);
-    doc.save(nombreArchivo('pdf'));
+    const archivoNombre = nombreArchivo('pdf');
+    if (accion === 'preview') mostrarPdf(doc, archivoNombre);
+    else doc.save(archivoNombre);
   };
 
   return (
@@ -2547,9 +2636,11 @@ function EstebanVivoTab({ token }: { token: string }) {
             <button type="button" className="btn-secondary" onClick={handleExportarExcel}>
               Exportar Excel (Esteban Vivo)
             </button>
-            <button type="button" className="btn-secondary" onClick={handleExportarPDF}>
-              Exportar PDF (Esteban Vivo)
-            </button>
+            <PdfExportMenu
+              etiqueta="PDF (Esteban Vivo)"
+              onPreview={() => handleExportarPDF('preview')}
+              onDescargar={() => handleExportarPDF('descargar')}
+            />
           </div>
 
           {data.detalle
@@ -2639,6 +2730,7 @@ interface IrisChitererData {
 // Ver [[project_concesionario_por_punto_no_por_locacion]].
 function IrisChitererTab({ token }: { token: string }) {
   const hoy = new Date();
+  const { mostrarPdf } = usePdfPreview();
   const [mes, setMes] = useState(String(hoy.getMonth() + 1));
   const [ano, setAno] = useState(String(hoy.getFullYear()));
   const [data, setData] = useState<IrisChitererData | null>(null);
@@ -2706,7 +2798,7 @@ function IrisChitererTab({ token }: { token: string }) {
     URL.revokeObjectURL(url);
   };
 
-  const handleExportarPDF = () => {
+  const handleExportarPDF = (accion: 'preview' | 'descargar' = 'descargar') => {
     if (!data) return;
     const doc = new jsPDF();
     doc.setFontSize(13);
@@ -2730,7 +2822,9 @@ function IrisChitererTab({ token }: { token: string }) {
     });
     doc.setFontSize(11);
     doc.text(`TOTAL A PAGAR: ${formatMoney(data.total_a_pagar)}`, 14, startY);
-    doc.save(nombreArchivo('pdf'));
+    const archivoNombre = nombreArchivo('pdf');
+    if (accion === 'preview') mostrarPdf(doc, archivoNombre);
+    else doc.save(archivoNombre);
   };
 
   return (
@@ -2778,9 +2872,11 @@ function IrisChitererTab({ token }: { token: string }) {
             <button type="button" className="btn-secondary" onClick={handleExportarExcel}>
               Exportar Excel (Iris Chiterer)
             </button>
-            <button type="button" className="btn-secondary" onClick={handleExportarPDF}>
-              Exportar PDF (Iris Chiterer)
-            </button>
+            <PdfExportMenu
+              etiqueta="PDF (Iris Chiterer)"
+              onPreview={() => handleExportarPDF('preview')}
+              onDescargar={() => handleExportarPDF('descargar')}
+            />
           </div>
 
           {data.detalle

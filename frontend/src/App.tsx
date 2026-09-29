@@ -81,8 +81,8 @@ function App() {
       <div className="container">
         <header className="header">
           <img src="/img/logo-topview-blanco.jpg" alt="Topview" className="header-logo-left" />
-          <h1>Sistema de Facturación</h1>
-          <p>Gestión de facturas, clientes y reportes</p>
+          <h1>Gestion de Ordenes</h1>
+          <p>Gestión de ordenes, clientes y reportes</p>
         </header>
         <main className="main">
           <p className="empty-state">Verificando sesión...</p>
@@ -96,8 +96,8 @@ function App() {
       <div className="container">
         <header className="header">
           <img src="/img/logo-topview-blanco.jpg" alt="Topview" className="header-logo-left" />
-          <h1>Sistema de Facturación</h1>
-          <p>Gestión de facturas, clientes y reportes</p>
+          <h1>Gestion de Ordenes</h1>
+          <p>Gestión de ordenes, clientes y reportes</p>
           <button
             onClick={handleLogout}
             style={{
@@ -164,7 +164,7 @@ function App() {
         </main>
 
         <footer className="footer">
-          <p>&copy; 2024 Sistema de Facturación. Todos los derechos reservados.</p>
+          <p>&copy; 2024 Gestion de Ordenes. Todos los derechos reservados.</p>
         </footer>
       </div>
     );
@@ -174,8 +174,8 @@ function App() {
     <div className="container login-container">
       <header className="header">
         <img src="/img/logo-topview-blanco.jpg" alt="Topview" className="header-logo-left" />
-        <h1>Sistema de Facturación</h1>
-        <p>Gestión de facturas, clientes y reportes</p>
+        <h1>Gestion de Ordenes</h1>
+        <p>Gestión de ordenes, clientes y reportes</p>
       </header>
 
       <main className="main">
@@ -222,7 +222,7 @@ function App() {
       </main>
 
       <footer className="footer">
-        <p>&copy; 2024 Sistema de Facturación. Todos los derechos reservados.</p>
+        <p>&copy; 2024 Gestion de Ordenes. Todos los derechos reservados.</p>
       </footer>
     </div>
   );

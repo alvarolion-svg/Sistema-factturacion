@@ -4,6 +4,7 @@ import ExcelJS from 'exceljs';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { authHeaders, mensajeError, formatMoney, formatFecha, scrollAlFormulario } from '../utils/api';
+import { usePdfPreview, PdfExportMenu } from '../hooks/usePdfPreview';
 
 const ESTADOS_PRODUCCION = ['Cargada', 'Revisada', 'Facturada'];
 
@@ -66,6 +67,7 @@ function ProduccionTopviewTab({
 }) {
   const [ordenes, setOrdenes] = useState<any[] | null>(null);
   const [error, setError] = useState('');
+  const { mostrarPdf } = usePdfPreview();
   const [clientes, setClientes] = useState<{ id: string; razon_social: string }[]>([]);
   const [agencias, setAgencias] = useState<{ id: string; nombre: string }[]>([]);
   const [proveedores, setProveedores] = useState<{ id: string; razon_social: string }[]>([]);
@@ -557,7 +559,7 @@ function ProduccionTopviewTab({
     URL.revokeObjectURL(url);
   };
 
-  const handleExportarPDF = () => {
+  const handleExportarPDF = (accion: 'preview' | 'descargar' = 'descargar') => {
     const filas = ordenesFiltradas.map((o) => filaExport(o, false));
     const doc = new jsPDF({ orientation: 'landscape' });
     autoTable(doc, {
@@ -566,7 +568,9 @@ function ProduccionTopviewTab({
       styles: { fontSize: 7, cellPadding: 1.5 },
       headStyles: { fillColor: [232, 24, 56] },
     });
-    doc.save(nombreArchivoExport('pdf'));
+    const archivoNombre = nombreArchivoExport('pdf');
+    if (accion === 'preview') mostrarPdf(doc, archivoNombre);
+    else doc.save(archivoNombre);
   };
 
   if (detalleId) {
@@ -1003,7 +1007,7 @@ function ProduccionTopviewTab({
                   type="number"
                   min="0"
                   max="100"
-                  step="0.01"
+                  step="any"
                   placeholder="Desc. %"
                   value={l.descuento_porcentaje}
                   onChange={(e) => handleChangeLinea(i, 'descuento_porcentaje', e.target.value)}
@@ -1101,14 +1105,12 @@ function ProduccionTopviewTab({
             >
               Exportar Excel
             </button>
-            <button
-              type="button"
-              className="btn-secondary"
-              onClick={handleExportarPDF}
+            <PdfExportMenu
+              etiqueta="PDF"
               disabled={ordenesFiltradas.length === 0}
-            >
-              Exportar PDF
-            </button>
+              onPreview={() => handleExportarPDF('preview')}
+              onDescargar={() => handleExportarPDF('descargar')}
+            />
           </div>
         </div>
       )}

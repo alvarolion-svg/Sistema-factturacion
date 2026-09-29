@@ -62,7 +62,7 @@ export function InputPorcentaje({
         type="number"
         min="0"
         max="100"
-        step="0.01"
+        step="any"
         placeholder={placeholder}
         value={value}
         onChange={(e) => onChange(e.target.value)}

@@ -718,7 +718,7 @@ function ClientesView({ token, usuario }: ClientesViewProps) {
               id="porcentaje_iva"
               type="number"
               min="0"
-              step="0.01"
+              step="any"
               value={nuevoCliente.porcentaje_iva}
               onChange={(e) => handleChange('porcentaje_iva', e.target.value)}
               disabled={guardando}
