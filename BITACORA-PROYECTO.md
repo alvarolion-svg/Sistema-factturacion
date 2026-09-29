@@ -275,6 +275,15 @@ más importantes:
     mes a mes (con acarreo de año) en vez de paginación genérica por número — decisión explícita del
     usuario, encaja mejor con cómo ya piensa el negocio. "Ver todas" saca el filtro de mes/año sin
     tocar los demás filtros; "Limpiar filtro" sigue reseteando todo. Sin cambios en el backend.
+12. **Módulo de Disponibilidad — pendiente, se construye en otra sesión/chat (Sonnet 5.5) a
+    propósito**: el usuario quiere que un chat nuevo lo desarrolle sin tener que releer toda esta
+    conversación (costo de tokens), pero con visión de integración futura a este sistema. Se dejó
+    [`DISPONIBILIDAD-CONTEXTO-INTEGRACION.md`](./DISPONIBILIDAD-CONTEXTO-INTEGRACION.md) (raíz del
+    repo) como briefing corto para pegar al arrancar esa sesión nueva: modelo de datos relevante
+    (`locaciones`/`locaciones_capacidad`/`locaciones_puntos`/`ordenes_publicidad_detalles`, cómo se
+    calcula ocupación vs. capacidad), convenciones a respetar (soft-delete, periodo_desde/hasta vs.
+    mes_ingreso/ano_ingreso, nombres de permisos) y qué evitar duplicar. Nada de esto está construido
+    todavía en este repo — es solo el puente de contexto para que el otro proyecto nazca compatible.
 
 ## Cómo trabaja este usuario (para que una sesión nueva no tenga que redescubrirlo)
 
