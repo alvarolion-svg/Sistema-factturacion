@@ -14,6 +14,8 @@ import { TopviewService } from './services/topview';
 import { ProduccionTopviewService } from './services/produccionTopview';
 import { LocacionesService } from './services/locaciones';
 import { LiquidacionesService } from './services/liquidaciones';
+import { AsanaService } from './services/asana';
+import { AsanaConfigService } from './services/asanaConfig';
 import { autenticacion, requierePermiso, RequestConUsuario } from './middleware';
 import { v4 as uuid } from 'uuid';
 
@@ -688,9 +690,9 @@ app.get('/api/auditoria/:tabla/:id', autenticacion, requierePermiso('auditoria_v
 
 app.post('/api/ordenes-publicidad', autenticacion, requierePermiso('topview_crear'), async (req: RequestConUsuario, res: Response) => {
   try {
-    const orden = await TopviewService.crearOrden(req.body);
+    const { orden, clonado } = await TopviewService.crearOrden(req.body);
     AuditoriaService.registrarOperacion('ordenes_publicidad', 'INSERT', orden.id, null, orden, req.usuario?.id, req.ip);
-    res.json(orden);
+    res.json({ ...orden, _clonado: clonado });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -698,8 +700,8 @@ app.post('/api/ordenes-publicidad', autenticacion, requierePermiso('topview_crea
 
 app.put('/api/ordenes-publicidad/:id', autenticacion, requierePermiso('topview_editar'), async (req: RequestConUsuario, res: Response) => {
   try {
-    const orden = await TopviewService.actualizarOrden(req.params.id, req.body);
-    res.json(orden);
+    const { orden, clonado } = await TopviewService.actualizarOrden(req.params.id, req.body);
+    res.json({ ...orden, _clonado: clonado });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -707,12 +709,176 @@ app.put('/api/ordenes-publicidad/:id', autenticacion, requierePermiso('topview_e
 
 app.get('/api/ordenes-publicidad/:id', autenticacion, requierePermiso('topview_ver'), async (req: RequestConUsuario, res: Response) => {
   try {
-    const orden = await TopviewService.obtenerOrden(req.params.id);
+    const incluirComisiones = !!req.permisos?.includes('topview_netos_ver');
+    const orden = await TopviewService.obtenerOrden(req.params.id, incluirComisiones);
     res.json(orden);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
+
+app.post(
+  '/api/ordenes-publicidad/:id/clonar-a-mes',
+  autenticacion,
+  requierePermiso('topview_crear'),
+  async (req: RequestConUsuario, res: Response) => {
+    try {
+      const mes = Number(req.body.mes);
+      const ano = Number(req.body.ano);
+      if (!mes || !ano) return res.status(400).json({ error: 'Falta mes/año destino.' });
+      const { orden, yaExistia } = await TopviewService.clonarOrdenAMes(req.params.id, mes, ano);
+      if (!yaExistia) {
+        AuditoriaService.registrarOperacion('ordenes_publicidad', 'INSERT', orden.id, null, orden, req.usuario?.id, req.ip);
+      }
+      res.json({ orden, ya_existia: yaExistia });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+// Vista previa: arma el nombre/cuerpo de la tarea de Asana sin llamar a la
+// API de Asana — no necesita ASANA_ACCESS_TOKEN, sirve para ver qué datos se
+// extraen antes de mandar nada de verdad.
+app.get('/api/ordenes-publicidad/:id/asana-preview', autenticacion, requierePermiso('topview_ver'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const tarea = await AsanaService.construirTarea(req.params.id);
+    res.json(tarea);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/ordenes-publicidad/:id/asana', autenticacion, requierePermiso('topview_editar'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const resultado = await AsanaService.generarTarea(req.params.id);
+    res.json(resultado);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/ordenes-publicidad/:id/asana/asignar', autenticacion, requierePermiso('topview_editar'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    await AsanaService.asignarResponsables(req.params.id);
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/ordenes-publicidad/:id/asana', autenticacion, requierePermiso('topview_editar'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const resultado = await AsanaService.borrarTareasDesde(req.params.id);
+    res.json(resultado);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Acciones masivas desde el listado de Órdenes: mismo botón de siempre,
+// aplicado a la tanda de ids que el usuario tildó (selección individual,
+// "todas las visibles" o "todas las que quedaron con el filtro de tipo de
+// anunciante puesto" — la agrupación la arma el frontend, acá solo se recibe
+// la lista final).
+app.post('/api/ordenes-publicidad/asana/generar-masivo', autenticacion, requierePermiso('topview_editar'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const ids = req.body.ids;
+    if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: 'Faltan ids de órdenes.' });
+    const resultado = await AsanaService.generarTareas(ids);
+    res.json(resultado);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/ordenes-publicidad/asana/asignar-masivo', autenticacion, requierePermiso('topview_editar'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const ids = req.body.ids;
+    if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: 'Faltan ids de órdenes.' });
+    const resultado = await AsanaService.asignarResponsablesMasivo(ids);
+    res.json(resultado);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/ordenes-publicidad/asana/borrar-masivo', autenticacion, requierePermiso('topview_editar'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const ids = req.body.ids;
+    if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: 'Faltan ids de órdenes.' });
+    const resultado = await AsanaService.borrarTareas(ids);
+    res.json(resultado);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ==================== CONFIGURACIÓN DE ASANA (solapa "Asana") ====================
+
+app.get('/api/asana/config', autenticacion, requierePermiso('topview_editar'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const proyecto = await AsanaConfigService.obtenerProyecto();
+    const secciones = await AsanaConfigService.listarSecciones();
+    res.json({ proyecto, secciones });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/asana/config/proyecto', autenticacion, requierePermiso('topview_editar'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const { gid, nombre } = req.body;
+    if (!gid) throw new Error('Elegí un proyecto.');
+    await AsanaConfigService.setProyecto(gid, nombre || '');
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/asana/config/secciones', autenticacion, requierePermiso('topview_editar'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const { ano, mes, seccion_gid, seccion_nombre } = req.body;
+    if (!ano || !mes || !seccion_gid) throw new Error('Completá mes, año y sección.');
+    await AsanaConfigService.guardarSeccion(Number(ano), Number(mes), seccion_gid, seccion_nombre || '');
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/asana/config/secciones/:id', autenticacion, requierePermiso('topview_editar'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    await AsanaConfigService.eliminarSeccion(req.params.id);
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/asana/proyectos-disponibles', autenticacion, requierePermiso('topview_editar'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const proyectos = await AsanaConfigService.listarProyectosDisponibles();
+    res.json(proyectos);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get(
+  '/api/asana/proyectos/:gid/secciones-disponibles',
+  autenticacion,
+  requierePermiso('topview_editar'),
+  async (req: RequestConUsuario, res: Response) => {
+    try {
+      const secciones = await AsanaConfigService.listarSeccionesDisponibles(req.params.gid);
+      res.json(secciones);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
 
 app.get('/api/ordenes-publicidad', autenticacion, requierePermiso('topview_ver'), async (req: RequestConUsuario, res: Response) => {
   try {

@@ -10,6 +10,44 @@ const PRODUCTO_SERVICIO_TOPVIEW_ID = 'topview-serv-1';
 // Ver [[project_world_padel_cuenta_corriente_comerciales]].
 const TIPO_ANUNCIANTE_PAUTA_CONCESIONARIO = 'Pauta Concesionario';
 
+// Suma un mes a una fecha 'YYYY-MM-DD', recortando el día al último real del
+// mes destino (ej. 31/8 + 1 mes = 30/9, no 1/10) — usado para clonar
+// mensualmente una orden según su "vigencia hasta". Si la fecha de origen ya
+// era el último día de SU mes (ej. 30/9, mes de 30 días), el resultado es el
+// último día del mes destino (31/10), no un corrimiento mecánico del número
+// de día — si no, un período "todo septiembre" (1/9 al 30/9) clonaba a
+// "1/10 al 30/10" en vez de "1/10 al 31/10" (bug real, 2026-09-28).
+function addMonthClamped(fecha: string): string {
+  const [y, m, d] = fecha.split('-').map(Number);
+  let nuevoAno = y;
+  let nuevoMes = m + 1;
+  if (nuevoMes > 12) {
+    nuevoMes = 1;
+    nuevoAno += 1;
+  }
+  const ultimoDiaMesActual = new Date(y, m, 0).getDate();
+  const ultimoDiaMesNuevo = new Date(nuevoAno, nuevoMes, 0).getDate();
+  const nuevoDia = d === ultimoDiaMesActual ? ultimoDiaMesNuevo : Math.min(d, ultimoDiaMesNuevo);
+  return `${nuevoAno}-${String(nuevoMes).padStart(2, '0')}-${String(nuevoDia).padStart(2, '0')}`;
+}
+
+// Simétrico a addMonthClamped, pero restando un mes — usado para completar
+// meses anteriores a la base del sistema (timeline hacia atrás).
+function subtractMonthClamped(fecha: string): string {
+  const [y, m, d] = fecha.split('-').map(Number);
+  let nuevoAno = y;
+  let nuevoMes = m - 1;
+  if (nuevoMes < 1) {
+    nuevoMes = 12;
+    nuevoAno -= 1;
+  }
+  const ultimoDiaMesActual = new Date(y, m, 0).getDate();
+  const ultimoDiaMesNuevo = new Date(nuevoAno, nuevoMes, 0).getDate();
+  const nuevoDia = d === ultimoDiaMesActual ? ultimoDiaMesNuevo : Math.min(d, ultimoDiaMesNuevo);
+  return `${nuevoAno}-${String(nuevoMes).padStart(2, '0')}-${String(nuevoDia).padStart(2, '0')}`;
+}
+
+
 interface DatosOrden {
   tipo_anunciante: string;
   nombre_anunciante: string;
@@ -27,11 +65,18 @@ interface DatosOrden {
   monto_neto: number;
   descuento_porcentaje: number;
   descuento_en_cascada?: boolean;
+  descuento_porcentaje_2?: number;
+  descuento_en_cascada_2?: boolean;
   descuento_facturas_porcentaje: number;
   descuento_facturas_en_cascada?: boolean;
   mes_ingreso?: number;
   ano_ingreso?: number;
   vigencia_hasta_nota?: string;
+  // Estructurado (mes/año), separado de la nota libre de arriba — dispara el
+  // clonado mensual automático en crearOrden si es posterior al mes de
+  // ingreso de esta orden. La nota libre sigue siendo solo un comentario.
+  vigencia_hasta_mes?: number;
+  vigencia_hasta_ano?: number;
   detalles_productos: Array<{
     id?: string;
     producto_id: string;
@@ -63,7 +108,11 @@ export class TopviewService {
   /**
    * Crear una orden de publicidad con cálculo automático de costos
    */
-  static async crearOrden(datos: DatosOrden): Promise<OrdenPublicidad> {
+  /**
+   * Crear una orden — sin el clonado automático por "vigencia hasta" (ver
+   * crearOrden, que envuelve esta función y arma los clones mensuales).
+   */
+  private static async crearOrdenUnica(datos: DatosOrden): Promise<OrdenPublicidad> {
     return new Promise((resolve, reject) => {
       if (!datos.cliente_id) return reject(new Error('Elegí un cliente: la orden se factura a nombre suyo.'));
       if (!datos.periodo_desde || !datos.periodo_hasta) {
@@ -96,15 +145,18 @@ export class TopviewService {
           factura_formal: !!inter.factura_formal,
         }));
 
-        // Descuentos NC (comercial) y FC (facturas): cada uno puede ser directo sobre
-        // el bruto o en cascada sobre lo que van dejando los anteriores — depende de
-        // lo pactado con cada agencia. Misma lógica que las comisiones a
-        // comisionistas (más abajo), para que ambos mecanismos se comporten igual.
+        // Descuentos NC1 (comercial), NC2 (comercial, opcional — algunas agencias
+        // negocian dos NC sucesivos) y FC (facturas): cada uno puede ser directo
+        // sobre el bruto o en cascada sobre lo que van dejando los anteriores —
+        // depende de lo pactado con cada agencia. Misma lógica que las comisiones
+        // a comisionistas (más abajo), para que ambos mecanismos se comporten igual.
         const descuentosOrdenados: Array<{ pct: number; cascada: boolean }> = [
           { pct: datos.descuento_porcentaje, cascada: !!datos.descuento_en_cascada },
+          { pct: datos.descuento_porcentaje_2 || 0, cascada: !!datos.descuento_en_cascada_2 },
           { pct: datos.descuento_facturas_porcentaje, cascada: !!datos.descuento_facturas_en_cascada },
         ];
         let descuentoMonto = 0;
+        let descuentoMonto2 = 0;
         let descuentoFacturasMonto = 0;
         {
           let montoActual = datos.monto_neto;
@@ -113,12 +165,13 @@ export class TopviewService {
             const monto = base * (pct / 100);
             if (cascada) montoActual -= monto;
             if (idx === 0) descuentoMonto = monto;
+            else if (idx === 1) descuentoMonto2 = monto;
             else descuentoFacturasMonto = monto;
           });
         }
-        const montoNetoAplicado = datos.monto_neto - descuentoMonto;
-        // "Neto blanco": lo que queda después de NC/FC, antes de comisiones a intermediarios.
-        const montoNetoBlanco = datos.monto_neto - descuentoMonto - descuentoFacturasMonto;
+        const montoNetoAplicado = datos.monto_neto - descuentoMonto - descuentoMonto2;
+        // "Neto blanco": lo que queda después de NC1/NC2/FC, antes de comisiones a intermediarios.
+        const montoNetoBlanco = datos.monto_neto - descuentoMonto - descuentoMonto2 - descuentoFacturasMonto;
 
         // Comisiones a comisionistas: 'cascada' aplica sobre lo que va quedando
         // DESPUÉS de todas las comisiones anteriores (sean cascada o base) — un
@@ -169,10 +222,11 @@ export class TopviewService {
           tipo_anunciante, razon_social, nombre_anunciante,
           cliente_id, agencia_id, vendedor_id, periodo_desde, periodo_hasta, fecha_facturacion, email_contacto,
           costo_produccion, monto_neto, descuento_porcentaje, descuento_en_cascada, descuento_monto,
+          descuento_porcentaje_2, descuento_en_cascada_2, descuento_monto_2,
           monto_neto_aplicado, descuento_facturas_porcentaje, descuento_facturas_monto,
           descuento_facturas_en_cascada, monto_final, notas, facturado, mes_ingreso, ano_ingreso,
-          vigencia_hasta_nota, estado
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          vigencia_hasta_nota, vigencia_hasta_mes, vigencia_hasta_ano, estado
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
           [
             ordenId,
@@ -195,6 +249,9 @@ export class TopviewService {
             datos.descuento_porcentaje,
             datos.descuento_en_cascada ? 1 : 0,
             descuentoMonto,
+            datos.descuento_porcentaje_2 || 0,
+            datos.descuento_en_cascada_2 ? 1 : 0,
+            descuentoMonto2,
             montoNetoAplicado,
             datos.descuento_facturas_porcentaje,
             descuentoFacturasMonto,
@@ -205,6 +262,8 @@ export class TopviewService {
             mesIngreso,
             anoIngreso,
             datos.vigencia_hasta_nota || null,
+            datos.vigencia_hasta_mes || null,
+            datos.vigencia_hasta_ano || null,
             'Cargada',
           ],
           async (err) => {
@@ -274,7 +333,7 @@ export class TopviewService {
                     this.insertarContactosEmail(ordenId, datos.emails_contacto || []);
                     this.insertarArreglosNoRegistrables(ordenId, datos.arreglos_no_registrables || []);
                     if (datos.facturado !== false && datos.tipo_anunciante !== TIPO_ANUNCIANTE_PAUTA_CONCESIONARIO) {
-                      this.crearReplicacionesFacturacion(ordenId, datos.periodo_desde, datos.periodo_hasta);
+                      this.crearReplicacionesFacturacion(ordenId, mesIngreso, anoIngreso);
                     }
                     this.completarCreacionOrden(
                       ordenId,
@@ -296,7 +355,7 @@ export class TopviewService {
             this.insertarContactosEmail(ordenId, datos.emails_contacto || []);
             this.insertarArreglosNoRegistrables(ordenId, datos.arreglos_no_registrables || []);
             if (datos.facturado !== false && datos.tipo_anunciante !== TIPO_ANUNCIANTE_PAUTA_CONCESIONARIO) {
-              this.crearReplicacionesFacturacion(ordenId, datos.periodo_desde, datos.periodo_hasta);
+              this.crearReplicacionesFacturacion(ordenId, mesIngreso, anoIngreso);
             }
             this.completarCreacionOrden(
               ordenId,
@@ -317,6 +376,203 @@ export class TopviewService {
   }
 
   /**
+   * Crea la orden pedida y, si se cargó "vigencia hasta" (mes/año) posterior
+   * al mes de ingreso de esta orden, clona automáticamente el mismo desglose
+   * (locación/producto/monto) mes a mes hasta ese mes inclusive — el número
+   * de orden de agencia de cada clon queda en "REVISAR" para completarlo
+   * cuando se sepa el real de cada mes. La orden devuelta es siempre la
+   * pedida, nunca uno de los clones.
+   */
+  static async crearOrden(
+    datos: DatosOrden
+  ): Promise<{ orden: OrdenPublicidad; clonado: { creadas: number; saltadas: Array<{ mes: number; ano: number }> } | null }> {
+    const ordenCreada = await this.crearOrdenUnica(datos);
+    const clonado = await this.generarClonesVigencia(datos, ordenCreada.id);
+    return { orden: ordenCreada, clonado };
+  }
+
+  /**
+   * A partir de una orden base (recién creada o recién editada) con
+   * "vigencia hasta" (mes/año) cargada, genera los clones mensuales
+   * faltantes hasta ese mes inclusive — con numero_orden_agencia en
+   * "REVISAR" para completar cuando se sepa el real de cada mes. Antes de
+   * crear cada clon, chequea si ya existe una orden del mismo cliente +
+   * mismo nombre de anunciante para ese mes/año (para no duplicar una
+   * orden que el usuario ya haya cargado a mano para ese mes) — si existe,
+   * la saltea y la reporta en "saltadas" en vez de crearla. Devuelve null
+   * si la orden no tiene vigencia_hasta cargada.
+   */
+  private static async generarClonesVigencia(
+    datos: DatosOrden,
+    ordenIdBase: string
+  ): Promise<{ creadas: number; saltadas: Array<{ mes: number; ano: number }> } | null> {
+    if (!datos.vigencia_hasta_mes || !datos.vigencia_hasta_ano) return null;
+
+    const [anoDesde, mesDesde] = datos.periodo_desde.split('-').map(Number);
+    let mesActual = datos.mes_ingreso || mesDesde;
+    let anoActual = datos.ano_ingreso || anoDesde;
+    let periodoDesdeActual = datos.periodo_desde;
+    let periodoHastaActual = datos.periodo_hasta;
+    let fechaFacturacionActual = datos.fecha_facturacion;
+
+    let creadas = 0;
+    const saltadas: Array<{ mes: number; ano: number }> = [];
+
+    while (
+      anoActual < datos.vigencia_hasta_ano ||
+      (anoActual === datos.vigencia_hasta_ano && mesActual < datos.vigencia_hasta_mes)
+    ) {
+      periodoDesdeActual = addMonthClamped(periodoDesdeActual);
+      periodoHastaActual = addMonthClamped(periodoHastaActual);
+      fechaFacturacionActual = addMonthClamped(fechaFacturacionActual);
+      mesActual += 1;
+      if (mesActual > 12) {
+        mesActual = 1;
+        anoActual += 1;
+      }
+
+      const yaExiste = await this.queryGet(
+        `SELECT id FROM ordenes_publicidad
+         WHERE (habilitado != 0 OR habilitado IS NULL) AND cliente_id = ? AND nombre_anunciante = ?
+           AND mes_ingreso = ? AND ano_ingreso = ? AND id != ?`,
+        [datos.cliente_id, datos.nombre_anunciante, mesActual, anoActual, ordenIdBase]
+      );
+      if (yaExiste?.id) {
+        saltadas.push({ mes: mesActual, ano: anoActual });
+        continue;
+      }
+
+      await this.crearOrdenUnica({
+        ...datos,
+        numero_orden_agencia: 'REVISAR',
+        periodo_desde: periodoDesdeActual,
+        periodo_hasta: periodoHastaActual,
+        fecha_facturacion: fechaFacturacionActual,
+        mes_ingreso: mesActual,
+        ano_ingreso: anoActual,
+        vigencia_hasta_mes: undefined,
+        vigencia_hasta_ano: undefined,
+      });
+      creadas += 1;
+    }
+
+    return { creadas, saltadas };
+  }
+
+  /**
+   * Clona una orden puntual a un mes/año destino arbitrario (no solo el
+   * siguiente/anterior) — mismo cliente/anunciante, mismo desglose de
+   * productos/comisionistas/contactos. Es el "clic en cualquier celda vacía"
+   * del timeline de continuidad: un cliente puede decidir mes a mes si sigue
+   * o no, así que cualquier mes vacío (adelante, atrás, o un hueco en el
+   * medio) tiene que poder completarse, no solo el inmediato siguiente al
+   * último cargado. Copia todo tal cual, corre período/fecha de facturación
+   * la cantidad de meses que corresponda (con addMonthClamped/
+   * subtractMonthClamped, paso a paso para que el recorte de fin de mes se
+   * acumule bien), y deja numero_orden_agencia en "REVISAR" para completarlo
+   * a mano — desaparece solo cuando se edita con el número real (misma
+   * convención que el clonado automático por vigencia_hasta). Si ya existe
+   * una orden de ese cliente/anunciante para el mes destino (cargada a mano
+   * o por otro clonado), no duplica: devuelve esa orden con `yaExistia: true`
+   * para que el timeline simplemente la abra.
+   */
+  static async clonarOrdenAMes(ordenId: string, mesDestino: number, anoDestino: number): Promise<{ orden: any; yaExistia: boolean }> {
+    const orden: any = await this.queryGet('SELECT * FROM ordenes_publicidad WHERE id = ?', [ordenId]);
+    if (!orden) throw new Error('Orden no encontrada.');
+
+    const [detalles, contactos, intermediarios, arreglos] = await Promise.all([
+      this.queryAll('SELECT * FROM ordenes_publicidad_detalles WHERE orden_id = ?', [ordenId]),
+      this.queryAll('SELECT * FROM contactos_email WHERE orden_id = ?', [ordenId]),
+      this.queryAll('SELECT * FROM ordenes_intermediarios WHERE orden_id = ? ORDER BY numero_nivel', [ordenId]),
+      this.queryAll('SELECT * FROM arreglos_no_registrables WHERE orden_id = ?', [ordenId]),
+    ]);
+
+    const [anoDesde, mesDesde] = orden.periodo_desde.split('-').map(Number);
+    const mesOrigen = orden.mes_ingreso || mesDesde;
+    const anoOrigen = orden.ano_ingreso || anoDesde;
+    const diffMeses = (anoDestino - anoOrigen) * 12 + (mesDestino - mesOrigen);
+    if (diffMeses === 0) throw new Error('Esa orden ya está en ese mes.');
+
+    const paso = diffMeses > 0 ? addMonthClamped : subtractMonthClamped;
+    let periodoDesde = orden.periodo_desde;
+    let periodoHasta = orden.periodo_hasta;
+    let fechaFacturacion = orden.fecha_facturacion;
+    for (let i = 0; i < Math.abs(diffMeses); i++) {
+      periodoDesde = paso(periodoDesde);
+      periodoHasta = paso(periodoHasta);
+      if (fechaFacturacion) fechaFacturacion = paso(fechaFacturacion);
+    }
+
+    const yaExiste = await this.queryGet(
+      `SELECT id FROM ordenes_publicidad
+       WHERE (habilitado != 0 OR habilitado IS NULL) AND cliente_id = ? AND nombre_anunciante = ?
+         AND mes_ingreso = ? AND ano_ingreso = ? AND id != ?`,
+      [orden.cliente_id, orden.nombre_anunciante, mesDestino, anoDestino, ordenId]
+    );
+    if (yaExiste?.id) {
+      const existente = await this.obtenerOrden(yaExiste.id);
+      return { orden: existente, yaExistia: true };
+    }
+
+    const datosClon: DatosOrden = {
+      tipo_anunciante: orden.tipo_anunciante,
+      nombre_anunciante: orden.nombre_anunciante,
+      numero_orden_agencia: 'REVISAR',
+      incluir_numero_orden_agencia: !!orden.incluir_numero_orden_agencia,
+      leyenda_factura: orden.leyenda_factura,
+      cliente_id: orden.cliente_id,
+      agencia_id: orden.agencia_id || undefined,
+      vendedor_id: orden.vendedor_id || undefined,
+      periodo_desde: periodoDesde,
+      periodo_hasta: periodoHasta,
+      fecha_facturacion: fechaFacturacion,
+      email_contacto: orden.email_contacto || '',
+      costo_produccion: orden.costo_produccion || 0,
+      monto_neto: orden.monto_neto,
+      descuento_porcentaje: orden.descuento_porcentaje || 0,
+      descuento_en_cascada: !!orden.descuento_en_cascada,
+      descuento_porcentaje_2: orden.descuento_porcentaje_2 || 0,
+      descuento_en_cascada_2: !!orden.descuento_en_cascada_2,
+      descuento_facturas_porcentaje: orden.descuento_facturas_porcentaje || 0,
+      descuento_facturas_en_cascada: !!orden.descuento_facturas_en_cascada,
+      mes_ingreso: mesDestino,
+      ano_ingreso: anoDestino,
+      detalles_productos: (detalles || []).map((d: any) => ({
+        producto_id: d.producto_id,
+        cantidad: d.cantidad,
+        ubicacion: d.ubicacion,
+        especificaciones: d.especificaciones,
+        locacion_id: d.locacion_id,
+        punto_instalacion: d.punto_instalacion,
+        precio: d.precio,
+      })),
+      emails_contacto: (contactos || []).map((c: any) => ({
+        email: c.email,
+        nombre: c.nombre_contacto,
+        cargo: c.cargo,
+        principal: !!c.principal,
+      })),
+      intermediarios: (intermediarios || []).map((i: any) => ({
+        intermediario_id: i.intermediario_id,
+        porcentaje_comision: i.porcentaje_comision,
+        tipo_calculo: i.tipo_calculo,
+        factura_formal: !!i.factura_formal,
+      })),
+      notas: orden.notas || '',
+      facturado: orden.facturado === undefined || orden.facturado === null ? true : !!orden.facturado,
+      arreglos_no_registrables: (arreglos || []).map((a: any) => ({
+        tipo: a.tipo,
+        descripcion: a.descripcion,
+        monto: a.monto,
+        tercero_nombre: a.tercero_nombre,
+      })),
+    };
+
+    const nueva = await this.crearOrdenUnica(datosClon);
+    return { orden: nueva, yaExistia: false };
+  }
+
+  /**
    * Actualizar una orden existente: recalcula descuentos/comisiones con la
    * misma lógica que al crear, y reemplaza comisionistas/detalles de
    * productos/contactos/arreglos con lo que venga del formulario. Las
@@ -325,7 +581,10 @@ export class TopviewService {
    * reconcilian las replicaciones pendientes (todavía sin facturar) con el
    * período nuevo.
    */
-  static async actualizarOrden(ordenId: string, datos: DatosOrden): Promise<OrdenPublicidad> {
+  static async actualizarOrden(
+    ordenId: string,
+    datos: DatosOrden
+  ): Promise<{ orden: OrdenPublicidad; clonado: { creadas: number; saltadas: Array<{ mes: number; ano: number }> } | null }> {
     if (!datos.cliente_id) throw new Error('Elegí un cliente: la orden se factura a nombre suyo.');
     if (!datos.periodo_desde || !datos.periodo_hasta) throw new Error('El período (desde/hasta) es obligatorio.');
     datos.detalles_productos = datos.detalles_productos || [];
@@ -349,9 +608,11 @@ export class TopviewService {
 
     const descuentosOrdenados: Array<{ pct: number; cascada: boolean }> = [
       { pct: datos.descuento_porcentaje, cascada: !!datos.descuento_en_cascada },
+      { pct: datos.descuento_porcentaje_2 || 0, cascada: !!datos.descuento_en_cascada_2 },
       { pct: datos.descuento_facturas_porcentaje, cascada: !!datos.descuento_facturas_en_cascada },
     ];
     let descuentoMonto = 0;
+    let descuentoMonto2 = 0;
     let descuentoFacturasMonto = 0;
     {
       let montoActual = datos.monto_neto;
@@ -360,11 +621,12 @@ export class TopviewService {
         const monto = base * (pct / 100);
         if (cascada) montoActual -= monto;
         if (idx === 0) descuentoMonto = monto;
+        else if (idx === 1) descuentoMonto2 = monto;
         else descuentoFacturasMonto = monto;
       });
     }
-    const montoNetoAplicado = datos.monto_neto - descuentoMonto;
-    const montoNetoBlanco = datos.monto_neto - descuentoMonto - descuentoFacturasMonto;
+    const montoNetoAplicado = datos.monto_neto - descuentoMonto - descuentoMonto2;
+    const montoNetoBlanco = datos.monto_neto - descuentoMonto - descuentoMonto2 - descuentoFacturasMonto;
 
     // Ver el comentario equivalente en crearOrden: 'cascada' cobra sobre el
     // remanente después de TODAS las comisiones anteriores (cascada o base).
@@ -402,9 +664,11 @@ export class TopviewService {
           cliente_id = ?, agencia_id = ?, vendedor_id = ?, periodo_desde = ?, periodo_hasta = ?,
           fecha_facturacion = ?, email_contacto = ?, costo_produccion = ?, monto_neto = ?,
           descuento_porcentaje = ?, descuento_en_cascada = ?, descuento_monto = ?,
+          descuento_porcentaje_2 = ?, descuento_en_cascada_2 = ?, descuento_monto_2 = ?,
           monto_neto_aplicado = ?, descuento_facturas_porcentaje = ?, descuento_facturas_monto = ?,
           descuento_facturas_en_cascada = ?, monto_final = ?, notas = ?, facturado = ?,
           mes_ingreso = ?, ano_ingreso = ?, vigencia_hasta_nota = ?,
+          vigencia_hasta_mes = ?, vigencia_hasta_ano = ?,
           updated_at = CURRENT_TIMESTAMP
         WHERE id = ?`,
         [
@@ -426,6 +690,9 @@ export class TopviewService {
           datos.descuento_porcentaje,
           datos.descuento_en_cascada ? 1 : 0,
           descuentoMonto,
+          datos.descuento_porcentaje_2 || 0,
+          datos.descuento_en_cascada_2 ? 1 : 0,
+          descuentoMonto2,
           montoNetoAplicado,
           datos.descuento_facturas_porcentaje,
           descuentoFacturasMonto,
@@ -436,6 +703,8 @@ export class TopviewService {
           mesIngreso,
           anoIngreso,
           datos.vigencia_hasta_nota || null,
+          datos.vigencia_hasta_mes || null,
+          datos.vigencia_hasta_ano || null,
           ordenId,
         ],
         (err) => (err ? reject(err) : resolve())
@@ -572,49 +841,47 @@ export class TopviewService {
         );
       });
     } else {
-      await this.reconciliarReplicaciones(ordenId, datos.periodo_desde, datos.periodo_hasta);
+      await this.reconciliarReplicaciones(ordenId, mesIngreso, anoIngreso);
     }
 
     AuditoriaService.registrarOperacion('ordenes_publicidad', 'UPDATE', ordenId, existente, datos);
 
-    return new Promise((resolve, reject) => {
-      db.get('SELECT * FROM ordenes_publicidad WHERE id = ?', [ordenId], (err, row) => (err ? reject(err) : resolve(row as any)));
+    // A diferencia de crearOrden, acá la orden base YA existía antes de esta
+    // edición — el clonado solo genera los meses que faltan hacia adelante,
+    // nunca reemplaza ni toca la orden editada en sí.
+    const clonado = await this.generarClonesVigencia({ ...datos, mes_ingreso: mesIngreso, ano_ingreso: anoIngreso }, ordenId);
+
+    const orden: any = await new Promise((resolve, reject) => {
+      db.get('SELECT * FROM ordenes_publicidad WHERE id = ?', [ordenId], (err, row) => (err ? reject(err) : resolve(row)));
     });
+    return { orden, clonado };
   }
 
   /**
-   * Recalcula las replicaciones PENDIENTES (no facturadas) de una orden según
-   * su período actual — borra las pendientes viejas y agrega las que falten
-   * para los meses nuevos. Los meses que ya tienen factura generada quedan
-   * intactos (no se duplican ni se borran).
+   * Recalcula la replicación PENDIENTE (no facturada) de una orden según su
+   * mes de ingreso actual — 1 orden es siempre 1 factura, sin importar
+   * cuántos días dure el período (30/31 días, 45, 7, 2 meses, lo que sea).
+   * Borra la pendiente vieja si el mes cambió y agrega la del mes nuevo. Si
+   * ese mes ya tiene una factura generada, no se toca ni se duplica.
    */
-  private static async reconciliarReplicaciones(ordenId: string, fechaDesde: string, fechaHasta: string): Promise<void> {
+  private static async reconciliarReplicaciones(ordenId: string, mesIngreso: number, anoIngreso: number): Promise<void> {
     await new Promise<void>((resolve, reject) => {
       db.run(`DELETE FROM replicaciones_facturacion WHERE orden_id = ? AND estado = 'Pendiente'`, [ordenId], (err) =>
         err ? reject(err) : resolve()
       );
     });
-    const existentes: any[] = await new Promise((resolve, reject) => {
-      db.all('SELECT numero_mes, ano FROM replicaciones_facturacion WHERE orden_id = ?', [ordenId], (err, rows) =>
-        err ? reject(err) : resolve(rows as any[])
-      );
-    });
-    const yaExisten = new Set((existentes || []).map((r) => `${r.ano}-${r.numero_mes}`));
-    const [anoDesde, mesDesde] = fechaDesde.split('-').map(Number);
-    const [anoHasta, mesHasta] = fechaHasta.split('-').map(Number);
-    for (let ano = anoDesde; ano <= anoHasta; ano++) {
-      const mesInicio = ano === anoDesde ? mesDesde : 1;
-      const mesFin = ano === anoHasta ? mesHasta : 12;
-      for (let mes = mesInicio; mes <= mesFin; mes++) {
-        if (yaExisten.has(`${ano}-${mes}`)) continue;
-        await new Promise<void>((resolve, reject) => {
-          db.run(
-            `INSERT INTO replicaciones_facturacion (id, orden_id, numero_mes, ano, estado) VALUES (?, ?, ?, ?, 'Pendiente')`,
-            [uuid(), ordenId, mes, ano],
-            (err) => (err ? reject(err) : resolve())
-          );
-        });
-      }
+    const yaExiste = await this.queryGet(
+      `SELECT id FROM replicaciones_facturacion WHERE orden_id = ? AND ano = ? AND numero_mes = ?`,
+      [ordenId, anoIngreso, mesIngreso]
+    );
+    if (!yaExiste?.id) {
+      await new Promise<void>((resolve, reject) => {
+        db.run(
+          `INSERT INTO replicaciones_facturacion (id, orden_id, numero_mes, ano, estado) VALUES (?, ?, ?, ?, 'Pendiente')`,
+          [uuid(), ordenId, mesIngreso, anoIngreso],
+          (err) => (err ? reject(err) : resolve())
+        );
+      });
     }
   }
 
@@ -664,30 +931,15 @@ export class TopviewService {
   }
 
   /**
-   * Crear replicaciones de facturación automáticamente
+   * Crear la replicación de facturación de una orden nueva — siempre 1 sola
+   * fila, en el mes/año de ingreso: 1 orden es 1 factura, sin importar
+   * cuántos días dure el período (30/31, 45, 7, 2 meses, lo que sea).
    */
-  private static crearReplicacionesFacturacion(ordenId: string, fechaDesde: string, fechaHasta: string): void {
-    // Se parsean año/mes directo del string "YYYY-MM-DD" en vez de con `new Date(...)`,
-    // que interpreta fechas sin hora como UTC y puede correr al mes anterior según el
-    // huso horario del servidor.
-    const [anoDesde, mesDesde] = fechaDesde.split('-').map(Number);
-    const [anoHasta, mesHasta] = fechaHasta.split('-').map(Number);
-
-    for (let ano = anoDesde; ano <= anoHasta; ano++) {
-      const mesInicio = ano === anoDesde ? mesDesde : 1;
-      const mesFin = ano === anoHasta ? mesHasta : 12;
-
-      for (let mes = mesInicio; mes <= mesFin; mes++) {
-        const repId = uuid();
-        db.run(
-          `
-          INSERT INTO replicaciones_facturacion (id, orden_id, numero_mes, ano, estado)
-          VALUES (?, ?, ?, ?, 'Pendiente')
-        `,
-          [repId, ordenId, mes, ano]
-        );
-      }
-    }
+  private static crearReplicacionesFacturacion(ordenId: string, mesIngreso: number, anoIngreso: number): void {
+    db.run(
+      `INSERT INTO replicaciones_facturacion (id, orden_id, numero_mes, ano, estado) VALUES (?, ?, ?, ?, 'Pendiente')`,
+      [uuid(), ordenId, mesIngreso, anoIngreso]
+    );
   }
 
   /**
@@ -714,11 +966,29 @@ export class TopviewService {
   }
 
   /**
-   * Obtener orden con detalles completos
+   * Obtener orden con detalles completos.
+   *
+   * `incluirComisiones` gatea `comisiones_desagregado` (el detalle de cada
+   * comisión a comisionistas — nombre, %, tipo de cálculo y monto — entre
+   * "Se factura al cliente" y "Neto Topview") — reservado a quien tenga el
+   * permiso `topview_netos_ver` (Administrador/socios), mismo criterio que
+   * reporteOrdenes. Ojo: esto es DISTINTO del array `intermediarios` que ya
+   * se devuelve siempre (ese alimenta el formulario de edición para
+   * cualquiera con topview_editar — nunca gatearlo, romper eso borraría
+   * comisiones reales al guardar con el array vacío).
    */
-  static async obtenerOrden(ordenId: string): Promise<any> {
+  static async obtenerOrden(ordenId: string, incluirComisiones: boolean = false): Promise<any> {
     const orden = await this.queryGet('SELECT * FROM ordenes_publicidad WHERE id = ?', [ordenId]);
     if (!orden || !orden.id) throw new Error('Orden no encontrada');
+
+    // Datos de facturación del cliente (a quien se le emite la factura, no
+    // necesariamente el anunciante real) — usados por el export de la orden.
+    const cliente = orden.cliente_id
+      ? await this.queryGet(
+          'SELECT razon_social, cuit, condicion_iva, direccion, ciudad, codigo_postal, provincia, pais FROM clientes WHERE id = ?',
+          [orden.cliente_id]
+        )
+      : null;
 
     const [detalles, documentos, contactos, replicaciones, arreglos, intermediarios] = await Promise.all([
       this.queryAll(
@@ -741,14 +1011,27 @@ export class TopviewService {
       this.queryAll('SELECT * FROM ordenes_intermediarios WHERE orden_id = ? ORDER BY numero_nivel', [ordenId]),
     ]);
 
+    const comisionesDesagregado = incluirComisiones
+      ? await this.queryAll(
+          `SELECT oi.numero_nivel, oi.porcentaje_comision, oi.monto_comision, oi.tipo_calculo, oi.factura_formal, i.nombre as intermediario_nombre
+           FROM ordenes_intermediarios oi
+           JOIN intermediarios i ON i.id = oi.intermediario_id
+           WHERE oi.orden_id = ?
+           ORDER BY oi.numero_nivel`,
+          [ordenId]
+        )
+      : undefined;
+
     return {
       ...orden,
+      cliente,
       detalles,
       documentos,
       contactos,
       replicaciones,
       arreglos_no_registrables: arreglos,
       intermediarios,
+      comisiones_desagregado: comisionesDesagregado,
     };
   }
 
@@ -1281,6 +1564,7 @@ export class TopviewService {
         SUM(costo_produccion) as costo_total,
         SUM(monto_neto) as monto_neto_total,
         SUM(monto_final) as monto_final_total,
+        SUM(CASE WHEN facturado = 0 THEN monto_neto ELSE monto_final END) as valor_final_total,
         SUM(monto_final - costo_produccion) as ganancia_total,
         ROUND(((SUM(monto_final - costo_produccion) / SUM(monto_final)) * 100), 2) as margen_ganancia
       FROM ordenes_publicidad
@@ -1305,6 +1589,7 @@ export class TopviewService {
     const porMes = await this.queryAll(`
       SELECT strftime('%Y-%m', fecha_facturacion) as mes,
         SUM(monto_neto) as monto_neto_total,
+        SUM(monto_neto_aplicado) as monto_neto_aplicado_total,
         SUM(monto_final) as monto_final_total
       FROM ordenes_publicidad
       WHERE (habilitado != 0 OR habilitado IS NULL) AND fecha_facturacion IS NOT NULL
@@ -1327,10 +1612,49 @@ export class TopviewService {
           COALESCE(mes_ingreso, CAST(strftime('%m', periodo_desde) AS INTEGER))
         ) as mes,
         SUM(monto_neto) as monto_neto_total,
+        SUM(monto_neto_aplicado) as monto_neto_aplicado_total,
         SUM(monto_final) as monto_final_total
       FROM ordenes_publicidad
       WHERE (habilitado != 0 OR habilitado IS NULL)
       GROUP BY mes
+      ORDER BY mes
+    `);
+
+    // Registrado (facturado por Colppy) vs no registrado, mes a mes — misma
+    // definición que el desglose de la pestaña Órdenes (esOrdenFacturado en el
+    // frontend: facturado NULL/undefined/truthy = registrado, facturado=0 = no
+    // registrado). "Registrado" usa el neto post-comisión (monto_final, lo que
+    // de verdad queda) y "No registrado" el bruto (monto_neto, nunca pasa por
+    // comisiones/Colppy) — son los mismos dos campos que ya se suman en el
+    // resumen de Órdenes, acá solo agrupados por mes de ingreso.
+    const porMesRegistro = await this.queryAll(`
+      SELECT printf('%04d-%02d',
+          COALESCE(ano_ingreso, CAST(strftime('%Y', periodo_desde) AS INTEGER)),
+          COALESCE(mes_ingreso, CAST(strftime('%m', periodo_desde) AS INTEGER))
+        ) as mes,
+        SUM(CASE WHEN facturado = 0 THEN monto_neto ELSE 0 END) as no_registrado_total,
+        SUM(CASE WHEN facturado IS NULL OR facturado != 0 THEN monto_final ELSE 0 END) as registrado_total
+      FROM ordenes_publicidad
+      WHERE (habilitado != 0 OR habilitado IS NULL)
+      GROUP BY mes
+      ORDER BY mes
+    `);
+
+    // Mismo total que porMesRegistro (cada orden aporta el mismo "valor" —
+    // monto_final si está registrada, monto_neto si no — la única diferencia
+    // es que acá se agrupa por tipo de anunciante en vez de por registrado/no
+    // registrado), para que ambos gráficos muestren la misma torta mensual
+    // partida de dos formas distintas.
+    const porMesSegmento = await this.queryAll(`
+      SELECT printf('%04d-%02d',
+          COALESCE(ano_ingreso, CAST(strftime('%Y', periodo_desde) AS INTEGER)),
+          COALESCE(mes_ingreso, CAST(strftime('%m', periodo_desde) AS INTEGER))
+        ) as mes,
+        tipo_anunciante,
+        SUM(CASE WHEN facturado = 0 THEN monto_neto ELSE monto_final END) as valor
+      FROM ordenes_publicidad
+      WHERE (habilitado != 0 OR habilitado IS NULL)
+      GROUP BY mes, tipo_anunciante
       ORDER BY mes
     `);
 
@@ -1346,8 +1670,13 @@ export class TopviewService {
     `);
 
     // Sin permiso de netos, el ranking usa la bruta (monto_neto) en vez del
-    // neto post-comisión — nunca se manda monto_final campo por campo.
-    const campoTopClientes = incluirNetos ? 'monto_final' : 'monto_neto';
+    // ingreso final — nunca se manda monto_final campo por campo. Con permiso,
+    // usa el mismo "ingreso final" mixto que el resto de los gráficos de esta
+    // pantalla (monto_final si está registrada, monto_neto si no — lo que no
+    // pasa por Colppy nunca pasa por comisiones tampoco).
+    const campoTopClientes = incluirNetos
+      ? 'CASE WHEN facturado = 0 THEN monto_neto ELSE monto_final END'
+      : 'monto_neto';
     const topClientes = await this.queryAll(`
       SELECT razon_social, SUM(${campoTopClientes}) as monto_total
       FROM ordenes_publicidad
@@ -1383,10 +1712,14 @@ export class TopviewService {
         : { tipo_anunciante: a.tipo_anunciante, cantidad: a.cantidad, monto_neto_total: a.monto_neto_total }
     );
     const porMesFiltrado = (porMes || []).map((m: any) =>
-      incluirNetos ? m : { mes: m.mes, monto_neto_total: m.monto_neto_total }
+      incluirNetos
+        ? m
+        : { mes: m.mes, monto_neto_total: m.monto_neto_total, monto_neto_aplicado_total: m.monto_neto_aplicado_total }
     );
     const porMesVentaFiltrado = (porMesVenta || []).map((m: any) =>
-      incluirNetos ? m : { mes: m.mes, monto_neto_total: m.monto_neto_total }
+      incluirNetos
+        ? m
+        : { mes: m.mes, monto_neto_total: m.monto_neto_total, monto_neto_aplicado_total: m.monto_neto_aplicado_total }
     );
 
     return {
@@ -1394,6 +1727,9 @@ export class TopviewService {
       totales: totalesFiltrados,
       por_mes: porMesFiltrado,
       por_mes_venta: porMesVentaFiltrado,
+      // Solo con permiso de netos: "registrado" viaja en monto_final (post-comisión).
+      por_mes_registro: incluirNetos ? porMesRegistro || [] : [],
+      por_mes_segmento: incluirNetos ? porMesSegmento || [] : [],
       por_soporte: porSoporte || [],
       top_clientes: topClientes || [],
       por_comisionista_tipo: porComisionistaTipo,

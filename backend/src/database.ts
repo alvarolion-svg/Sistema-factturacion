@@ -632,6 +632,12 @@ db.serialize(() => {
   // cada agencia/cliente — por eso es elegible por orden, no fijo.
   db.run(`ALTER TABLE ordenes_publicidad ADD COLUMN descuento_en_cascada BOOLEAN DEFAULT 0`, () => {});
   db.run(`ALTER TABLE ordenes_publicidad ADD COLUMN descuento_facturas_en_cascada BOOLEAN DEFAULT 0`, () => {});
+  // Segundo descuento comercial (NC 2) — algunas agencias negocian dos NC
+  // sucesivos antes del FC (NC1 -> NC2 -> FC), cada uno con su propia opción
+  // de cascada, igual que NC1/FC. Opcional: en 0% no hace nada.
+  db.run(`ALTER TABLE ordenes_publicidad ADD COLUMN descuento_porcentaje_2 REAL DEFAULT 0`, () => {});
+  db.run(`ALTER TABLE ordenes_publicidad ADD COLUMN descuento_monto_2 REAL DEFAULT 0`, () => {});
+  db.run(`ALTER TABLE ordenes_publicidad ADD COLUMN descuento_en_cascada_2 BOOLEAN DEFAULT 0`, () => {});
   // Mes/año de ingreso: a qué mes se asigna la venta a efectos comerciales/reporte,
   // independiente del período de vigencia real (evita distorsiones cuando una campaña
   // cruza el fin de mes, ej. una pauta del 31/10 al 30/11 se puede igual asignar a Octubre).
@@ -1551,6 +1557,12 @@ db.serialize(() => {
   // Nota libre de vigencia (ej. "Diciembre" o "Noviembre (oct y nov 2.8M)") — de la planilla
   // de referencia real, no es un dato estructurado ni afecta ningún cálculo.
   db.run(`ALTER TABLE ordenes_publicidad ADD COLUMN vigencia_hasta_nota TEXT`, () => {});
+  // Estructurado (mes/año), separado de la nota libre de arriba — si se
+  // carga y es posterior al mes de ingreso de la orden, dispara el clonado
+  // mensual automático (ver crearOrden en topview.ts). La nota libre sigue
+  // sin afectar ningún cálculo.
+  db.run(`ALTER TABLE ordenes_publicidad ADD COLUMN vigencia_hasta_mes INTEGER`, () => {});
+  db.run(`ALTER TABLE ordenes_publicidad ADD COLUMN vigencia_hasta_ano INTEGER`, () => {});
   // El estado de la orden pasó de un pseudo-ciclo de vida (Activa/Pausada/
   // Cancelada/Finalizada) a un tracker simple de 3 pasos del proceso real con
   // Colppy (Cargada/Revisada/Facturada) — ver comentario junto a ESTADOS_ORDEN
@@ -1568,6 +1580,53 @@ db.serialize(() => {
   // cc_clientes vía las facturas de verdad.
   db.run(`ALTER TABLE ordenes_publicidad ADD COLUMN cobrado BOOLEAN DEFAULT 0`, () => {});
   db.run(`ALTER TABLE ordenes_publicidad ADD COLUMN fecha_cobro DATE`, () => {});
+  // GID de la tarea de Asana ya creada para esta orden (si la orden se
+  // volvió a mandar, se actualiza esa misma tarea en vez de crear otra).
+  db.run(`ALTER TABLE ordenes_publicidad ADD COLUMN asana_task_gid TEXT`, () => {});
+  // Si ya se asignaron los responsables (trafico/operaciones/administracion)
+  // a la tarea + subtareas de esta orden en Asana — para mostrar "Asignado"
+  // / "No Asignado" sin tener que volver a consultar Asana.
+  db.run(`ALTER TABLE ordenes_publicidad ADD COLUMN asana_asignado BOOLEAN DEFAULT 0`, () => {});
+
+  // Configuración de la integración con Asana — antes vivía hardcodeada en
+  // el código (asana.ts), ahora se administra desde la solapa "Asana" para
+  // no depender de un cambio de código cada vez que pasa un mes/año nuevo.
+  db.run(`
+    CREATE TABLE IF NOT EXISTS asana_config (
+      clave TEXT PRIMARY KEY,
+      valor TEXT
+    )
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS asana_secciones_mes (
+      id TEXT PRIMARY KEY,
+      ano INTEGER NOT NULL,
+      mes INTEGER NOT NULL,
+      seccion_gid TEXT NOT NULL,
+      seccion_nombre TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(ano, mes)
+    )
+  `);
+  // Semilla con lo que ya estaba hardcodeado (proyecto de prueba "Sistema" +
+  // las 3 secciones ya cargadas a mano) — para no perder la configuración
+  // real ya en uso al mover esto a la base de datos. INSERT OR IGNORE: si el
+  // usuario ya la editó desde la solapa, no la pisa.
+  db.run(
+    `INSERT OR IGNORE INTO asana_config (clave, valor) VALUES ('proyecto_gid', '1218887916575966')`
+  );
+  db.run(
+    `INSERT OR IGNORE INTO asana_config (clave, valor) VALUES ('proyecto_nombre', 'Sistema')`
+  );
+  db.run(
+    `INSERT OR IGNORE INTO asana_secciones_mes (id, ano, mes, seccion_gid, seccion_nombre) VALUES ('seed-2026-08', 2026, 8, '1218887916575972', 'Agosto')`
+  );
+  db.run(
+    `INSERT OR IGNORE INTO asana_secciones_mes (id, ano, mes, seccion_gid, seccion_nombre) VALUES ('seed-2026-09', 2026, 9, '1218887916575973', 'Septiembre')`
+  );
+  db.run(
+    `INSERT OR IGNORE INTO asana_secciones_mes (id, ano, mes, seccion_gid, seccion_nombre) VALUES ('seed-2026-10', 2026, 10, '1218887916575974', 'Octubre')`
+  );
   // Referencia a Locaciones — reemplaza de a poco el texto libre "ubicacion".
   // Ambos campos quedan (ubicacion sigue existiendo) para no romper lo ya
   // cargado; las líneas nuevas usan locacion_id/punto_instalacion.
