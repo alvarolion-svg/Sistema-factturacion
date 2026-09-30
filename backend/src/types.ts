@@ -285,6 +285,8 @@ export interface OrdenPublicidad {
   ano_ingreso?: number;
   vigencia_hasta_nota?: string;
   cantidades_por_producto?: Record<string, number>;
+  avisar_telegram?: boolean | number;
+  telegram_avisado_inicio_en?: string | null;
   created_at: string;
   updated_at: string;
 }

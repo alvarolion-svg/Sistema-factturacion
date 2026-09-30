@@ -45,6 +45,8 @@ export interface OrdenPublicidad {
   fecha_cobro: string | null;
   asana_task_gid?: string | null;
   asana_asignado?: boolean | number | null;
+  avisar_telegram?: boolean | number | null;
+  telegram_avisado_inicio_en?: string | null;
 }
 
 export interface Agencia {

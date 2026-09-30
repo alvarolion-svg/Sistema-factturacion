@@ -69,6 +69,7 @@ const ORDEN_VACIA = {
   vigencia_hasta_nota: '',
   vigencia_hasta_mes: '',
   vigencia_hasta_ano: '',
+  avisar_telegram: true,
 };
 function OrdenesTab({
   token,
@@ -283,6 +284,7 @@ function OrdenesTab({
       // cliente/anunciante, se saltea en vez de duplicarla.
       vigencia_hasta_mes: o.vigencia_hasta_mes ? String(o.vigencia_hasta_mes) : '',
       vigencia_hasta_ano: o.vigencia_hasta_ano ? String(o.vigencia_hasta_ano) : '',
+      avisar_telegram: o.avisar_telegram === undefined || o.avisar_telegram === null ? true : !!o.avisar_telegram,
     });
     setLineasProductos(
       (o.detalles || []).length > 0
@@ -1571,6 +1573,7 @@ function OrdenesTab({
           vigencia_hasta_nota: ordenForm.vigencia_hasta_nota.trim() || undefined,
           vigencia_hasta_mes: ordenForm.vigencia_hasta_mes ? Number(ordenForm.vigencia_hasta_mes) : undefined,
           vigencia_hasta_ano: ordenForm.vigencia_hasta_ano ? Number(ordenForm.vigencia_hasta_ano) : undefined,
+          avisar_telegram: ordenForm.avisar_telegram,
           detalles_productos: productosValidos.map((l) => ({
             id: l.id || undefined,
             producto_id: l.producto_id,
@@ -2655,6 +2658,19 @@ function OrdenesTab({
                   <> — se recalcula solo con las fechas de cada mes en las facturas siguientes.</>
                 )}
             </p>
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="orden_avisar_telegram" style={{ fontWeight: 'normal' }}>
+              <input
+                id="orden_avisar_telegram"
+                type="checkbox"
+                checked={ordenForm.avisar_telegram}
+                onChange={(e) => handleChangeOrden('avisar_telegram', e.target.checked)}
+                disabled={guardando}
+              />
+              {' '}Avisar a Operaciones por Telegram (orden nueva y el día que arranca)
+            </label>
           </div>
 
           <div className="form-group">

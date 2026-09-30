@@ -11,6 +11,7 @@ import { AuditoriaService } from './services/auditoria';
 import { AutenticacionService } from './services/autenticacion';
 import { ReportesService } from './services/reportes';
 import { TopviewService } from './services/topview';
+import { TelegramService } from './services/telegram';
 import { ProduccionTopviewService } from './services/produccionTopview';
 import { LocacionesService } from './services/locaciones';
 import { LiquidacionesService } from './services/liquidaciones';
@@ -692,6 +693,18 @@ app.post('/api/ordenes-publicidad', autenticacion, requierePermiso('topview_crea
   try {
     const { orden, clonado } = await TopviewService.crearOrden(req.body);
     AuditoriaService.registrarOperacion('ordenes_publicidad', 'INSERT', orden.id, null, orden, req.usuario?.id, req.ip);
+
+    // Aviso a Telegram (grupo Operaciones) — nunca debe tirar abajo la
+    // creación de la orden si Telegram falla o todavía no está configurado.
+    if (orden.avisar_telegram !== 0) {
+      const formatFecha = (f: string) => (f ? f.split('-').reverse().join('/') : '-');
+      const extra = clonado && clonado.creadas > 0 ? ` (+ ${clonado.creadas} mes(es) clonados por vigencia)` : '';
+      TelegramService.enviarAGrupo(
+        'Operaciones',
+        `🆕 <b>Nueva orden cargada</b>\n${orden.nombre_anunciante} (${orden.tipo_anunciante})\n${formatFecha(orden.periodo_desde)} al ${formatFecha(orden.periodo_hasta)}${extra}`
+      ).catch((err) => console.error('[Telegram] No se pudo avisar la orden nueva:', err.message));
+    }
+
     res.json({ ...orden, _clonado: clonado });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -809,6 +822,63 @@ app.delete('/api/ordenes-publicidad/asana/borrar-masivo', autenticacion, requier
     if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: 'Faltan ids de órdenes.' });
     const resultado = await AsanaService.borrarTareas(ids);
     res.json(resultado);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ==================== CONFIGURACIÓN DE TELEGRAM ====================
+
+app.get('/api/telegram/grupos', autenticacion, requierePermiso('topview_editar'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const grupos = await TelegramService.listarGrupos();
+    res.json(grupos);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put(
+  '/api/telegram/grupos/:nombre/chat-id',
+  autenticacion,
+  requierePermiso('topview_editar'),
+  async (req: RequestConUsuario, res: Response) => {
+    try {
+      const { chatId } = req.body;
+      if (!chatId) return res.status(400).json({ error: 'Falta chatId.' });
+      await TelegramService.guardarChatId(req.params.nombre, String(chatId));
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+app.post(
+  '/api/telegram/grupos/:nombre/probar',
+  autenticacion,
+  requierePermiso('topview_editar'),
+  async (req: RequestConUsuario, res: Response) => {
+    try {
+      await TelegramService.enviarAGrupo(req.params.nombre, `✅ Prueba de conexión desde Sistema de Facturación — ${new Date().toLocaleString('es-AR')}`);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+// Solo para ayudar a configurar: trae los últimos mensajes que vio el bot
+// (getUpdates de la API de Telegram) — de ahí se saca el chat_id de un grupo
+// nuevo, apenas se lo agrega y alguien manda un mensaje. No se usa en
+// producción, es un paso único de setup.
+app.get('/api/telegram/updates', autenticacion, requierePermiso('topview_editar'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const token = process.env.TELEGRAM_BOT_TOKEN;
+    if (!token) return res.status(400).json({ error: 'Falta TELEGRAM_BOT_TOKEN en el .env.' });
+    const resp = await fetch(`https://api.telegram.org/bot${token}/getUpdates`);
+    const datos = await resp.json();
+    res.json(datos);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -2111,6 +2181,24 @@ AutenticacionService.migrarPasswordsViejas()
 ✓ CORS enabled from: ${process.env.CORS_ORIGIN || '*'}
   `);
     });
+
+    // Aviso diario a Telegram de "campañas que arrancan hoy" — corre solo
+    // mientras este proceso esté levantado (ver PENDIENTE-PRODUCCION.md,
+    // todavía sin desplegar en un host siempre encendido; decisión
+    // consciente del usuario, 2026-09-30). Revisa cada hora a partir de las
+    // 8am; TopviewService.avisarCampanasQueArrancanHoy es idempotente
+    // (marca cada orden avisada), así que reiniciar el backend varias veces
+    // el mismo día no duplica el aviso.
+    const revisarAlertaDiariaTelegram = () => {
+      if (new Date().getHours() < 8) return;
+      TopviewService.avisarCampanasQueArrancanHoy()
+        .then(({ avisadas }) => {
+          if (avisadas > 0) console.log(`✓ Telegram: avisadas ${avisadas} campaña(s) que arrancan hoy`);
+        })
+        .catch((err) => console.error('[Telegram] Error en el chequeo diario:', err.message));
+    };
+    revisarAlertaDiariaTelegram();
+    setInterval(revisarAlertaDiariaTelegram, 60 * 60 * 1000);
   })
   .catch((err) => {
     console.error('No se pudo migrar las contraseñas viejas a bcrypt:', err);

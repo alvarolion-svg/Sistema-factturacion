@@ -3,6 +3,7 @@ import db from '../database';
 import { OrdenPublicidad, ReplicacionFacturacion } from '../types';
 import { AuditoriaService } from './auditoria';
 import { TesoreriaService } from './tesoreria';
+import { TelegramService } from './telegram';
 import { addMonthClamped, subtractMonthClamped, calcularDescuentosCascada, calcularComisionesCascada } from './calculosTopview';
 
 export { addMonthClamped, subtractMonthClamped, calcularDescuentosCascada, calcularComisionesCascada };
@@ -66,6 +67,9 @@ interface DatosOrden {
   }>;
   notas?: string;
   facturado?: boolean;
+  // Si esta orden dispara el aviso automático a Telegram (nueva orden /
+  // arranca hoy) — default true, se destilda en las que no ameritan avisar.
+  avisar_telegram?: boolean;
   arreglos_no_registrables?: Array<{
     tipo?: string;
     descripcion?: string;
@@ -147,8 +151,8 @@ export class TopviewService {
           descuento_porcentaje_2, descuento_en_cascada_2, descuento_monto_2,
           monto_neto_aplicado, descuento_facturas_porcentaje, descuento_facturas_monto,
           descuento_facturas_en_cascada, monto_final, notas, facturado, mes_ingreso, ano_ingreso,
-          vigencia_hasta_nota, vigencia_hasta_mes, vigencia_hasta_ano, estado
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          vigencia_hasta_nota, vigencia_hasta_mes, vigencia_hasta_ano, estado, avisar_telegram
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
           [
             ordenId,
@@ -187,6 +191,7 @@ export class TopviewService {
             datos.vigencia_hasta_mes || null,
             datos.vigencia_hasta_ano || null,
             'Cargada',
+            datos.avisar_telegram === false ? 0 : 1,
           ],
           async (err) => {
             if (err) return reject(err);
@@ -558,7 +563,7 @@ export class TopviewService {
           monto_neto_aplicado = ?, descuento_facturas_porcentaje = ?, descuento_facturas_monto = ?,
           descuento_facturas_en_cascada = ?, monto_final = ?, notas = ?, facturado = ?,
           mes_ingreso = ?, ano_ingreso = ?, vigencia_hasta_nota = ?,
-          vigencia_hasta_mes = ?, vigencia_hasta_ano = ?,
+          vigencia_hasta_mes = ?, vigencia_hasta_ano = ?, avisar_telegram = ?,
           updated_at = CURRENT_TIMESTAMP
         WHERE id = ?`,
         [
@@ -595,6 +600,7 @@ export class TopviewService {
           datos.vigencia_hasta_nota || null,
           datos.vigencia_hasta_mes || null,
           datos.vigencia_hasta_ano || null,
+          datos.avisar_telegram === false ? 0 : 1,
           ordenId,
         ],
         (err) => (err ? reject(err) : resolve())
@@ -1386,6 +1392,41 @@ export class TopviewService {
   static async eliminarOrden(ordenId: string): Promise<void> {
     await this.runQuery('UPDATE ordenes_publicidad SET habilitado = 0, updated_at = datetime("now") WHERE id = ?', [ordenId]);
     AuditoriaService.registrarOperacion('ordenes_publicidad', 'DELETE', ordenId, null, { habilitado: 0 });
+  }
+
+  /**
+   * Chequeo diario (ver index.ts, corre solo mientras el backend esté
+   * levantado) — junta en UN solo mensaje todas las órdenes cuyo período
+   * arranca hoy y todavía no fueron avisadas, y las marca. Idempotente: si
+   * se llama varias veces el mismo día (ej. el backend se reinició), no
+   * duplica el aviso porque solo trae las que tienen
+   * telegram_avisado_inicio_en todavía en NULL.
+   */
+  static async avisarCampanasQueArrancanHoy(): Promise<{ avisadas: number }> {
+    const hoy = new Date();
+    const fechaHoy = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`;
+
+    const ordenes = await this.queryAll(
+      `SELECT id, nombre_anunciante, tipo_anunciante, periodo_desde, periodo_hasta
+       FROM ordenes_publicidad
+       WHERE periodo_desde = ?
+         AND (habilitado != 0 OR habilitado IS NULL)
+         AND (avisar_telegram != 0 OR avisar_telegram IS NULL)
+         AND telegram_avisado_inicio_en IS NULL`,
+      [fechaHoy]
+    );
+    if (ordenes.length === 0) return { avisadas: 0 };
+
+    const formatFecha = (f: string) => f.split('-').reverse().join('/');
+    const lineas = ordenes.map((o: any) => `• <b>${o.nombre_anunciante}</b> (${o.tipo_anunciante}) — hasta ${formatFecha(o.periodo_hasta)}`);
+    const texto = `📅 <b>Campañas que arrancan hoy</b> (${ordenes.length}):\n\n${lineas.join('\n')}`;
+
+    await TelegramService.enviarAGrupo('Operaciones', texto);
+
+    for (const o of ordenes as any[]) {
+      await this.runQuery('UPDATE ordenes_publicidad SET telegram_avisado_inicio_en = datetime("now") WHERE id = ?', [o.id]);
+    }
+    return { avisadas: ordenes.length };
   }
 
   private static queryAll(sql: string, params: any[] = []): Promise<any[]> {

@@ -1667,6 +1667,30 @@ db.serialize(() => {
       ('esc3', NULL, 50000001, NULL, 4.0)
   `);
 
+  // Avisos automáticos a Telegram (nueva orden cargada / arranca hoy, y más
+  // adelante "por terminar" al equipo comercial responsable) — ver
+  // backend/src/services/telegram.ts. Tilde por orden: por defecto avisa,
+  // se destilda en las que no ameritan (ej. pruebas internas).
+  db.run(`ALTER TABLE ordenes_publicidad ADD COLUMN avisar_telegram BOOLEAN DEFAULT 1`, () => {});
+  // Cuándo se mandó el aviso de "arranca hoy" de esta orden — evita
+  // duplicar el aviso si el chequeo diario corre más de una vez el mismo
+  // día (ej. el backend se reinició). NULL = todavía no se avisó.
+  db.run(`ALTER TABLE ordenes_publicidad ADD COLUMN telegram_avisado_inicio_en DATETIME`, () => {});
+
+  // Grupos de Telegram a los que se puede avisar — en tabla en vez de en
+  // .env porque va a haber más de uno (Operaciones para lo que arranca hoy/
+  // se carga nuevo; más adelante uno por equipo comercial para "por
+  // terminar"), y así cargar uno nuevo no requiere redeploy.
+  db.run(`
+    CREATE TABLE IF NOT EXISTS telegram_grupos (
+      id TEXT PRIMARY KEY,
+      nombre TEXT UNIQUE NOT NULL,
+      chat_id TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  db.run(`INSERT OR IGNORE INTO telegram_grupos (id, nombre, chat_id) VALUES ('operaciones', 'Operaciones', NULL)`);
+
   console.log('✓ Base de datos iniciada correctamente');
   console.log('✓ Roles creados (Admin, Gerente, Contador, Vendedor, Comprador, Operario)');
   console.log('✓ Permisos asignados por rol');
