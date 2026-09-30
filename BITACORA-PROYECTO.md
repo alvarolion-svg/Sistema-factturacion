@@ -284,6 +284,18 @@ más importantes:
     calcula ocupación vs. capacidad), convenciones a respetar (soft-delete, periodo_desde/hasta vs.
     mes_ingreso/ano_ingreso, nombres de permisos) y qué evitar duplicar. Nada de esto está construido
     todavía en este repo — es solo el puente de contexto para que el otro proyecto nazca compatible.
+13. **Avisos automáticos a Telegram — construido y verificado (2026-09-30), falta el bot real**:
+    dos disparadores al grupo "Operaciones" (`backend/src/services/telegram.ts`, mismo patrón que
+    Asana): al cargar una orden nueva (inmediato, en el mismo POST) y "arranca hoy" (un solo mensaje
+    agrupado, chequeo cada hora desde las 8am mientras el backend esté levantado —
+    `TopviewService.avisarCampanasQueArrancanHoy`, idempotente). Tilde por orden "Avisar a
+    Operaciones por Telegram" (default tildado). Los `chat_id` de los grupos viven en la tabla
+    `telegram_grupos`, no en `.env`, porque ya viene un segundo grupo. **Bloqueado en el usuario**:
+    crear el bot con @BotFather, agregarlo al grupo "Operaciones" y cargar el `chat_id` (hay rutas
+    ya listas para ayudar: `GET /api/telegram/updates`, `PUT .../chat-id`, `POST .../probar`).
+    **Pendiente sin diseñar**: 3er disparador — avisar al equipo comercial responsable cuando una
+    pauta está por terminar, para preguntar si continúa (falta definir anticipación en días y cómo
+    se mapea vendedor → grupo de Telegram).
 
 ## Cómo trabaja este usuario (para que una sesión nueva no tenga que redescubrirlo)
 
