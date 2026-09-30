@@ -1343,21 +1343,15 @@ export class TopviewService {
     nuevoEstado: string,
     datosColppy?: { numero_factura_colppy?: string; numero_nc_colppy?: string }
   ): Promise<void> {
-    return new Promise((resolve, reject) => {
-      db.run(
-        `UPDATE ordenes_publicidad SET estado = ?,
+    await this.runQuery(
+      `UPDATE ordenes_publicidad SET estado = ?,
           numero_factura_colppy = COALESCE(?, numero_factura_colppy),
           numero_nc_colppy = COALESCE(?, numero_nc_colppy),
           updated_at = datetime("now")
         WHERE id = ?`,
-        [nuevoEstado, datosColppy?.numero_factura_colppy ?? null, datosColppy?.numero_nc_colppy ?? null, ordenId],
-        (err) => {
-          if (err) return reject(err);
-          AuditoriaService.registrarOperacion('ordenes_publicidad', 'UPDATE', ordenId, null, { estado: nuevoEstado, ...datosColppy });
-          resolve();
-        }
-      );
-    });
+      [nuevoEstado, datosColppy?.numero_factura_colppy ?? null, datosColppy?.numero_nc_colppy ?? null, ordenId]
+    );
+    AuditoriaService.registrarOperacion('ordenes_publicidad', 'UPDATE', ordenId, null, { estado: nuevoEstado, ...datosColppy });
   }
 
   // Editar los números de Colppy sin necesariamente cambiar el estado (ej. corregir
@@ -1366,17 +1360,11 @@ export class TopviewService {
     ordenId: string,
     datos: { numero_factura_colppy?: string; numero_nc_colppy?: string }
   ): Promise<void> {
-    return new Promise((resolve, reject) => {
-      db.run(
-        'UPDATE ordenes_publicidad SET numero_factura_colppy = ?, numero_nc_colppy = ?, updated_at = datetime("now") WHERE id = ?',
-        [datos.numero_factura_colppy || null, datos.numero_nc_colppy || null, ordenId],
-        (err) => {
-          if (err) return reject(err);
-          AuditoriaService.registrarOperacion('ordenes_publicidad', 'UPDATE', ordenId, null, datos);
-          resolve();
-        }
-      );
-    });
+    await this.runQuery(
+      'UPDATE ordenes_publicidad SET numero_factura_colppy = ?, numero_nc_colppy = ?, updated_at = datetime("now") WHERE id = ?',
+      [datos.numero_factura_colppy || null, datos.numero_nc_colppy || null, ordenId]
+    );
+    AuditoriaService.registrarOperacion('ordenes_publicidad', 'UPDATE', ordenId, null, datos);
   }
 
   // Cobro de una orden NO registrada (ver comentario en database.ts) — al
@@ -1384,17 +1372,11 @@ export class TopviewService {
   // al desmarcarla se limpia la fecha para no dejar un dato inconsistente.
   static async actualizarCobro(ordenId: string, cobrado: boolean, fechaCobro?: string): Promise<void> {
     const fecha = cobrado ? fechaCobro || new Date().toISOString().split('T')[0] : null;
-    return new Promise((resolve, reject) => {
-      db.run(
-        'UPDATE ordenes_publicidad SET cobrado = ?, fecha_cobro = ?, updated_at = datetime("now") WHERE id = ?',
-        [cobrado ? 1 : 0, fecha, ordenId],
-        (err) => {
-          if (err) return reject(err);
-          AuditoriaService.registrarOperacion('ordenes_publicidad', 'UPDATE', ordenId, null, { cobrado, fecha_cobro: fecha });
-          resolve();
-        }
-      );
-    });
+    await this.runQuery(
+      'UPDATE ordenes_publicidad SET cobrado = ?, fecha_cobro = ?, updated_at = datetime("now") WHERE id = ?',
+      [cobrado ? 1 : 0, fecha, ordenId]
+    );
+    AuditoriaService.registrarOperacion('ordenes_publicidad', 'UPDATE', ordenId, null, { cobrado, fecha_cobro: fecha });
   }
 
   /**
@@ -1402,13 +1384,8 @@ export class TopviewService {
    * gastos o comisiones ya generados) — se oculta de la lista activa.
    */
   static async eliminarOrden(ordenId: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-      db.run('UPDATE ordenes_publicidad SET habilitado = 0, updated_at = datetime("now") WHERE id = ?', [ordenId], (err) => {
-        if (err) return reject(err);
-        AuditoriaService.registrarOperacion('ordenes_publicidad', 'DELETE', ordenId, null, { habilitado: 0 });
-        resolve();
-      });
-    });
+    await this.runQuery('UPDATE ordenes_publicidad SET habilitado = 0, updated_at = datetime("now") WHERE id = ?', [ordenId]);
+    AuditoriaService.registrarOperacion('ordenes_publicidad', 'DELETE', ordenId, null, { habilitado: 0 });
   }
 
   private static queryAll(sql: string, params: any[] = []): Promise<any[]> {
