@@ -329,6 +329,43 @@ export class TopviewService {
    * la saltea y la reporta en "saltadas" en vez de crearla. Devuelve null
    * si la orden no tiene vigencia_hasta cargada.
    */
+  // Un mismo cliente/anunciante puede tener varias órdenes simultáneas en el
+  // mismo mes (ej. "Zona Norte" y "Zona Sur" de un mismo circuito) — el
+  // chequeo de "ya existe orden este mes" no puede alcanzar con cliente +
+  // anunciante + mes, porque saltearía/confundiría una con la otra. Si la
+  // orden de origen tiene locación cargada en sus líneas, exige que la
+  // candidata comparta al menos una locación; si no tiene ninguna (queda
+  // como estaba antes), cae al criterio viejo.
+  private static async buscarOrdenExistenteEnMes(
+    clienteId: string,
+    nombreAnunciante: string,
+    mes: number,
+    ano: number,
+    idExcluir: string,
+    locacionIds: string[]
+  ): Promise<{ id: string } | undefined> {
+    const locacionesUnicas = Array.from(new Set(locacionIds.filter((id): id is string => !!id)));
+    if (locacionesUnicas.length === 0) {
+      return this.queryGet(
+        `SELECT id FROM ordenes_publicidad
+         WHERE (habilitado != 0 OR habilitado IS NULL) AND cliente_id = ? AND nombre_anunciante = ?
+           AND mes_ingreso = ? AND ano_ingreso = ? AND id != ?`,
+        [clienteId, nombreAnunciante, mes, ano, idExcluir]
+      );
+    }
+    const marcadores = locacionesUnicas.map(() => '?').join(',');
+    return this.queryGet(
+      `SELECT o.id FROM ordenes_publicidad o
+       WHERE (o.habilitado != 0 OR o.habilitado IS NULL) AND o.cliente_id = ? AND o.nombre_anunciante = ?
+         AND o.mes_ingreso = ? AND o.ano_ingreso = ? AND o.id != ?
+         AND EXISTS (
+           SELECT 1 FROM ordenes_publicidad_detalles d
+           WHERE d.orden_id = o.id AND d.locacion_id IN (${marcadores})
+         )`,
+      [clienteId, nombreAnunciante, mes, ano, idExcluir, ...locacionesUnicas]
+    );
+  }
+
   private static async generarClonesVigencia(
     datos: DatosOrden,
     ordenIdBase: string
@@ -358,11 +395,13 @@ export class TopviewService {
         anoActual += 1;
       }
 
-      const yaExiste = await this.queryGet(
-        `SELECT id FROM ordenes_publicidad
-         WHERE (habilitado != 0 OR habilitado IS NULL) AND cliente_id = ? AND nombre_anunciante = ?
-           AND mes_ingreso = ? AND ano_ingreso = ? AND id != ?`,
-        [datos.cliente_id, datos.nombre_anunciante, mesActual, anoActual, ordenIdBase]
+      const yaExiste = await this.buscarOrdenExistenteEnMes(
+        datos.cliente_id,
+        datos.nombre_anunciante,
+        mesActual,
+        anoActual,
+        ordenIdBase,
+        (datos.detalles_productos || []).map((d) => d.locacion_id || '')
       );
       if (yaExiste?.id) {
         saltadas.push({ mes: mesActual, ano: anoActual });
@@ -430,11 +469,13 @@ export class TopviewService {
       if (fechaFacturacion) fechaFacturacion = paso(fechaFacturacion);
     }
 
-    const yaExiste = await this.queryGet(
-      `SELECT id FROM ordenes_publicidad
-       WHERE (habilitado != 0 OR habilitado IS NULL) AND cliente_id = ? AND nombre_anunciante = ?
-         AND mes_ingreso = ? AND ano_ingreso = ? AND id != ?`,
-      [orden.cliente_id, orden.nombre_anunciante, mesDestino, anoDestino, ordenId]
+    const yaExiste = await this.buscarOrdenExistenteEnMes(
+      orden.cliente_id,
+      orden.nombre_anunciante,
+      mesDestino,
+      anoDestino,
+      ordenId,
+      detalles.map((d: any) => d.locacion_id || '')
     );
     if (yaExiste?.id) {
       const existente = await this.obtenerOrden(yaExiste.id);

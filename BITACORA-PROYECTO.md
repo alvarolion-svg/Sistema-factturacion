@@ -296,6 +296,23 @@ más importantes:
     **Pendiente sin diseñar**: 3er disparador — avisar al equipo comercial responsable cuando una
     pauta está por terminar, para preguntar si continúa (falta definir anticipación en días y cómo
     se mapea vendedor → grupo de Telegram).
+14. **Reconciliación de octubre 2026 contra la planilla "Ingreso de Órdenes" — casi completa
+    (2026-10-01), falta El Cronista**: se cruzaron las 65 filas de la planilla de octubre contra lo
+    ya cargado en el sistema y se cargaron ~26 órdenes faltantes (clonando la estructura de
+    septiembre — locaciones/soportes/comisionistas — y actualizando período/monto/descuentos según
+    octubre), más 2 correcciones a órdenes ya cargadas que les faltaba la comisión en cascada
+    (Corinthian/Iberia 20% NC + Ivan 9,09%; Banco Nación/TELAM 15%+25% MJ-F/MJ-$). Quedó pendiente
+    **SENTIDOS S.A. / "El Cronista"** ($25.494.855 neto, 15% NC → final $21.670.626,75): nunca se
+    cargó, no hay orden anterior en el sistema para clonar, y el usuario avisó que **hay un archivo
+    de julio con esta info que tampoco está subido al sistema** — retomar pidiendo ese archivo (u
+    otro documento real de El Cronista) para sacar la estructura de productos/ubicaciones antes de
+    cargarla. De paso se encontraron y corrigieron dos bugs reales: el clonado automático (tanto por
+    "vigencia hasta" como el manual del Timeline) solo chequeaba cliente+anunciante+mes para decidir
+    si una orden "ya existe" ese mes — rompía con clientes que tienen varios circuitos/zonas
+    simultáneos (ej. NAYA/Telecom Zona Norte y Zona Sur); ahora también exige que compartan
+    locación (`TopviewService.buscarOrdenExistenteEnMes`). También se agregó un buscador de
+    cliente/anunciante en el Timeline y autocompletado de "Vigencia hasta (nota libre)" desde el mes
+    elegido en "Repetir automáticamente hasta" cuando esa nota está vacía.
 
 ## Cómo trabaja este usuario (para que una sesión nueva no tenga que redescubrirlo)
 

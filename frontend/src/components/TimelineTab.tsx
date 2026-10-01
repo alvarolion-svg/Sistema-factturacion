@@ -43,6 +43,7 @@ function TimelineTab({
   const [error, setError] = useState('');
   const [clonandoKey, setClonandoKey] = useState<string | null>(null);
   const [filtroTipo, setFiltroTipo] = useState('');
+  const [busqueda, setBusqueda] = useState('');
 
   const cargarOrdenes = () => {
     setError('');
@@ -185,13 +186,20 @@ function TimelineTab({
       return a.anunciante.localeCompare(b.anunciante, 'es', { sensitivity: 'base' });
     });
 
+    const busquedaNorm = busqueda.trim().toLowerCase();
+    const filasFiltradas = busquedaNorm
+      ? filas.filter(
+          (f) => f.anunciante.toLowerCase().includes(busquedaNorm) || f.razonSocial.toLowerCase().includes(busquedaNorm)
+        )
+      : filas;
+
     return {
       mesesReales: mesesReales.map((m) => ({ ...m, label: `${MESES_CORTOS_TIMELINE[m.mes - 1]} ${m.ano}` })),
       proximo,
       anterior,
-      filas,
+      filas: filasFiltradas,
     };
-  }, [ordenes, filtroTipo]);
+  }, [ordenes, filtroTipo, busqueda]);
 
   // Libertad total: cualquier celda vacía de una fila se puede clickear para
   // crear una orden en ESE mes puntual — no se puede prever de antemano si un
@@ -246,23 +254,38 @@ function TimelineTab({
         orden "REVISAR" hasta que lo corrijas, y te lleva directo a editarla.
       </p>
 
-      <div className="form-group" style={{ margin: '0 0 1rem', maxWidth: '14rem' }}>
-        <label htmlFor="timeline_filtro_tipo">Tipo de anunciante</label>
-        <select id="timeline_filtro_tipo" value={filtroTipo} onChange={(e) => setFiltroTipo(e.target.value)}>
-          <option value="">Todos</option>
-          {TIPOS_ANUNCIANTE.map((tipo) => (
-            <option key={tipo} value={tipo}>
-              {tipo}
-            </option>
-          ))}
-        </select>
+      <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', margin: '0 0 1rem' }}>
+        <div className="form-group" style={{ margin: 0, maxWidth: '14rem' }}>
+          <label htmlFor="timeline_filtro_tipo">Tipo de anunciante</label>
+          <select id="timeline_filtro_tipo" value={filtroTipo} onChange={(e) => setFiltroTipo(e.target.value)}>
+            <option value="">Todos</option>
+            {TIPOS_ANUNCIANTE.map((tipo) => (
+              <option key={tipo} value={tipo}>
+                {tipo}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="form-group" style={{ margin: 0, maxWidth: '16rem' }}>
+          <label htmlFor="timeline_busqueda">Buscar cliente</label>
+          <input
+            id="timeline_busqueda"
+            type="text"
+            placeholder="Nombre del cliente o anunciante..."
+            value={busqueda}
+            onChange={(e) => setBusqueda(e.target.value)}
+          />
+        </div>
       </div>
 
       {error && <div className="error-message">{error}</div>}
       {ordenes === null && !error && <p className="empty-state">Cargando línea de tiempo...</p>}
       {ordenes && ordenes.length === 0 && !error && <p className="empty-state">Todavía no hay órdenes cargadas.</p>}
+      {ordenes && ordenes.length > 0 && datos && datos.filas.length === 0 && (
+        <p className="empty-state">Ningún cliente coincide con la búsqueda.</p>
+      )}
 
-      {datos && (
+      {datos && datos.filas.length > 0 && (
         <>
           <div style={{ overflowX: 'auto' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: 'fit-content' }}>

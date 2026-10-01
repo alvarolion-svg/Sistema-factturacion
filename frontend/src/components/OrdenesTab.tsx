@@ -1291,6 +1291,18 @@ function OrdenesTab({
     setOrdenForm((prev) => ({ ...prev, [campo]: valor }));
   };
 
+  // Si "Vigencia hasta (nota libre)" está vacía, se autocompleta con el mes
+  // elegido en "Repetir automáticamente hasta" — son el mismo concepto en el
+  // 99% de los casos, y así no hay que tipearlo dos veces. No pisa una nota
+  // que el usuario ya haya escrito a mano.
+  const handleChangeVigenciaHastaMes = (valor: string) => {
+    setOrdenForm((prev) => ({
+      ...prev,
+      vigencia_hasta_mes: valor,
+      vigencia_hasta_nota: prev.vigencia_hasta_nota.trim() ? prev.vigencia_hasta_nota : valor ? NOMBRES_MES[Number(valor) - 1] : prev.vigencia_hasta_nota,
+    }));
+  };
+
   // Si el cliente elegido es en sí mismo una agencia (ya facturamos ahí,
   // no tiene sentido pedir de nuevo la misma agencia), se autocompleta el
   // campo Agencia para no repetir la selección — pero queda editable por si
@@ -2884,7 +2896,7 @@ function OrdenesTab({
                   Mes
                   <select
                     value={ordenForm.vigencia_hasta_mes}
-                    onChange={(e) => handleChangeOrden('vigencia_hasta_mes', e.target.value)}
+                    onChange={(e) => handleChangeVigenciaHastaMes(e.target.value)}
                     disabled={guardando}
                     style={{ display: 'block', marginTop: '0.25rem' }}
                   >
