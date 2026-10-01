@@ -1,217 +1,99 @@
-# Sistema de Facturación - ERP Completo
+# Sistema de Facturación
 
-Una aplicación web profesional de gestión financiera y contable con HTML vanilla + Node.js + SQLite.
+Sistema de gestión y facturación hecho a medida para **Topview**, una empresa argentina de
+publicidad exterior (OOH/DOOH): vende espacio publicitario (pantallas LED, carteles backlight,
+gigantografías, video walls, PPLs) instalado en locaciones físicas, directo o vía agencias y
+comisionistas en cascada. Además de Topview, el sistema cubre Clientes, Proveedores, Gastos,
+Facturas, Productos, Tesorería, Usuarios y Auditoría — pero **Topview es el módulo core**.
 
-## 🎯 Características Principales
+## Stack
 
-### Dashboard
-- 📈 Métricas en tiempo real (ventas, cuentas por cobrar/pagar, tesorería)
-- 🔄 Estado completo del negocio
+- **Frontend**: React 18 + TypeScript + Vite (puerto 5173)
+- **Backend**: Node.js + Express + TypeScript (puerto 5000/5001)
+- **Base de datos**: SQLite, sin ORM (SQL directo por servicio)
 
-### Ventas
-- 💰 **Presupuestos**: Crear y enviar presupuestos a clientes
-- 📄 **Facturas**: Generación de facturas con validación ARCA
-- 📋 **Facturas sin validar**: Se pueden eliminar completamente
-- 📝 **Notas de Crédito**: Para anular facturas validadas
-- 💳 **Cobros**: Registro de pagos con actualización de cuentas corrientes
-
-### Compras y Gastos
-- 🛒 Órdenes de compra
-- 💸 Gestión de gastos
-- 📊 Control de proveedores
-
-### Base de Datos (Maestros)
-- 📦 Productos (código, nombre, precio, stock)
-- 👥 Clientes (razón social, CUIT, contacto)
-- 🏢 Proveedores
-
-### Situación Impositiva
-- 🧾 IVA CF (Compras)
-- 🧾 IVA DF (Ventas)
-- 📊 IIBB
-- 💰 Percepciones
-
-### Tesorería
-- 💵 Cajas (ARS, USD)
-- 🏦 Bancos
-- 📊 Cuentas corrientes con clientes y proveedores
-- 📈 Movimientos contables
-
-### Auditoría
-- 🔍 Registro completo de todas las operaciones
-- 👤 Usuario responsable
-- ⏰ Fecha y hora
-- 📝 Antes y después de cambios
-
-## 🏗 Arquitectura
+## Estructura
 
 ```
 Sistema-factturacion/
-├── backend/               # API REST con Express + TypeScript
-│   ├── src/
-│   │   ├── index.ts       # Servidor y rutas
-│   │   ├── database.ts    # Inicialización SQLite
-│   │   ├── types.ts       # Interfaces TypeScript
-│   │   └── services/
-│   │       ├── ventas.ts  # Lógica de facturas y cobros
-│   │       ├── tesoreria.ts # Movimientos contables
-│   │       └── auditoria.ts # Registro de cambios
-│   └── facturacion.db     # Base de datos SQLite
-│
-├── frontend/              # Interfaz HTML + JavaScript
-│   └── public/
-│       ├── index.html     # Interfaz principal
-│       ├── css/
-│       │   └── styles.css # Estilos modernos y responsivos
-│       └── js/
-│           ├── api.js     # Cliente HTTP
-│           └── app.js     # Lógica de UI
-│
-└── package.json           # Scripts principales
+├── frontend/
+│   └── src/
+│       ├── components/      # Vistas y pestañas (Topview, Clientes, Tesorería, etc.)
+│       ├── types/
+│       └── utils/
+├── backend/
+│   └── src/
+│       ├── index.ts         # Servidor y rutas
+│       ├── database.ts      # Esquema e inicialización de SQLite
+│       ├── middleware.ts    # Autenticación y permisos
+│       └── services/        # Lógica de negocio por módulo (topview.ts es el más grande)
+├── CLAUDE.md                 # Documentación técnica para trabajar con Claude Code en este repo
+├── BITACORA-PROYECTO.md      # Estado actual, decisiones tomadas y pendientes abiertos
+└── PENDIENTE-PRODUCCION.md   # Qué falta antes de desplegar esto fuera de un entorno local
 ```
 
-## 📊 Stack Tecnológico
+## Módulos principales
 
-- **Frontend**: HTML5 + CSS3 + JavaScript Vanilla
-- **Backend**: Node.js + Express + TypeScript
-- **Base de Datos**: SQLite (archivo local, sin dependencias)
-- **Validación**: TypeScript types
-- **Auditoría**: Registro completo de operaciones
+- **Topview**: órdenes de publicidad (venta, comisiones en cascada, agencias, vendedores),
+  catálogo de locaciones/soportes/concesionarios, Timeline de continuidad de clientes,
+  Liquidaciones a concesionarios (con terceros propios como Esteban Vivo y Oxant), integración
+  con Asana y avisos automáticos a Telegram.
+- **Clientes, Proveedores, Gastos, Facturas, Productos, Tesorería**: CRUD completo con cuentas
+  corrientes y movimientos contables.
+- **Usuarios y roles**: autenticación con permisos granulares por sección y por rol
+  (Administrador, Gerente, Contador, Vendedor, Comprador, Operario).
+- **Auditoría**: registro de cada operación (tabla, tipo, datos antes/después, usuario, fecha).
+- **Reportes**: ventas, compras, financieros, impositivos, por cliente/proveedor, con export a
+  Excel/PDF.
 
-## 🚀 Instalación y Uso
+Para el detalle real de qué está construido, verificado y pendiente, ver
+[`BITACORA-PROYECTO.md`](./BITACORA-PROYECTO.md) — se mantiene más al día que este archivo.
+
+## Instalación y uso
 
 ### Requisitos
 - Node.js 18+
-- npm o yarn
+- npm
 
 ### Instalación
 
 ```bash
-# Clonar o navegar al proyecto
-cd Sistema-factturacion
-
-# Instalar dependencias
 npm install
 ```
 
-### Ejecución
+### Desarrollo
 
-#### Opción 1: Ambos simultáneamente (Recomendado)
 ```bash
+# Frontend + backend simultáneamente
 npm run dev
-```
-- Backend: http://localhost:5000
-- Frontend: Abre desde el navegador
 
-#### Opción 2: Por separado
-```bash
-# Terminal 1 - Backend
-npm run dev:backend
-
-# Terminal 2 - Frontend
-# Navega a http://localhost:5000/
+# Por separado
+npm run dev:frontend   # http://localhost:5173
+npm run dev:backend    # http://localhost:5000 (o 5001 según PORT)
 ```
 
-## 📝 Lógica de Negocio Implementada
+Variables de entorno del backend en `backend/.env` (basado en `backend/.env.example`).
 
-### Flujo de Ventas
-1. **Creación de Factura**
-   - Se crea factura con estado "Abierta"
-   - Se actualiza CC del cliente (DEBE +monto)
-   - Se registra auditoría completa
-
-2. **Cobro de Factura**
-   - El dinero entra en cuenta bancaria
-   - La CC del cliente se reduce
-   - Si saldo = 0, la factura se marca "Cobrada"
-   - Se registra movimiento contable
-
-3. **Anulación - Factura Validada ARCA**
-   - Se crea Nota de Crédito
-   - La factura se marca "Anulada"
-   - Se devuelve el monto a la CC del cliente
-   - NO se borra el registro (trazabilidad)
-
-4. **Anulación - Factura sin Validar**
-   - Se elimina la factura completamente
-   - Se devuelve el dinero a CC
-   - Se registra DELETE en auditoría
-
-### Cuentas Corrientes
-- **CC Clientes**: Deuda del cliente con la empresa
-- **CC Proveedores**: Deuda de la empresa con proveedores
-- Se actualizan automáticamente con cada operación
-
-### Movimientos Contables
-Cada transacción genera un movimiento que registra:
-- Cuenta origen y destino
-- Monto
-- Saldos anterior y nuevo
-- Tipo de documento relacionado
-
-## 🔐 Auditoría Completa
-
-Cada operación registra:
-- **Tabla** afectada
-- **Tipo de operación** (INSERT, UPDATE, DELETE)
-- **ID del registro**
-- **Datos anteriores y nuevos**
-- **Usuario** responsable
-- **Fecha y hora**
-- **IP** (cuando sea aplicable)
-
-## 📋 API REST Disponible
-
-### Productos
-- `GET /api/productos` - Listar
-- `POST /api/productos` - Crear
-
-### Clientes
-- `GET /api/clientes` - Listar
-- `POST /api/clientes` - Crear
-
-### Facturas
-- `POST /api/facturas` - Crear
-- `GET /api/facturas/:id` - Ver detalle
-
-### Cobros
-- `POST /api/cobros` - Registrar cobro
-
-### Notas de Crédito
-- `POST /api/notas-credito` - Crear
-
-### Tesorería
-- `GET /api/tesoreria/estado` - Estado completo
-- `POST /api/cuentas` - Crear cuenta
-
-### Auditoría
-- `GET /api/auditoria/:tabla/:id` - Ver historial
-
-## 🔧 Desarrollo
-
-### Agregar nuevo endpoint
-1. Crear método en `backend/src/services/`
-2. Agregar ruta en `backend/src/index.ts`
-3. Llamar desde `frontend/public/js/api.js`
-4. Actualizar UI en `frontend/public/js/app.js`
-
-### Agregar tabla a BD
-1. Editar `backend/src/database.ts`
-2. Crear tipo en `backend/src/types.ts`
-3. Crear servicio si es necesario
-
-## 📦 Construcción para Producción
+### Otros comandos
 
 ```bash
-npm run build
-npm start
+npm run build          # build de producción
+npm run type-check     # chequeo de tipos
+npm run lint           # linting
+npm run format         # formateo
 ```
 
-## 📄 Licencia
+## Estado del proyecto
+
+Este sistema corre hoy localmente, con datos reales de Topview ya cargados. **Todavía no está
+desplegado en producción** — antes de exponerlo fuera de un entorno local hay pendientes de
+seguridad reales (contraseñas, CORS, token de sesión, hosting). Ver
+[`PENDIENTE-PRODUCCION.md`](./PENDIENTE-PRODUCCION.md) para el relevamiento completo.
+
+## Licencia
 
 MIT
 
 ---
 
-**Desarrollado con Claude Code** 🚀
-https://claude.ai/code
+Desarrollado con [Claude Code](https://claude.ai/code)
