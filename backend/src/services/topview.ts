@@ -4,6 +4,70 @@ import { dbAll, dbGet, dbRun, Parametro } from '../dbHelpers';
 
 type FilaBD = Record<string, unknown>;
 
+interface DetalleBloqueUbicacion {
+  tipo_producto: string;
+  cantidad: number;
+  punto_instalacion: string | null;
+  locacion_id: string | null;
+  producto_codigo: string | null;
+  locacion_nombre: string | null;
+}
+
+// Forma del reporte de Reportes → Topview (cada corte es una lista de filas
+// agregadas; qué columnas traen depende de `incluir_netos`).
+interface ReporteOrdenes {
+  por_anunciante: FilaBD[];
+  totales: FilaBD;
+  por_mes: FilaBD[];
+  por_mes_venta: FilaBD[];
+  por_mes_registro: FilaBD[];
+  por_mes_segmento: FilaBD[];
+  por_soporte: FilaBD[];
+  top_clientes: FilaBD[];
+  por_comisionista_tipo: FilaBD[];
+  incluye_netos: boolean;
+  generado_en: string;
+}
+
+interface FilaDetalleOrden {
+  producto_id: string;
+  cantidad: number;
+  ubicacion?: string;
+  especificaciones?: string;
+  locacion_id?: string;
+  punto_instalacion?: string;
+  precio?: number;
+}
+
+interface FilaContactoEmail {
+  email: string;
+  nombre_contacto?: string;
+  cargo?: string;
+  principal?: number | boolean;
+}
+
+interface FilaIntermediarioOrden {
+  intermediario_id: string;
+  porcentaje_comision: number;
+  tipo_calculo: 'base' | 'cascada';
+  factura_formal?: number | boolean;
+}
+
+interface FilaArregloNoRegistrable {
+  tipo?: string;
+  descripcion?: string;
+  monto?: number;
+  tercero_nombre?: string;
+}
+
+interface OrdenAviso {
+  id: string;
+  nombre_anunciante: string;
+  periodo_desde: string;
+  periodo_hasta: string;
+  vendedor_id?: string | null;
+}
+
 // Fila de ordenes_publicidad: solo lo que este archivo lee por nombre; el resto
 // de las columnas viaja igual (índice abierto) porque se copia/devuelve entera.
 interface FilaOrden {
@@ -556,15 +620,15 @@ export class TopviewService {
    * o por otro clonado), no duplica: devuelve esa orden con `yaExistia: true`
    * para que el timeline simplemente la abra.
    */
-  static async clonarOrdenAMes(ordenId: string, mesDestino: number, anoDestino: number): Promise<{ orden: any; yaExistia: boolean }> {
-    const orden: any = await this.queryGet('SELECT * FROM ordenes_publicidad WHERE id = ?', [ordenId]);
+  static async clonarOrdenAMes(ordenId: string, mesDestino: number, anoDestino: number): Promise<{ orden: OrdenPublicidad; yaExistia: boolean }> {
+    const orden = await dbGet<OrdenPublicidad>('SELECT * FROM ordenes_publicidad WHERE id = ?', [ordenId]);
     if (!orden) throw new Error('Orden no encontrada.');
 
     const [detalles, contactos, intermediarios, arreglos] = await Promise.all([
-      this.queryAll('SELECT * FROM ordenes_publicidad_detalles WHERE orden_id = ?', [ordenId]),
-      this.queryAll('SELECT * FROM contactos_email WHERE orden_id = ?', [ordenId]),
-      this.queryAll('SELECT * FROM ordenes_intermediarios WHERE orden_id = ? ORDER BY numero_nivel', [ordenId]),
-      this.queryAll('SELECT * FROM arreglos_no_registrables WHERE orden_id = ?', [ordenId]),
+      this.queryAll<FilaDetalleOrden>('SELECT * FROM ordenes_publicidad_detalles WHERE orden_id = ?', [ordenId]),
+      this.queryAll<FilaContactoEmail>('SELECT * FROM contactos_email WHERE orden_id = ?', [ordenId]),
+      this.queryAll<FilaIntermediarioOrden>('SELECT * FROM ordenes_intermediarios WHERE orden_id = ? ORDER BY numero_nivel', [ordenId]),
+      this.queryAll<FilaArregloNoRegistrable>('SELECT * FROM arreglos_no_registrables WHERE orden_id = ?', [ordenId]),
     ]);
 
     const [anoDesde, mesDesde] = orden.periodo_desde.split('-').map(Number);
@@ -584,12 +648,12 @@ export class TopviewService {
     }
 
     const yaExiste = await this.buscarOrdenExistenteEnMes(
-      orden.cliente_id,
+      orden.cliente_id as string,
       orden.nombre_anunciante,
       mesDestino,
       anoDestino,
       ordenId,
-      detalles.map((d: any) => d.locacion_id || '')
+      detalles.map((d) => d.locacion_id || '')
     );
     if (yaExiste?.id) {
       const existente = await this.obtenerOrden(yaExiste.id);
@@ -602,12 +666,12 @@ export class TopviewService {
       numero_orden_agencia: 'REVISAR',
       incluir_numero_orden_agencia: !!orden.incluir_numero_orden_agencia,
       leyenda_factura: orden.leyenda_factura,
-      cliente_id: orden.cliente_id,
+      cliente_id: orden.cliente_id as string,
       agencia_id: orden.agencia_id || undefined,
       vendedor_id: orden.vendedor_id || undefined,
       periodo_desde: periodoDesde,
       periodo_hasta: periodoHasta,
-      fecha_facturacion: fechaFacturacion,
+      fecha_facturacion: fechaFacturacion as string,
       email_contacto: orden.email_contacto || '',
       costo_produccion: orden.costo_produccion || 0,
       monto_neto: orden.monto_neto,
@@ -619,7 +683,7 @@ export class TopviewService {
       descuento_facturas_en_cascada: !!orden.descuento_facturas_en_cascada,
       mes_ingreso: mesDestino,
       ano_ingreso: anoDestino,
-      detalles_productos: (detalles || []).map((d: any) => ({
+      detalles_productos: (detalles || []).map((d) => ({
         producto_id: d.producto_id,
         cantidad: d.cantidad,
         ubicacion: d.ubicacion,
@@ -628,13 +692,13 @@ export class TopviewService {
         punto_instalacion: d.punto_instalacion,
         precio: d.precio,
       })),
-      emails_contacto: (contactos || []).map((c: any) => ({
+      emails_contacto: (contactos || []).map((c) => ({
         email: c.email,
-        nombre: c.nombre_contacto,
+        nombre: c.nombre_contacto as string,
         cargo: c.cargo,
         principal: !!c.principal,
       })),
-      intermediarios: (intermediarios || []).map((i: any) => ({
+      intermediarios: (intermediarios || []).map((i) => ({
         intermediario_id: i.intermediario_id,
         porcentaje_comision: i.porcentaje_comision,
         tipo_calculo: i.tipo_calculo,
@@ -642,7 +706,7 @@ export class TopviewService {
       })),
       notas: orden.notas || '',
       facturado: orden.facturado === undefined || orden.facturado === null ? true : !!orden.facturado,
-      arreglos_no_registrables: (arreglos || []).map((a: any) => ({
+      arreglos_no_registrables: (arreglos || []).map((a) => ({
         tipo: a.tipo,
         descripcion: a.descripcion,
         monto: a.monto,
@@ -1545,7 +1609,7 @@ export class TopviewService {
   // distintas, cada una en una dirección) — si no se repite, el nombre de la
   // locación solo ya alcanza.
   static async construirBloqueUbicacion(ordenId: string): Promise<string> {
-    const detalles = await this.queryAll(
+    const detalles = await this.queryAll<DetalleBloqueUbicacion>(
       `SELECT d.tipo_producto, d.cantidad, d.punto_instalacion, d.locacion_id, p.codigo as producto_codigo,
               l.nombre as locacion_nombre
        FROM ordenes_publicidad_detalles d
@@ -1562,12 +1626,12 @@ export class TopviewService {
     // Disponibilidad para sincronizar capacidad. Para cualquier otro soporte
     // (PPLs, Caja Backlight, etc.) la cantidad de la orden SÍ es la real.
     const locacionesCircuito = Array.from(
-      new Set((detalles as any[]).filter((d) => d.producto_codigo === 'SOP-LEDV' && d.locacion_id).map((d) => d.locacion_id))
+      new Set(detalles.filter((d) => d.producto_codigo === 'SOP-LEDV' && d.locacion_id).map((d) => d.locacion_id as string))
     );
     const capacidadReal = new Map<string, number>();
     if (locacionesCircuito.length > 0) {
       const marcadores = locacionesCircuito.map(() => '?').join(',');
-      const filas = await this.queryAll(
+      const filas = await this.queryAll<{ locacion_id: string; real: number }>(
         `SELECT lc.locacion_id,
                 CASE WHEN COUNT(lp.id) > 0 THEN SUM(lp.cantidad) ELSE MAX(lc.cantidad) END as real
          FROM locaciones_capacidad lc LEFT JOIN locaciones_puntos lp ON lp.capacidad_id = lc.id
@@ -1575,15 +1639,15 @@ export class TopviewService {
          GROUP BY lc.locacion_id`,
         locacionesCircuito
       );
-      filas.forEach((f: any) => capacidadReal.set(f.locacion_id, f.real));
+      filas.forEach((f) => capacidadReal.set(f.locacion_id, f.real));
     }
-    (detalles as any[]).forEach((d) => {
-      if (d.producto_codigo === 'SOP-LEDV' && capacidadReal.has(d.locacion_id)) {
-        d.cantidad = capacidadReal.get(d.locacion_id);
+    detalles.forEach((d) => {
+      if (d.producto_codigo === 'SOP-LEDV' && d.locacion_id && capacidadReal.has(d.locacion_id)) {
+        d.cantidad = capacidadReal.get(d.locacion_id) as number;
       }
     });
     const grupos = new Map<string, { total: number; locaciones: Array<{ nombre: string; punto: string | null; cantidad: number }> }>();
-    for (const d of [...(detalles as any[])].sort(compararLineasPorSoporte)) {
+    for (const d of [...detalles].sort(compararLineasPorSoporte)) {
       if (!d.locacion_nombre) continue;
       if (!grupos.has(d.tipo_producto)) grupos.set(d.tipo_producto, { total: 0, locaciones: [] });
       const g = grupos.get(d.tipo_producto)!;
@@ -1607,7 +1671,7 @@ export class TopviewService {
   }
 
   static async avisarOrdenATelegram(ordenId: string): Promise<boolean> {
-    const orden: any = await this.queryGet(
+    const orden = await dbGet<OrdenAviso>(
       'SELECT nombre_anunciante, tipo_anunciante, periodo_desde, periodo_hasta FROM ordenes_publicidad WHERE id = ?',
       [ordenId]
     );
@@ -1645,7 +1709,7 @@ export class TopviewService {
     const hoy = new Date();
     const fechaHoy = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`;
 
-    const ordenes = await this.queryAll(
+    const ordenes = await this.queryAll<OrdenAviso>(
       `SELECT id, nombre_anunciante, tipo_anunciante, periodo_desde, periodo_hasta
        FROM ordenes_publicidad
        WHERE periodo_desde = ?
@@ -1657,12 +1721,12 @@ export class TopviewService {
     if (ordenes.length === 0) return { avisadas: 0 };
 
     const formatFecha = (f: string) => f.split('-').reverse().join('/');
-    const lineas = ordenes.map((o: any) => `• <b>${o.nombre_anunciante}</b> — hasta ${formatFecha(o.periodo_hasta)}`);
+    const lineas = ordenes.map((o) => `• <b>${o.nombre_anunciante}</b> — hasta ${formatFecha(o.periodo_hasta)}`);
     const texto = `📅 <b>Campañas que arrancan hoy</b> (${ordenes.length}):\n\n${lineas.join('\n')}`;
 
     await TelegramService.enviarAGrupo('Operaciones', texto);
 
-    for (const o of ordenes as any[]) {
+    for (const o of ordenes) {
       await this.runQuery('UPDATE ordenes_publicidad SET telegram_avisado_inicio_en = datetime("now") WHERE id = ?', [o.id]);
     }
     return { avisadas: ordenes.length };
@@ -1693,7 +1757,7 @@ export class TopviewService {
     limite.setDate(limite.getDate() + diasAnticipacion);
     const aFecha = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
-    const candidatas = await this.queryAll(
+    const candidatas = await this.queryAll<OrdenAviso>(
       `SELECT o.id, o.nombre_anunciante, o.periodo_desde, o.periodo_hasta, o.vendedor_id
        FROM ordenes_publicidad o
        WHERE (o.habilitado != 0 OR o.habilitado IS NULL)
@@ -1718,10 +1782,10 @@ export class TopviewService {
 
     const formatFecha = (f: string) => (f ? f.split('-').reverse().join('/') : '-');
     let avisadas = 0;
-    for (const o of candidatas as any[]) {
-      const vendedor: any = o.vendedor_id
-        ? await this.queryGet('SELECT nombre, apellido FROM vendedores WHERE id = ?', [o.vendedor_id])
-        : null;
+    for (const o of candidatas) {
+      const vendedor = o.vendedor_id
+        ? await dbGet<{ nombre: string; apellido: string | null }>('SELECT nombre, apellido FROM vendedores WHERE id = ?', [o.vendedor_id])
+        : undefined;
       const nombreVendedor = vendedor ? `${vendedor.nombre} ${vendedor.apellido || ''}`.trim() : '(sin vendedor asignado)';
       const bloqueUbicacion = await this.construirBloqueUbicacion(o.id);
       const texto =
@@ -1765,7 +1829,7 @@ export class TopviewService {
    * De Gerente para abajo solo se manda la facturación bruta (monto_neto):
    * el dato ni sale del servidor, no es solo ocultarlo en la pantalla.
    */
-  static async reporteOrdenes(incluirNetos: boolean = true): Promise<any> {
+  static async reporteOrdenes(incluirNetos: boolean = true): Promise<ReporteOrdenes> {
     const analisis = await this.queryAll(`
       SELECT
         tipo_anunciante,
@@ -1915,17 +1979,17 @@ export class TopviewService {
     const totalesFiltrados = incluirNetos
       ? totales || {}
       : { total_ordenes: totales?.total_ordenes ?? 0, monto_neto_total: totales?.monto_neto_total ?? 0 };
-    const analisisFiltrado = (analisis || []).map((a: any) =>
+    const analisisFiltrado = (analisis || []).map((a) =>
       incluirNetos
         ? a
         : { tipo_anunciante: a.tipo_anunciante, cantidad: a.cantidad, monto_neto_total: a.monto_neto_total }
     );
-    const porMesFiltrado = (porMes || []).map((m: any) =>
+    const porMesFiltrado = (porMes || []).map((m) =>
       incluirNetos
         ? m
         : { mes: m.mes, monto_neto_total: m.monto_neto_total, monto_neto_aplicado_total: m.monto_neto_aplicado_total }
     );
-    const porMesVentaFiltrado = (porMesVenta || []).map((m: any) =>
+    const porMesVentaFiltrado = (porMesVenta || []).map((m) =>
       incluirNetos
         ? m
         : { mes: m.mes, monto_neto_total: m.monto_neto_total, monto_neto_aplicado_total: m.monto_neto_aplicado_total }

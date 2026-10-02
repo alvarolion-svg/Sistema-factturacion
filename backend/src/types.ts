@@ -284,6 +284,14 @@ export interface OrdenPublicidad {
   mes_ingreso?: number;
   ano_ingreso?: number;
   vigencia_hasta_nota?: string;
+  vigencia_hasta_mes?: number | null;
+  vigencia_hasta_ano?: number | null;
+  agencia_id?: string | null;
+  vendedor_id?: string | null;
+  descuento_porcentaje_2?: number;
+  descuento_en_cascada_2?: boolean | number;
+  descuento_monto_2?: number;
+  facturado?: boolean | number | null;
   cantidades_por_producto?: Record<string, number>;
   avisar_telegram?: boolean | number;
   telegram_avisado_inicio_en?: string | null;
