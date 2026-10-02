@@ -1,6 +1,7 @@
 import { v4 as uuid } from 'uuid';
 import db from '../database';
 import { dbAll, dbGet, dbRun, Parametro } from '../dbHelpers';
+import { mensajeDe } from '../errores';
 
 type FilaBD = Record<string, unknown>;
 
@@ -444,12 +445,12 @@ export class TopviewService {
         primera = false;
         indice += 1;
       }
-    } catch (err: any) {
+    } catch (err) {
       for (const creada of ordenes) {
         await this.borrarOrdenCreadaDefinitivamente(creada.id);
       }
       throw new Error(
-        `${err.message}${ordenes.length > 0 ? ` (no se creó ninguna orden: se deshizo ${ordenes.length === 1 ? 'la 1 ya creada' : `las ${ordenes.length} ya creadas`})` : ''}`
+        `${mensajeDe(err)}${ordenes.length > 0 ? ` (no se creó ninguna orden: se deshizo ${ordenes.length === 1 ? 'la 1 ya creada' : `las ${ordenes.length} ya creadas`})` : ''}`
       );
     }
     return { ordenes };
@@ -1391,55 +1392,47 @@ export class TopviewService {
     fecha_desde?: string;
     fecha_hasta?: string;
   } = {}): Promise<OrdenPublicidad[]> {
-    return new Promise((resolve, reject) => {
-      let query = "SELECT * FROM ordenes_publicidad WHERE (habilitado != 0 OR habilitado IS NULL)";
-      const params: any[] = [];
+    let query = "SELECT * FROM ordenes_publicidad WHERE (habilitado != 0 OR habilitado IS NULL)";
+    const params: Parametro[] = [];
 
-      if (filtros.tipo_anunciante) {
-        query += ' AND tipo_anunciante = ?';
-        params.push(filtros.tipo_anunciante);
-      }
+    if (filtros.tipo_anunciante) {
+      query += ' AND tipo_anunciante = ?';
+      params.push(filtros.tipo_anunciante);
+    }
 
-      if (filtros.estado) {
-        query += ' AND estado = ?';
-        params.push(filtros.estado);
-      }
+    if (filtros.estado) {
+      query += ' AND estado = ?';
+      params.push(filtros.estado);
+    }
 
-      if (filtros.fecha_desde && filtros.fecha_hasta) {
-        query += ' AND periodo_desde >= ? AND periodo_hasta <= ?';
-        params.push(filtros.fecha_desde, filtros.fecha_hasta);
-      }
+    if (filtros.fecha_desde && filtros.fecha_hasta) {
+      query += ' AND periodo_desde >= ? AND periodo_hasta <= ?';
+      params.push(filtros.fecha_desde, filtros.fecha_hasta);
+    }
 
-      query += ' ORDER BY created_at DESC';
+    query += ' ORDER BY created_at DESC';
 
-      db.all(query, params, async (err, ordenes: any[]) => {
-        if (err) return reject(err);
-        if (!ordenes || ordenes.length === 0) return resolve([]);
+    const ordenes = await dbAll<OrdenPublicidad>(query, params);
+    if (ordenes.length === 0) return [];
 
-        try {
-          // Cantidad por producto de cada orden, para la vista tipo planilla
-          // (una columna por soporte) sin tener que traer el detalle completo orden por orden.
-          const filasCantidades = await this.queryAll<{ orden_id: string; producto_id: string; cantidad: number }>(
-            `SELECT orden_id, producto_id, SUM(cantidad) as cantidad
-             FROM ordenes_publicidad_detalles
-             WHERE producto_id IS NOT NULL
-             GROUP BY orden_id, producto_id`
-          );
-          const cantidadesPorOrden: Record<string, Record<string, number>> = {};
-          filasCantidades.forEach((f) => {
-            if (!cantidadesPorOrden[f.orden_id]) cantidadesPorOrden[f.orden_id] = {};
-            cantidadesPorOrden[f.orden_id][f.producto_id] = f.cantidad;
-          });
-
-          ordenes.forEach((o) => {
-            o.cantidades_por_producto = cantidadesPorOrden[o.id] || {};
-          });
-          resolve(ordenes);
-        } catch (e) {
-          reject(e);
-        }
-      });
+    // Cantidad por producto de cada orden, para la vista tipo planilla
+    // (una columna por soporte) sin tener que traer el detalle completo orden por orden.
+    const filasCantidades = await this.queryAll<{ orden_id: string; producto_id: string; cantidad: number }>(
+      `SELECT orden_id, producto_id, SUM(cantidad) as cantidad
+       FROM ordenes_publicidad_detalles
+       WHERE producto_id IS NOT NULL
+       GROUP BY orden_id, producto_id`
+    );
+    const cantidadesPorOrden: Record<string, Record<string, number>> = {};
+    filasCantidades.forEach((f) => {
+      if (!cantidadesPorOrden[f.orden_id]) cantidadesPorOrden[f.orden_id] = {};
+      cantidadesPorOrden[f.orden_id][f.producto_id] = f.cantidad;
     });
+
+    ordenes.forEach((o) => {
+      o.cantidades_por_producto = cantidadesPorOrden[o.id] || {};
+    });
+    return ordenes;
   }
 
   // Listado para el dashboard de Ejecución (solapa "Ejecución", independiente
