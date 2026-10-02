@@ -495,6 +495,24 @@ más importantes:
     cliente (con un aviso "Sugerido…"; queda editable y nunca pisa uno ya elegido ni se aplica al
     editar). Clientes sin órdenes previas siguen en "Sin vendedor asignado". Verificado en pantalla
     con YPF → Alvaro, DICAPRA → Maximo.
+35. **Limpieza de código: helpers de base y menos `any` (2026-10-02)**: nuevo `backend/src/dbHelpers.ts`
+    (`dbAll`/`dbGet`/`dbRun` tipados; `dbGet` devuelve `undefined` si no hay fila, a diferencia del
+    `queryGet` de topview.ts que devuelve `{}`) y `errores.ts` (`mensajeDe`). Migrados a esos helpers y
+    sin `any`: `asana.ts`, `asanaConfig.ts`, `auditoria.ts`, `reportes.ts`, `autenticacion.ts`,
+    `telegram.ts` y el estado de `tesoreria.ts`; `clientes.ts` se borró (nadie lo importaba). En
+    `index.ts`: 97 `catch (err: any)` pasaron a `mensajeDe(err)`. `any` total: 248 → 136. Cada paso se
+    verificó contra una foto de la API real (login, clientes, todos los reportes, tesorería,
+    config de Asana: idéntica antes/después) y `reportes.ts` además con 22 casos comparados contra la
+    versión vieja sobre datos de muestra (22/22 iguales). **Bugs reales encontrados de paso:** (1) pedir
+    cambiar el rol de un usuario inexistente tiraba abajo TODO el servidor (error no capturado en un
+    callback de `autenticacion.ts`) — corregido; (2) `GET /api/telegram/grupos` devolvía el
+    `bot_token` completo (secreto) — ahora solo dice `bot_propio`; (3) los filtros de condiciones de
+    agencia/intermediario metían el valor de la URL sin convertir a texto. **Quedó a propósito sin
+    tocar**: `ventas.ts` y `tesoreria.ts` (registrar movimientos, cuentas corrientes, facturas, cobros,
+    notas de crédito — flujos de plata con varios pasos encadenados); y sin hacer todavía:
+    `topview.ts` (54 `any`, 29 promesas manuales), `liquidaciones.ts` (18), `locaciones.ts` (15),
+    `produccionTopview.ts` (9), `index.ts` (20 restantes). `DB_PATH` permite apuntar a una copia de la base
+    para pruebas comparativas.
 
 ## Cómo trabaja este usuario (para que una sesión nueva no tenga que redescubrirlo)
 
