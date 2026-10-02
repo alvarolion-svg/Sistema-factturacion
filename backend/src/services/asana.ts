@@ -416,7 +416,7 @@ export class AsanaService {
     generaFacturacion: boolean,
     headers: Record<string, string>
   ): Promise<void> {
-    const respExistentes = await fetchReintentando(`https://app.asana.com/api/1.0/tasks/${taskGid}/subtasks?opt_fields=name`, {
+    const respExistentes = await fetchReintentando(`https://app.asana.com/api/1.0/tasks/${taskGid}/subtasks?opt_fields=gid,name`, {
       headers,
     });
     if (!respExistentes.ok) {
@@ -441,6 +441,32 @@ export class AsanaService {
       if (!resp.ok) {
         throw new Error(`Asana rechazó crear la subtarea "${nombreSubtarea}" (${resp.status}): ${await resp.text()}`);
       }
+    }
+
+    await this.ordenarSubtareas(taskGid, subtareasDeseadas, headers);
+  }
+
+  // Asana inserta cada subtarea nueva ARRIBA de las anteriores, así que las
+  // creadas en orden quedan al revés. Orden natural del trabajo: Fotos →
+  // Link FB y Certificaciones → Facturar. Solo reordena si hace falta (también
+  // arregla las tareas ya creadas), y no toca subtareas agregadas a mano.
+  private static async ordenarSubtareas(taskGid: string, nombresEnOrden: string[], headers: Record<string, string>): Promise<void> {
+    const resp = await fetchReintentando(`https://app.asana.com/api/1.0/tasks/${taskGid}/subtasks?opt_fields=gid,name`, { headers });
+    if (!resp.ok) return;
+    const actuales: Array<{ gid: string; name: string }> = ((await resp.json()) as any).data || [];
+    const deseadas = nombresEnOrden
+      .map((n) => actuales.find((a) => a.name === n))
+      .filter((a): a is { gid: string; name: string } => !!a);
+    const ordenActual = actuales.filter((a) => deseadas.includes(a)).map((a) => a.gid);
+    if (ordenActual.join() === deseadas.map((d) => d.gid).join()) return;
+
+    for (let i = 1; i < deseadas.length; i++) {
+      const r = await fetchReintentando(`https://app.asana.com/api/1.0/tasks/${deseadas[i].gid}/setParent`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ data: { parent: taskGid, insert_after: deseadas[i - 1].gid } }),
+      });
+      if (!r.ok) throw new Error(`Asana rechazó reordenar las subtareas (${r.status}): ${await r.text()}`);
     }
   }
 }

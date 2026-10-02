@@ -468,6 +468,11 @@ más importantes:
     la cantidad de órdenes y el mix de soportes). El "Dashboard" actual es solo la pantalla de
     bienvenida, sin datos de ventas, así que no había nada que excluir; si se le agregan métricas,
     aplicar el mismo filtro. Cierra el pendiente "Reportes/Dashboard" de World Padel.
+31. **Asana: orden de subtareas Fotos → Link FB y Certificaciones → Facturar (2026-10-02)**: Asana
+    inserta cada subtarea nueva arriba de las anteriores, así que quedaban al revés (Facturar,
+    Link, Fotos). `asana.ts` ahora reordena con `setParent`/`insert_after` después de crearlas
+    (`ordenarSubtareas`), solo si hace falta y sin tocar subtareas agregadas a mano. Aplicado a las
+    54 tareas de octubre y verificado en Asana: todas en el orden nuevo, asignaciones intactas.
 
 ## Cómo trabaja este usuario (para que una sesión nueva no tenga que redescubrirlo)
 
