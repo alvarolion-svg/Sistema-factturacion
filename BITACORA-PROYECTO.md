@@ -484,7 +484,7 @@ más importantes:
     usuario (razón social + anunciante → Alvaro o Maximo) se asignó `vendedor_id` a todas las órdenes
     activas que coinciden (cliente + anunciante, en cualquier mes): 76 de Alvaro y 76 de Maximo. Las 46
     filas de la lista encontraron órdenes, sin conflictos ni pisar vendedores previos. Quedaron **42
-    órdenes activas sin socio** (luego Ford Parque Fijo y los YPF Parque Fijo se asignaron a Alvaro, y TOM + todas las Pauta Concesionario a Maximo) por no estar en la lista (AMEX, AVA Cancun, Al Mundo, Cauquenes, Ente
+    órdenes activas sin socio** (luego Ford Parque Fijo y los YPF Parque Fijo se asignaron a Alvaro, y TOM + todas las Pauta Concesionario a Maximo; GCBA, Zonaprop, AMEX, Ente Mixto y Cauquenes a Alvaro; Al Mundo, AVA Cancun e Inmobiliarias Berraz/Soldati a Maximo — quedó el 100% de las órdenes activas con socio) por no estar en la lista (AMEX, AVA Cancun, Al Mundo, Cauquenes, Ente
     Mixto de Promoción Turística, Ford Parque Fijo, GCBA a secas, Inmobiliaria Berraz/Soldati, TOM,
     YPF Parque Fijo Lubricantes/OEMs, Zonaprop y las "Pauta Concesionario": IEB, OSDE, PAX, SSI, St.
     Matthew's, Universidad Austral) — pendiente que el usuario diga a quién va cada una. Hecho
