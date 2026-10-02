@@ -1370,13 +1370,25 @@ function OrdenesTab({
   // campo Agencia para no repetir la selección — pero queda editable por si
   // el caso puntual es al revés: se factura directo pero igual intermedia
   // otra agencia distinta.
+  // En una orden NUEVA, si todavía no hay vendedor elegido, se sugiere el
+  // socio de la orden más reciente de ese mismo cliente (queda editable).
+  const [vendedorSugerido, setVendedorSugerido] = useState(false);
   const handleChangeCliente = (clienteId: string) => {
     const cliente = clientes?.find((c) => c.id === clienteId);
+    let sugerido = '';
+    if (!editandoOrdenId && clienteId) {
+      const ultima = (ordenes || [])
+        .filter((o) => o.cliente_id === clienteId && o.vendedor_id)
+        .sort((a, b) => (b.periodo_desde || '').localeCompare(a.periodo_desde || ''))[0];
+      sugerido = ultima?.vendedor_id || '';
+    }
     setOrdenForm((prev) => ({
       ...prev,
       cliente_id: clienteId,
       agencia_id: cliente?.agencia_id || '',
+      vendedor_id: !editandoOrdenId && !prev.vendedor_id && sugerido ? sugerido : prev.vendedor_id,
     }));
+    setVendedorSugerido(!editandoOrdenId && !ordenForm.vendedor_id && !!sugerido);
     if (cliente?.agencia_id) setMostrarAgencia(true);
   };
 
@@ -2869,7 +2881,10 @@ function OrdenesTab({
             <select
               id="orden_vendedor"
               value={ordenForm.vendedor_id}
-              onChange={(e) => handleChangeOrden('vendedor_id', e.target.value)}
+              onChange={(e) => {
+                setVendedorSugerido(false);
+                handleChangeOrden('vendedor_id', e.target.value);
+              }}
               disabled={guardando}
             >
               <option value="">Sin vendedor asignado</option>
@@ -2879,6 +2894,11 @@ function OrdenesTab({
                 </option>
               ))}
             </select>
+            {vendedorSugerido && (
+              <small style={{ display: 'block', fontWeight: 'normal' }}>
+                Sugerido: es quien tiene las órdenes anteriores de este cliente. Cambialo si corresponde otro.
+              </small>
+            )}
           </div>
 
           <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1rem' }}>

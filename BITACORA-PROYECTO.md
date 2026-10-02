@@ -490,6 +490,11 @@ más importantes:
     Matthew's, Universidad Austral) — pendiente que el usuario diga a quién va cada una. Hecho
     por script directo a la base (backup en /tmp, no en el repo); las órdenes nuevas siguen
     eligiendo vendedor a mano en el formulario.
+34. **Vendedor sugerido en órdenes nuevas (2026-10-02)**: al elegir el cliente en una orden NUEVA, si
+    todavía no hay vendedor elegido, el formulario propone el de la orden más reciente de ese mismo
+    cliente (con un aviso "Sugerido…"; queda editable y nunca pisa uno ya elegido ni se aplica al
+    editar). Clientes sin órdenes previas siguen en "Sin vendedor asignado". Verificado en pantalla
+    con YPF → Alvaro, DICAPRA → Maximo.
 
 ## Cómo trabaja este usuario (para que una sesión nueva no tenga que redescubrirlo)
 
