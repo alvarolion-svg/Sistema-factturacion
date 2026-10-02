@@ -417,9 +417,9 @@ más importantes:
     "Al guardar se van a crear N órdenes" cada mes desde el 2º tiene un campo "N°" para cargar a
     mano el número de orden de agencia de ese mes (vacío = queda sin número, como antes; el 1º
     sigue usando el campo principal). Frontend `OrdenesTab.tsx` (estado `numerosPorMes`), backend
-    `crearOrdenesPorMes` (`numeros_orden_agencia_por_mes`). Probado el render del formulario; el
-    guardado con números distintos no se probó de punta a punta (crea órdenes reales y avisa a
-    Telegram).
+    `crearOrdenesPorMes` (`numeros_orden_agencia_por_mes`). Probado de punta a punta (2026-10-02)
+    con órdenes de prueba: 3 meses con N° T1/T2/T3, sin REVISAR y sin aviso de Telegram. Al probarlo se
+    vio que, si falla la creación de un mes intermedio, los meses ya creados quedan (no es atómico).
 24. **Fix Asana: 404 "Unknown object" al regenerar tareas borradas a mano (2026-10-02)**: el
     usuario borró tareas directo en Asana y las volvió a crear desde la app; la app seguía con el
     `asana_task_gid` viejo guardado e intentaba actualizar una tarea inexistente (404). Verificado
@@ -432,8 +432,9 @@ más importantes:
     hacía baja lógica (`habilitado = 0`) y la tarea quedaba huérfana en el proyecto "Sistema" (caso
     real: YPF N° 2026090194, borrada a mano ese día). Ahora la ruta `DELETE /api/ordenes-publicidad/:id`
     borra la tarea si la orden tiene `asana_task_gid`; si Asana falla, la baja igual queda hecha y se
-    avisa en pantalla para borrarla a mano. El confirm del botón lo aclara. No probado de punta a
-    punta (borra órdenes/tareas reales).
+    avisa en pantalla para borrarla a mano. El confirm del botón lo aclara. Probado de punta a punta
+    (2026-10-02) con una orden de prueba: la tarea se creó en "Ordenes 2026 → Noviembre 26" y al
+    eliminar la orden Asana dejó de encontrarla.
 26. **Monto neto desactualizado al editar líneas (2026-10-02)**: caso YPF N° 2026100318 (línea de
     Parque C. Avellaneda con precio equivocado vs. el PDF: $2.599.883 en vez de $2.854.681). El
     Monto neto se guardó al cargar y al editar el formulario queda como valor manual fijo (la app
