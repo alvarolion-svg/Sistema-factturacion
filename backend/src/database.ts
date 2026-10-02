@@ -1,7 +1,8 @@
 import sqlite3 from 'sqlite3';
 import path from 'path';
 
-const dbPath = path.join(__dirname, '..', 'facturacion.db');
+// DB_PATH permite apuntar a una copia (pruebas comparativas, sin tocar la base real).
+const dbPath = process.env.DB_PATH || path.join(__dirname, '..', 'facturacion.db');
 
 export const db = new sqlite3.Database(dbPath);
 

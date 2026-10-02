@@ -1,17 +1,42 @@
-import db from '../database';
+import { dbAll, Parametro } from '../dbHelpers';
+
+export interface FiltrosReporte {
+  fecha_inicio?: string;
+  fecha_fin?: string;
+  estado?: string;
+  mes?: number | string;
+  ano?: number | string;
+  usuario_id?: string;
+  tabla?: string;
+}
+
+interface FilaFactura {
+  total: number;
+  saldo: number;
+  estado: string;
+  validada_arca: number | null;
+}
+
+interface FilaCuenta {
+  saldo: number;
+}
+
+interface FilaConDeuda {
+  deuda: number | null;
+}
 
 export class ReportesService {
+  private static exigirPermiso(permisos: string[], permiso: string, mensaje: string): void {
+    if (!permisos.includes(permiso)) throw new Error(mensaje);
+  }
+
   /**
    * Reporte de ventas (filtrado por permisos)
    */
-  static async reporteVentas(usuarioId: string, permisos: string[], filtros: any = {}): Promise<any> {
-    return new Promise((resolve, reject) => {
-      // Verificar permiso
-      if (!permisos.includes('reportes_ventas')) {
-        return reject(new Error('No tiene permiso para ver reportes de ventas'));
-      }
+  static async reporteVentas(usuarioId: string, permisos: string[], filtros: FiltrosReporte = {}) {
+    this.exigirPermiso(permisos, 'reportes_ventas', 'No tiene permiso para ver reportes de ventas');
 
-      let query = `
+    let query = `
         SELECT
           f.numero,
           f.fecha,
@@ -27,55 +52,43 @@ export class ReportesService {
         WHERE 1=1
       `;
 
-      const params: any[] = [];
+    const params: Parametro[] = [];
 
-      // Filtro por fecha
-      if (filtros.fecha_inicio && filtros.fecha_fin) {
-        query += ` AND f.fecha BETWEEN ? AND ?`;
-        params.push(filtros.fecha_inicio, filtros.fecha_fin);
-      }
+    // Filtro por fecha
+    if (filtros.fecha_inicio && filtros.fecha_fin) {
+      query += ` AND f.fecha BETWEEN ? AND ?`;
+      params.push(filtros.fecha_inicio, filtros.fecha_fin);
+    }
 
-      // Filtro por estado
-      if (filtros.estado) {
-        query += ` AND f.estado = ?`;
-        params.push(filtros.estado);
-      }
+    // Filtro por estado
+    if (filtros.estado) {
+      query += ` AND f.estado = ?`;
+      params.push(filtros.estado);
+    }
 
-      query += ` GROUP BY f.id ORDER BY f.fecha DESC`;
+    query += ` GROUP BY f.id ORDER BY f.fecha DESC`;
 
-      db.all(query, params, (err, facturas: any[]) => {
-        if (err) return reject(err);
+    const facturas = await dbAll<FilaFactura>(query, params);
 
-        // Calcular totales
-        const totales = {
-          cantidad: facturas.length,
-          monto_total: facturas.reduce((sum, f) => sum + f.total, 0),
-          monto_cobrado: facturas.reduce((sum, f) => sum + (f.total - f.saldo), 0),
-          monto_pendiente: facturas
-            .filter((f) => f.estado !== 'Anulada')
-            .reduce((sum, f) => sum + f.saldo, 0),
-          facturas_validadas: facturas.filter((f) => f.validada_arca).length,
-        };
+    // Calcular totales
+    const totales = {
+      cantidad: facturas.length,
+      monto_total: facturas.reduce((sum, f) => sum + f.total, 0),
+      monto_cobrado: facturas.reduce((sum, f) => sum + (f.total - f.saldo), 0),
+      monto_pendiente: facturas.filter((f) => f.estado !== 'Anulada').reduce((sum, f) => sum + f.saldo, 0),
+      facturas_validadas: facturas.filter((f) => f.validada_arca).length,
+    };
 
-        resolve({
-          datos: facturas,
-          totales,
-          generado_en: new Date().toISOString(),
-        });
-      });
-    });
+    return { datos: facturas, totales, generado_en: new Date().toISOString() };
   }
 
   /**
    * Reporte de compras
    */
-  static async reporteCompras(usuarioId: string, permisos: string[], filtros: any = {}): Promise<any> {
-    return new Promise((resolve, reject) => {
-      if (!permisos.includes('reportes_compras')) {
-        return reject(new Error('No tiene permiso para ver reportes de compras'));
-      }
+  static async reporteCompras(usuarioId: string, permisos: string[], filtros: FiltrosReporte = {}) {
+    this.exigirPermiso(permisos, 'reportes_compras', 'No tiene permiso para ver reportes de compras');
 
-      let query = `
+    let query = `
         SELECT
           oc.numero,
           oc.fecha,
@@ -87,48 +100,36 @@ export class ReportesService {
         WHERE 1=1
       `;
 
-      const params: any[] = [];
+    const params: Parametro[] = [];
 
-      if (filtros.fecha_inicio && filtros.fecha_fin) {
-        query += ` AND oc.fecha BETWEEN ? AND ?`;
-        params.push(filtros.fecha_inicio, filtros.fecha_fin);
-      }
+    if (filtros.fecha_inicio && filtros.fecha_fin) {
+      query += ` AND oc.fecha BETWEEN ? AND ?`;
+      params.push(filtros.fecha_inicio, filtros.fecha_fin);
+    }
 
-      query += ` ORDER BY oc.fecha DESC`;
+    query += ` ORDER BY oc.fecha DESC`;
 
-      db.all(query, params, (err, compras: any[]) => {
-        if (err) return reject(err);
+    const compras = await dbAll<{ total: number }>(query, params);
 
-        const totales = {
-          cantidad: compras.length,
-          monto_total: compras.reduce((sum, c) => sum + c.total, 0),
-        };
+    const totales = {
+      cantidad: compras.length,
+      monto_total: compras.reduce((sum, c) => sum + c.total, 0),
+    };
 
-        resolve({
-          datos: compras,
-          totales,
-          generado_en: new Date().toISOString(),
-        });
-      });
-    });
+    return { datos: compras, totales, generado_en: new Date().toISOString() };
   }
 
   /**
    * Reporte financiero (tesorería)
    */
-  static async reporteFinanciero(usuarioId: string, permisos: string[], filtros: any = {}): Promise<any> {
-    return new Promise((resolve, reject) => {
-      if (!permisos.includes('reportes_financieros')) {
-        return reject(new Error('No tiene permiso para ver reportes financieros'));
-      }
+  static async reporteFinanciero(usuarioId: string, permisos: string[], filtros: FiltrosReporte = {}) {
+    this.exigirPermiso(permisos, 'reportes_financieros', 'No tiene permiso para ver reportes financieros');
 
-      // Estado de cuentas
-      db.all('SELECT * FROM cuentas WHERE habilitada = 1', (err, cuentas: any[]) => {
-        if (err) return reject(err);
+    // Estado de cuentas
+    const cuentas = await dbAll<FilaCuenta>('SELECT * FROM cuentas WHERE habilitada = 1');
 
-        // Movimientos
-        db.all(
-          `
+    // Movimientos
+    const movimientos = await dbAll(`
           SELECT
             DATE(fecha) as fecha,
             COUNT(*) as cantidad,
@@ -137,37 +138,29 @@ export class ReportesService {
           GROUP BY DATE(fecha)
           ORDER BY fecha DESC
           LIMIT 30
-        `,
-          (err, movimientos: any[]) => {
-            if (err) return reject(err);
+        `);
 
-            resolve({
-              cuentas,
-              movimientos,
-              saldo_total: cuentas.reduce((sum, c) => sum + c.saldo, 0),
-              generado_en: new Date().toISOString(),
-            });
-          }
-        );
-      });
-    });
+    return {
+      cuentas,
+      movimientos,
+      saldo_total: cuentas.reduce((sum, c) => sum + c.saldo, 0),
+      generado_en: new Date().toISOString(),
+    };
   }
 
   /**
    * Reporte impositivo
    */
-  static async reporteImpositiva(usuarioId: string, permisos: string[], filtros: any = {}): Promise<any> {
-    return new Promise((resolve, reject) => {
-      if (!permisos.includes('reportes_impositiva')) {
-        return reject(new Error('No tiene permiso para ver reportes impositivos'));
-      }
+  static async reporteImpositiva(usuarioId: string, permisos: string[], filtros: FiltrosReporte = {}) {
+    this.exigirPermiso(permisos, 'reportes_impositiva', 'No tiene permiso para ver reportes impositivos');
 
-      const mes = filtros.mes || new Date().getMonth() + 1;
-      const ano = filtros.ano || new Date().getFullYear();
+    const mes = filtros.mes || new Date().getMonth() + 1;
+    const ano = filtros.ano || new Date().getFullYear();
+    const periodo = [String(mes).padStart(2, '0'), String(ano)];
 
-      // IVA
-      db.all(
-        `
+    // IVA
+    const iva = await dbAll<{ tipo: string; total: number }>(
+      `
         SELECT
           tipo,
           SUM(monto_iva) as total
@@ -175,24 +168,22 @@ export class ReportesService {
         WHERE strftime('%m', fecha) = ? AND strftime('%Y', fecha) = ?
         GROUP BY tipo
       `,
-        [String(mes).padStart(2, '0'), String(ano)],
-        (err, iva: any[]) => {
-          if (err) return reject(err);
+      periodo
+    );
 
-          // IIBB
-          db.all(
-            `
+    // IIBB
+    const iibb = await dbAll<{ total: number | null }>(
+      `
             SELECT SUM(monto_iibb) as total
             FROM iibb_movimientos
             WHERE strftime('%m', fecha) = ? AND strftime('%Y', fecha) = ?
           `,
-            [String(mes).padStart(2, '0'), String(ano)],
-            (err, iibb: any[]) => {
-              if (err) return reject(err);
+      periodo
+    );
 
-              // Percepciones
-              db.all(
-                `
+    // Percepciones
+    const percepciones = await dbAll<{ tipo_percepcion: string; total: number; cantidad: number }>(
+      `
                 SELECT
                   tipo_percepcion,
                   SUM(monto) as total,
@@ -201,43 +192,31 @@ export class ReportesService {
                 WHERE strftime('%m', fecha) = ? AND strftime('%Y', fecha) = ?
                 GROUP BY tipo_percepcion
               `,
-                [String(mes).padStart(2, '0'), String(ano)],
-                (err, percepciones: any[]) => {
-                  if (err) return reject(err);
+      periodo
+    );
 
-                  resolve({
-                    periodo: `${mes}/${ano}`,
-                    iva: iva.reduce((acc, item) => ({ ...acc, [item.tipo]: item.total }), {}),
-                    iibb: iibb[0]?.total || 0,
-                    percepciones: percepciones.reduce(
-                      (acc, item) => ({
-                        ...acc,
-                        [item.tipo_percepcion]: { total: item.total, cantidad: item.cantidad },
-                      }),
-                      {}
-                    ),
-                    generado_en: new Date().toISOString(),
-                  });
-                }
-              );
-            }
-          );
-        }
-      );
-    });
+    return {
+      periodo: `${mes}/${ano}`,
+      iva: iva.reduce((acc, item) => ({ ...acc, [item.tipo]: item.total }), {}),
+      iibb: iibb[0]?.total || 0,
+      percepciones: percepciones.reduce(
+        (acc, item) => ({
+          ...acc,
+          [item.tipo_percepcion]: { total: item.total, cantidad: item.cantidad },
+        }),
+        {}
+      ),
+      generado_en: new Date().toISOString(),
+    };
   }
 
   /**
    * Reporte de clientes (deuda, movimientos)
    */
-  static async reporteClientes(usuarioId: string, permisos: string[]): Promise<any> {
-    return new Promise((resolve, reject) => {
-      if (!permisos.includes('clientes_ver')) {
-        return reject(new Error('No tiene permiso para ver clientes'));
-      }
+  static async reporteClientes(usuarioId: string, permisos: string[]) {
+    this.exigirPermiso(permisos, 'clientes_ver', 'No tiene permiso para ver clientes');
 
-      db.all(
-        `
+    const clientes = await dbAll<FilaConDeuda>(`
         SELECT
           c.id,
           c.razon_social,
@@ -250,36 +229,23 @@ export class ReportesService {
         LEFT JOIN facturas f ON c.id = f.cliente_id
         GROUP BY c.id
         ORDER BY cc.saldo DESC
-      `,
-        (err, clientes: any[]) => {
-          if (err) return reject(err);
+      `);
 
-          const totales = {
-            cantidad: clientes.length,
-            deuda_total: clientes.reduce((sum, c) => sum + (c.deuda || 0), 0),
-          };
+    const totales = {
+      cantidad: clientes.length,
+      deuda_total: clientes.reduce((sum, c) => sum + (c.deuda || 0), 0),
+    };
 
-          resolve({
-            datos: clientes,
-            totales,
-            generado_en: new Date().toISOString(),
-          });
-        }
-      );
-    });
+    return { datos: clientes, totales, generado_en: new Date().toISOString() };
   }
 
   /**
    * Reporte de proveedores
    */
-  static async reporteProveedores(usuarioId: string, permisos: string[]): Promise<any> {
-    return new Promise((resolve, reject) => {
-      if (!permisos.includes('proveedores_ver')) {
-        return reject(new Error('No tiene permiso para ver proveedores'));
-      }
+  static async reporteProveedores(usuarioId: string, permisos: string[]) {
+    this.exigirPermiso(permisos, 'proveedores_ver', 'No tiene permiso para ver proveedores');
 
-      db.all(
-        `
+    const proveedores = await dbAll<FilaConDeuda>(`
         SELECT
           p.id,
           p.razon_social,
@@ -292,68 +258,49 @@ export class ReportesService {
         LEFT JOIN ordenes_compra oc ON p.id = oc.proveedor_id
         GROUP BY p.id
         ORDER BY cc.saldo DESC
-      `,
-        (err, proveedores: any[]) => {
-          if (err) return reject(err);
+      `);
 
-          const totales = {
-            cantidad: proveedores.length,
-            deuda_total: proveedores.reduce((sum, p) => sum + (p.deuda || 0), 0),
-          };
+    const totales = {
+      cantidad: proveedores.length,
+      deuda_total: proveedores.reduce((sum, p) => sum + (p.deuda || 0), 0),
+    };
 
-          resolve({
-            datos: proveedores,
-            totales,
-            generado_en: new Date().toISOString(),
-          });
-        }
-      );
-    });
+    return { datos: proveedores, totales, generado_en: new Date().toISOString() };
   }
 
   /**
    * Reporte de auditoría por usuario
    */
-  static async reporteAuditoria(usuarioId: string, permisos: string[], filtros: any = {}): Promise<any> {
-    return new Promise((resolve, reject) => {
-      if (!permisos.includes('auditoria_ver')) {
-        return reject(new Error('No tiene permiso para ver auditoría'));
-      }
+  static async reporteAuditoria(usuarioId: string, permisos: string[], filtros: FiltrosReporte = {}) {
+    this.exigirPermiso(permisos, 'auditoria_ver', 'No tiene permiso para ver auditoría');
 
-      let query = `
+    let query = `
         SELECT *
         FROM auditoria
         WHERE 1=1
       `;
 
-      const params: any[] = [];
+    const params: Parametro[] = [];
 
-      if (filtros.usuario_id) {
-        query += ` AND usuario_id = ?`;
-        params.push(filtros.usuario_id);
-      }
+    if (filtros.usuario_id) {
+      query += ` AND usuario_id = ?`;
+      params.push(filtros.usuario_id);
+    }
 
-      if (filtros.tabla) {
-        query += ` AND tabla = ?`;
-        params.push(filtros.tabla);
-      }
+    if (filtros.tabla) {
+      query += ` AND tabla = ?`;
+      params.push(filtros.tabla);
+    }
 
-      if (filtros.fecha_inicio && filtros.fecha_fin) {
-        query += ` AND DATE(created_at) BETWEEN ? AND ?`;
-        params.push(filtros.fecha_inicio, filtros.fecha_fin);
-      }
+    if (filtros.fecha_inicio && filtros.fecha_fin) {
+      query += ` AND DATE(created_at) BETWEEN ? AND ?`;
+      params.push(filtros.fecha_inicio, filtros.fecha_fin);
+    }
 
-      query += ` ORDER BY created_at DESC LIMIT 1000`;
+    query += ` ORDER BY created_at DESC LIMIT 1000`;
 
-      db.all(query, params, (err, registros: any[]) => {
-        if (err) return reject(err);
+    const registros = await dbAll(query, params);
 
-        resolve({
-          datos: registros,
-          cantidad: registros.length,
-          generado_en: new Date().toISOString(),
-        });
-      });
-    });
+    return { datos: registros, cantidad: registros.length, generado_en: new Date().toISOString() };
   }
 }
