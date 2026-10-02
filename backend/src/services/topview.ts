@@ -61,6 +61,17 @@ interface FilaArregloNoRegistrable {
   tercero_nombre?: string;
 }
 
+interface DocumentoAdjunto {
+  id: string;
+  orden_id: string;
+  nombre_archivo: string;
+  tipo_archivo: string;
+  url_drive?: string;
+  ruta_archivo?: string;
+  descripcion?: string;
+  fecha_carga: string;
+}
+
 interface OrdenAviso {
   id: string;
   nombre_anunciante: string;
@@ -1045,42 +1056,37 @@ export class TopviewService {
     rutaArchivo?: string,
     usuarioId?: string,
     ip?: string
-  ): Promise<any> {
-    return new Promise((resolve, reject) => {
-      const docId = uuid();
+  ): Promise<DocumentoAdjunto> {
+    const docId = uuid();
 
-      db.run(
-        `
+    await dbRun(
+      `
         INSERT INTO documentos_adjuntos (id, orden_id, nombre_archivo, tipo_archivo, url_drive, ruta_archivo, descripcion)
         VALUES (?, ?, ?, ?, ?, ?, ?)
       `,
-        [docId, ordenId, nombreArchivo, tipoArchivo, urlDrive || null, rutaArchivo || null, descripcion || null],
-        (err) => {
-          if (err) return reject(err);
+      [docId, ordenId, nombreArchivo, tipoArchivo, urlDrive || null, rutaArchivo || null, descripcion || null]
+    );
 
-          AuditoriaService.registrarOperacion(
-            'documentos_adjuntos',
-            'INSERT',
-            docId,
-            null,
-            { orden_id: ordenId, nombre_archivo: nombreArchivo },
-            usuarioId,
-            ip
-          );
+    AuditoriaService.registrarOperacion(
+      'documentos_adjuntos',
+      'INSERT',
+      docId,
+      null,
+      { orden_id: ordenId, nombre_archivo: nombreArchivo },
+      usuarioId,
+      ip
+    );
 
-          resolve({
-            id: docId,
-            orden_id: ordenId,
-            nombre_archivo: nombreArchivo,
-            tipo_archivo: tipoArchivo,
-            url_drive: urlDrive,
-            ruta_archivo: rutaArchivo,
-            descripcion: descripcion,
-            fecha_carga: new Date().toISOString(),
-          });
-        }
-      );
-    });
+    return {
+      id: docId,
+      orden_id: ordenId,
+      nombre_archivo: nombreArchivo,
+      tipo_archivo: tipoArchivo,
+      url_drive: urlDrive,
+      ruta_archivo: rutaArchivo,
+      descripcion: descripcion,
+      fecha_carga: new Date().toISOString(),
+    };
   }
 
   /**
@@ -1444,7 +1450,7 @@ export class TopviewService {
   // contra datos reales y daba falso positivo en 44 de 53 órdenes).
   static async listarEjecucion(
     filtros: { mes?: number; ano?: number; tipo_anunciante?: string } = {}
-  ): Promise<any[]> {
+  ): Promise<Array<OrdenPublicidad & { documentos_count: number }>> {
     const mes = filtros.mes ?? null;
     const ano = filtros.ano ?? null;
     // Acepta varios tipos separados por coma (filtro multi-selección).
