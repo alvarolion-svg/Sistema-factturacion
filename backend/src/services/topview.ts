@@ -4,7 +4,13 @@ import { OrdenPublicidad, ReplicacionFacturacion } from '../types';
 import { AuditoriaService } from './auditoria';
 import { TesoreriaService } from './tesoreria';
 import { TelegramService } from './telegram';
-import { addMonthClamped, subtractMonthClamped, calcularDescuentosCascada, calcularComisionesCascada } from './calculosTopview';
+import {
+  addMonthClamped,
+  subtractMonthClamped,
+  calcularDescuentosCascada,
+  calcularComisionesCascada,
+  compararLineasPorSoporte,
+} from './calculosTopview';
 
 export { addMonthClamped, subtractMonthClamped, calcularDescuentosCascada, calcularComisionesCascada };
 
@@ -23,6 +29,7 @@ interface DatosOrden {
   tipo_anunciante: string;
   nombre_anunciante: string;
   numero_orden_agencia?: string;
+  numeros_orden_agencia_por_mes?: string[];
   incluir_numero_orden_agencia?: boolean;
   leyenda_factura?: string;
   cliente_id: string;
@@ -316,6 +323,72 @@ export class TopviewService {
     const ordenCreada = await this.crearOrdenUnica(datos);
     const clonado = await this.generarClonesVigencia(datos, ordenCreada.id);
     return { orden: ordenCreada, clonado };
+  }
+
+  /**
+   * Alternativa a "Repetir automáticamente hasta": en vez de cargar un solo
+   * mes y clonar hacia adelante (con REVISAR para completar después), el
+   * usuario carga el período completo de una (ej. 01/10 a 31/12) y esto lo
+   * parte en una orden real por mes — ninguna queda en REVISAR porque el
+   * usuario ya validó el período completo en el momento de cargarlo. El
+   * número de orden de agencia solo se copia en la primera; los meses
+   * siguientes quedan vacíos (decisión explícita del usuario: cada mes
+   * puede tener su propio N° real más adelante, no asumir que se repite).
+   * periodo_desde/fecha_facturacion avanzan mes a mes con addMonthClamped
+   * (mismo criterio que generarClonesVigencia), el último tramo se recorta
+   * exacto al periodo_hasta pedido aunque no caiga justo en un borde de mes.
+   */
+  static async crearOrdenesPorMes(datos: DatosOrden): Promise<{ ordenes: OrdenPublicidad[] }> {
+    if (!datos.periodo_desde || !datos.periodo_hasta) {
+      throw new Error('El período (desde/hasta) es obligatorio.');
+    }
+    const restarUnDia = (fecha: string): string => {
+      const [y, m, d] = fecha.split('-').map(Number);
+      const dt = new Date(Date.UTC(y, m - 1, d));
+      dt.setUTCDate(dt.getUTCDate() - 1);
+      return dt.toISOString().slice(0, 10);
+    };
+
+    const [anoDesde, mesDesde] = datos.periodo_desde.split('-').map(Number);
+    let mesActual = datos.mes_ingreso || mesDesde;
+    let anoActual = datos.ano_ingreso || anoDesde;
+    let desdeActual = datos.periodo_desde;
+    let fechaFacturacionActual = datos.fecha_facturacion;
+
+    const ordenes: OrdenPublicidad[] = [];
+    let primera = true;
+    let indice = 0;
+    while (true) {
+      const siguienteDesde = addMonthClamped(desdeActual);
+      let hastaActual = restarUnDia(siguienteDesde);
+      const esUltimo = hastaActual >= datos.periodo_hasta;
+      if (esUltimo) hastaActual = datos.periodo_hasta;
+
+      const orden = await this.crearOrdenUnica({
+        ...datos,
+        periodo_desde: desdeActual,
+        periodo_hasta: hastaActual,
+        fecha_facturacion: fechaFacturacionActual,
+        mes_ingreso: mesActual,
+        ano_ingreso: anoActual,
+        numero_orden_agencia: primera ? datos.numero_orden_agencia : datos.numeros_orden_agencia_por_mes?.[indice] || undefined,
+        vigencia_hasta_mes: undefined,
+        vigencia_hasta_ano: undefined,
+      });
+      ordenes.push(orden);
+
+      if (esUltimo) break;
+      desdeActual = siguienteDesde;
+      fechaFacturacionActual = addMonthClamped(fechaFacturacionActual);
+      mesActual += 1;
+      if (mesActual > 12) {
+        mesActual = 1;
+        anoActual += 1;
+      }
+      primera = false;
+      indice += 1;
+    }
+    return { ordenes };
   }
 
   /**
@@ -935,7 +1008,7 @@ export class TopviewService {
          LEFT JOIN proveedores p ON p.id = l.concesionario_id
          WHERE d.orden_id = ?`,
         [ordenId]
-      ),
+      ).then((filas) => [...filas].sort(compararLineasPorSoporte)),
       this.queryAll('SELECT * FROM documentos_adjuntos WHERE orden_id = ?', [ordenId]),
       this.queryAll('SELECT * FROM contactos_email WHERE orden_id = ?', [ordenId]),
       this.queryAll(
@@ -1382,6 +1455,32 @@ export class TopviewService {
     });
   }
 
+  // Listado para el dashboard de Ejecución (solapa "Ejecución", independiente
+  // del listado comercial de Órdenes) — mira nivel de ejecución operativa,
+  // no venta: suma el conteo de documentos adjuntos. "Datos incompletos" se
+  // decide en el frontend mirando monto_neto = 0 (no precio=0 por línea: la
+  // mayoría de las órdenes grandes cargan el total a mano en vez de por
+  // línea, así que precio=0 por línea es normal, no un error — se probó
+  // contra datos reales y daba falso positivo en 44 de 53 órdenes).
+  static async listarEjecucion(
+    filtros: { mes?: number; ano?: number; tipo_anunciante?: string } = {}
+  ): Promise<any[]> {
+    const mes = filtros.mes ?? null;
+    const ano = filtros.ano ?? null;
+    const tipo = filtros.tipo_anunciante ?? null;
+    return this.queryAll(
+      `SELECT o.*,
+          (SELECT COUNT(*) FROM documentos_adjuntos d WHERE d.orden_id = o.id) AS documentos_count
+       FROM ordenes_publicidad o
+       WHERE (o.habilitado != 0 OR o.habilitado IS NULL)
+         AND (? IS NULL OR o.mes_ingreso = ?)
+         AND (? IS NULL OR o.ano_ingreso = ?)
+         AND (? IS NULL OR o.tipo_anunciante = ?)
+       ORDER BY o.created_at DESC`,
+      [mes, mes, ano, ano, tipo, tipo]
+    );
+  }
+
   /**
    * Actualizar estado de orden
    */
@@ -1426,6 +1525,116 @@ export class TopviewService {
     AuditoriaService.registrarOperacion('ordenes_publicidad', 'UPDATE', ordenId, null, { cobrado, fecha_cobro: fecha });
   }
 
+  // Certificación de exhibición (fotos/link) entregada al cliente — se tilda
+  // a mano desde el dashboard de Ejecución, sin integración automática.
+  static async actualizarCertificacion(ordenId: string, enviada: boolean): Promise<void> {
+    const fecha = enviada ? new Date().toISOString() : null;
+    await this.runQuery(
+      'UPDATE ordenes_publicidad SET certificacion_enviada = ?, certificacion_enviada_en = ?, updated_at = datetime("now") WHERE id = ?',
+      [enviada ? 1 : 0, fecha, ordenId]
+    );
+    AuditoriaService.registrarOperacion('ordenes_publicidad', 'UPDATE', ordenId, null, { certificacion_enviada: enviada });
+  }
+
+  // Aviso manual a Operaciones (botón "Avisar a Operaciones" en la orden, o
+  // el envío masivo desde la lista) — a diferencia del aviso automático al
+  // crear la orden (ver index.ts), este se puede disparar las veces que
+  // haga falta (ej. el automático falló, o es una orden vieja de antes de
+  // que existiera el aviso). Si realmente se manda, pisa
+  // telegram_avisado_carga_en igual que el automático — es la misma señal
+  // para el dashboard de Ejecución, no importa qué botón lo disparó.
+  // Arma el bloque "dónde sale la campaña" para los avisos de Telegram —
+  // compartido entre el aviso manual (avisarOrdenATelegram) y los avisos
+  // automáticos al crear una orden (index.ts), que antes no lo incluían.
+  // Agrupado por soporte (con la cantidad total, ej. "58" pantallas en 11
+  // locaciones distintas) en vez de una línea por cada línea de detalle: una
+  // orden grande (ej. BNA, 23 líneas) era ilegible en el chat tal cual. Cada
+  // línea del grupo lleva su propia cantidad (no alcanza con el total:
+  // Operaciones necesita saber cuántas van en cada locación puntual) y el
+  // punto de instalación cuando la misma locación se repite dentro del
+  // soporte (ej. GCBA Parkings: "Pisman" son 3 instalaciones físicas
+  // distintas, cada una en una dirección) — si no se repite, el nombre de la
+  // locación solo ya alcanza.
+  static async construirBloqueUbicacion(ordenId: string): Promise<string> {
+    const detalles = await this.queryAll(
+      `SELECT d.tipo_producto, d.cantidad, d.punto_instalacion, d.locacion_id, p.codigo as producto_codigo,
+              l.nombre as locacion_nombre
+       FROM ordenes_publicidad_detalles d
+       LEFT JOIN locaciones l ON l.id = d.locacion_id
+       LEFT JOIN productos p ON p.id = d.producto_id
+       WHERE d.orden_id = ?`,
+      [ordenId]
+    );
+    // "Circuito Pantallas LED Verticales" (SOP-LEDV) se vende siempre completo
+    // por locación — la cantidad real de pantallas vive en el catálogo de la
+    // locación (locaciones_capacidad/locaciones_puntos), NO en la línea de la
+    // orden: ahí casi siempre queda "1" (se cargó/vendió, no se tipeó cuántas
+    // pantallas tiene el circuito). Mismo criterio que usa el módulo de
+    // Disponibilidad para sincronizar capacidad. Para cualquier otro soporte
+    // (PPLs, Caja Backlight, etc.) la cantidad de la orden SÍ es la real.
+    const locacionesCircuito = Array.from(
+      new Set((detalles as any[]).filter((d) => d.producto_codigo === 'SOP-LEDV' && d.locacion_id).map((d) => d.locacion_id))
+    );
+    const capacidadReal = new Map<string, number>();
+    if (locacionesCircuito.length > 0) {
+      const marcadores = locacionesCircuito.map(() => '?').join(',');
+      const filas = await this.queryAll(
+        `SELECT lc.locacion_id,
+                CASE WHEN COUNT(lp.id) > 0 THEN SUM(lp.cantidad) ELSE MAX(lc.cantidad) END as real
+         FROM locaciones_capacidad lc LEFT JOIN locaciones_puntos lp ON lp.capacidad_id = lc.id
+         WHERE lc.locacion_id IN (${marcadores}) AND lc.producto_id = 'soporte-4'
+         GROUP BY lc.locacion_id`,
+        locacionesCircuito
+      );
+      filas.forEach((f: any) => capacidadReal.set(f.locacion_id, f.real));
+    }
+    (detalles as any[]).forEach((d) => {
+      if (d.producto_codigo === 'SOP-LEDV' && capacidadReal.has(d.locacion_id)) {
+        d.cantidad = capacidadReal.get(d.locacion_id);
+      }
+    });
+    const grupos = new Map<string, { total: number; locaciones: Array<{ nombre: string; punto: string | null; cantidad: number }> }>();
+    for (const d of [...(detalles as any[])].sort(compararLineasPorSoporte)) {
+      if (!d.locacion_nombre) continue;
+      if (!grupos.has(d.tipo_producto)) grupos.set(d.tipo_producto, { total: 0, locaciones: [] });
+      const g = grupos.get(d.tipo_producto)!;
+      const cantidad = Number(d.cantidad) || 0;
+      g.total += cantidad;
+      g.locaciones.push({ nombre: d.locacion_nombre, punto: d.punto_instalacion || null, cantidad });
+    }
+    return Array.from(grupos.entries())
+      .map(([tipo, g]) => {
+        const lineas = g.locaciones.map((l) => {
+          // El punto de instalación va siempre que exista (se repita o no la
+          // locación): el aviso es para que Operaciones vaya a sacar fotos
+          // a la instalación exacta, no alcanza con saber la locación sola.
+          const base = l.punto ? `${l.nombre} — ${l.punto}` : l.nombre;
+          return `${base} (x${l.cantidad})`;
+        });
+        if (lineas.length === 1) return `${tipo} — ${lineas[0]}`;
+        return `${tipo} — Total: ${g.total}\n` + lineas.map((l) => `• — ${l}`).join('\n');
+      })
+      .join('\n\n');
+  }
+
+  static async avisarOrdenATelegram(ordenId: string): Promise<boolean> {
+    const orden: any = await this.queryGet(
+      'SELECT nombre_anunciante, tipo_anunciante, periodo_desde, periodo_hasta FROM ordenes_publicidad WHERE id = ?',
+      [ordenId]
+    );
+    if (!orden) throw new Error('Orden no encontrada.');
+    const bloqueUbicacion = await this.construirBloqueUbicacion(ordenId);
+    const formatFecha = (f: string) => (f ? f.split('-').reverse().join('/') : '-');
+    const texto =
+      `📢 <b>Aviso de orden</b>\n${orden.nombre_anunciante}\n${formatFecha(orden.periodo_desde)} al ${formatFecha(orden.periodo_hasta)}` +
+      (bloqueUbicacion ? `\n\n${bloqueUbicacion}` : '');
+    const { enviado } = await TelegramService.enviarAGrupo('Operaciones', texto, ordenId);
+    if (enviado) {
+      await this.runQuery('UPDATE ordenes_publicidad SET telegram_avisado_carga_en = datetime("now") WHERE id = ?', [ordenId]);
+    }
+    return enviado;
+  }
+
   /**
    * Baja lógica de una orden: nunca se borra el registro (puede tener facturas,
    * gastos o comisiones ya generados) — se oculta de la lista activa.
@@ -1459,7 +1668,7 @@ export class TopviewService {
     if (ordenes.length === 0) return { avisadas: 0 };
 
     const formatFecha = (f: string) => f.split('-').reverse().join('/');
-    const lineas = ordenes.map((o: any) => `• <b>${o.nombre_anunciante}</b> (${o.tipo_anunciante}) — hasta ${formatFecha(o.periodo_hasta)}`);
+    const lineas = ordenes.map((o: any) => `• <b>${o.nombre_anunciante}</b> — hasta ${formatFecha(o.periodo_hasta)}`);
     const texto = `📅 <b>Campañas que arrancan hoy</b> (${ordenes.length}):\n\n${lineas.join('\n')}`;
 
     await TelegramService.enviarAGrupo('Operaciones', texto);
@@ -1468,6 +1677,75 @@ export class TopviewService {
       await this.runQuery('UPDATE ordenes_publicidad SET telegram_avisado_inicio_en = datetime("now") WHERE id = ?', [o.id]);
     }
     return { avisadas: ordenes.length };
+  }
+
+  /**
+   * Disparador 3 (ver index.ts para el chequeo horario, mismo patrón que
+   * avisarCampanasQueArrancanHoy): recordatorio al grupo "Comercial" cuando
+   * una pauta está por terminar, para preguntarle al cliente si renueva.
+   *
+   * "Está por terminar" se mide sobre la ÚLTIMA orden de su cadena, no por
+   * orden individual — si "Repetir automáticamente hasta" o "Partir en una
+   * orden por mes" generaron varias órdenes (una por mes) para el mismo
+   * cliente+anunciante+locación, solo la de periodo_hasta más lejano dispara
+   * el aviso (si Octubre/Noviembre/Diciembre son la misma cadena, solo
+   * Diciembre avisa). Dos cadenas del mismo cliente en locaciones distintas
+   * (ej. NAYA Zona Norte y Zona Sur, con vencimientos distintos) avisan cada
+   * una la suya, porque no comparten ninguna locación — mismo criterio que
+   * ya usa buscarOrdenExistenteEnMes para no duplicar clones.
+   *
+   * Ventana de 10 días (no día exacto): si el backend no estuvo levantado el
+   * día justo, lo agarra apenas se prenda de nuevo, mientras la orden no haya
+   * terminado todavía. Idempotente vía telegram_avisado_vencimiento_en.
+   */
+  static async avisarPautasPorTerminar(diasAnticipacion = 10): Promise<{ avisadas: number }> {
+    const hoy = new Date();
+    const limite = new Date(hoy);
+    limite.setDate(limite.getDate() + diasAnticipacion);
+    const aFecha = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+    const candidatas = await this.queryAll(
+      `SELECT o.id, o.nombre_anunciante, o.periodo_desde, o.periodo_hasta, o.vendedor_id
+       FROM ordenes_publicidad o
+       WHERE (o.habilitado != 0 OR o.habilitado IS NULL)
+         AND o.periodo_hasta >= ? AND o.periodo_hasta <= ?
+         AND o.telegram_avisado_vencimiento_en IS NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM ordenes_publicidad o2
+           WHERE o2.id != o.id
+             AND (o2.habilitado != 0 OR o2.habilitado IS NULL)
+             AND o2.cliente_id = o.cliente_id
+             AND o2.nombre_anunciante = o.nombre_anunciante
+             AND o2.periodo_hasta > o.periodo_hasta
+             AND EXISTS (
+               SELECT 1 FROM ordenes_publicidad_detalles d1
+               JOIN ordenes_publicidad_detalles d2 ON d2.locacion_id = d1.locacion_id
+               WHERE d1.orden_id = o.id AND d2.orden_id = o2.id
+             )
+         )`,
+      [aFecha(hoy), aFecha(limite)]
+    );
+    if (candidatas.length === 0) return { avisadas: 0 };
+
+    const formatFecha = (f: string) => (f ? f.split('-').reverse().join('/') : '-');
+    let avisadas = 0;
+    for (const o of candidatas as any[]) {
+      const vendedor: any = o.vendedor_id
+        ? await this.queryGet('SELECT nombre, apellido FROM vendedores WHERE id = ?', [o.vendedor_id])
+        : null;
+      const nombreVendedor = vendedor ? `${vendedor.nombre} ${vendedor.apellido || ''}`.trim() : '(sin vendedor asignado)';
+      const bloqueUbicacion = await this.construirBloqueUbicacion(o.id);
+      const texto =
+        `🆕 <b>${nombreVendedor}</b> — Pauta de ${o.nombre_anunciante} por terminar, preguntar al cliente si renueva\n` +
+        `${formatFecha(o.periodo_desde)} al ${formatFecha(o.periodo_hasta)}` +
+        (bloqueUbicacion ? `\n\n${bloqueUbicacion}` : '');
+      const { enviado } = await TelegramService.enviarAGrupo('Comercial', texto, o.id);
+      if (enviado) {
+        await this.runQuery('UPDATE ordenes_publicidad SET telegram_avisado_vencimiento_en = datetime("now") WHERE id = ?', [o.id]);
+        avisadas += 1;
+      }
+    }
+    return { avisadas };
   }
 
   private static queryAll(sql: string, params: any[] = []): Promise<any[]> {
@@ -1495,6 +1773,9 @@ export class TopviewService {
   }
 
   /**
+   * Excluye las órdenes "Pauta Concesionario" (ventas directas del concesionario,
+   * Topview no las cobra — no son venta suya).
+   *
    * Reporte de órdenes con análisis de rentabilidad, más los desgloses que
    * alimentan los gráficos de Reportes → Topview (mensual, por soporte,
    * top clientes, comisión tipo 1/2).
@@ -1517,7 +1798,7 @@ export class TopviewService {
         SUM(monto_final - costo_produccion) as ganancia_total,
         ROUND(((SUM(monto_final - costo_produccion) / SUM(monto_final)) * 100), 2) as margen_ganancia
       FROM ordenes_publicidad
-      WHERE (habilitado != 0 OR habilitado IS NULL)
+      WHERE (habilitado != 0 OR habilitado IS NULL) AND tipo_anunciante != '${TIPO_ANUNCIANTE_PAUTA_CONCESIONARIO}'
       GROUP BY tipo_anunciante
     `);
 
@@ -1529,7 +1810,7 @@ export class TopviewService {
         SUM(monto_final) as monto_final_total,
         SUM(monto_final - costo_produccion) as ganancia_total
       FROM ordenes_publicidad
-      WHERE (habilitado != 0 OR habilitado IS NULL)
+      WHERE (habilitado != 0 OR habilitado IS NULL) AND tipo_anunciante != '${TIPO_ANUNCIANTE_PAUTA_CONCESIONARIO}'
     `);
 
     // Facturación real por mes (según fecha_facturacion, no el período de la
@@ -1541,7 +1822,7 @@ export class TopviewService {
         SUM(monto_neto_aplicado) as monto_neto_aplicado_total,
         SUM(monto_final) as monto_final_total
       FROM ordenes_publicidad
-      WHERE (habilitado != 0 OR habilitado IS NULL) AND fecha_facturacion IS NOT NULL
+      WHERE (habilitado != 0 OR habilitado IS NULL) AND tipo_anunciante != '${TIPO_ANUNCIANTE_PAUTA_CONCESIONARIO}' AND fecha_facturacion IS NOT NULL
       GROUP BY mes
       ORDER BY mes
     `);
@@ -1564,7 +1845,7 @@ export class TopviewService {
         SUM(monto_neto_aplicado) as monto_neto_aplicado_total,
         SUM(monto_final) as monto_final_total
       FROM ordenes_publicidad
-      WHERE (habilitado != 0 OR habilitado IS NULL)
+      WHERE (habilitado != 0 OR habilitado IS NULL) AND tipo_anunciante != '${TIPO_ANUNCIANTE_PAUTA_CONCESIONARIO}'
       GROUP BY mes
       ORDER BY mes
     `);
@@ -1586,7 +1867,7 @@ export class TopviewService {
         SUM(CASE WHEN facturado = 0 THEN monto_neto ELSE 0 END) as no_registrado_total,
         SUM(CASE WHEN facturado IS NULL OR facturado != 0 THEN monto_final ELSE 0 END) as registrado_total
       FROM ordenes_publicidad
-      WHERE (habilitado != 0 OR habilitado IS NULL)
+      WHERE (habilitado != 0 OR habilitado IS NULL) AND tipo_anunciante != '${TIPO_ANUNCIANTE_PAUTA_CONCESIONARIO}'
       GROUP BY mes
       ORDER BY mes
     `);
@@ -1604,7 +1885,7 @@ export class TopviewService {
         tipo_anunciante,
         SUM(${SQL_INGRESO_FINAL}) as valor
       FROM ordenes_publicidad
-      WHERE (habilitado != 0 OR habilitado IS NULL)
+      WHERE (habilitado != 0 OR habilitado IS NULL) AND tipo_anunciante != '${TIPO_ANUNCIANTE_PAUTA_CONCESIONARIO}'
       GROUP BY mes, tipo_anunciante
       ORDER BY mes
     `);
@@ -1615,7 +1896,7 @@ export class TopviewService {
       FROM ordenes_publicidad_detalles d
       JOIN ordenes_publicidad o ON o.id = d.orden_id
       JOIN productos p ON p.id = d.producto_id
-      WHERE (o.habilitado != 0 OR o.habilitado IS NULL) AND p.tipo = 'fisico'
+      WHERE (o.habilitado != 0 OR o.habilitado IS NULL) AND o.tipo_anunciante != '${TIPO_ANUNCIANTE_PAUTA_CONCESIONARIO}' AND p.tipo = 'fisico'
       GROUP BY p.id
       ORDER BY cantidad DESC
     `);
@@ -1629,7 +1910,7 @@ export class TopviewService {
     const topClientes = await this.queryAll(`
       SELECT razon_social, SUM(${campoTopClientes}) as monto_total
       FROM ordenes_publicidad
-      WHERE (habilitado != 0 OR habilitado IS NULL)
+      WHERE (habilitado != 0 OR habilitado IS NULL) AND tipo_anunciante != '${TIPO_ANUNCIANTE_PAUTA_CONCESIONARIO}'
       GROUP BY razon_social
       ORDER BY monto_total DESC
       LIMIT 10

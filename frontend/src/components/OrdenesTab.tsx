@@ -70,6 +70,7 @@ const ORDEN_VACIA = {
   vigencia_hasta_mes: '',
   vigencia_hasta_ano: '',
   avisar_telegram: true,
+  partir_por_mes: false,
 };
 function OrdenesTab({
   token,
@@ -142,6 +143,7 @@ function OrdenesTab({
   // abre una orden hija que se generó en bloque desde la orden madre.
   const [asanaGidActual, setAsanaGidActual] = useState<string | null>(null);
   const [asanaAsignadoActual, setAsanaAsignadoActual] = useState(false);
+  const [telegramAvisadoActual, setTelegramAvisadoActual] = useState<string | null>(null);
   // Selección de órdenes tildadas en el listado, para las acciones masivas
   // de Asana (generar/asignar/borrar sobre varias a la vez) — persiste
   // aunque se cambien los filtros, así se puede ir sumando de a un filtro
@@ -151,6 +153,14 @@ function OrdenesTab({
   const [cargandoAsanaMasivo, setCargandoAsanaMasivo] = useState(false);
   const [errorAsanaMasivo, setErrorAsanaMasivo] = useState('');
   const [mensajeAsanaMasivo, setMensajeAsanaMasivo] = useState('');
+  const [cargandoTelegram, setCargandoTelegram] = useState(false);
+  const [errorTelegram, setErrorTelegram] = useState('');
+  const [mensajeTelegram, setMensajeTelegram] = useState('');
+  // Reutiliza la misma selección tildada de seleccionadasAsana (no tiene
+  // sentido una columna de tildes aparte solo para este botón).
+  const [cargandoTelegramMasivo, setCargandoTelegramMasivo] = useState(false);
+  const [errorTelegramMasivo, setErrorTelegramMasivo] = useState('');
+  const [mensajeTelegramMasivo, setMensajeTelegramMasivo] = useState('');
   const [subiendoDocumento, setSubiendoDocumento] = useState(false);
   const [errorDocumento, setErrorDocumento] = useState('');
   const [descripcionDocumento, setDescripcionDocumento] = useState('');
@@ -228,6 +238,7 @@ function OrdenesTab({
     setMensajeAsana('');
     setAsanaGidActual(null);
     setAsanaAsignadoActual(false);
+    setTelegramAvisadoActual(null);
     setPreviewAsana(null);
     setDetalleId(null);
     setEditandoOrdenId(null);
@@ -246,6 +257,7 @@ function OrdenesTab({
   const cargarOrdenAlFormulario = (o: any) => {
     setAsanaGidActual(o.asana_task_gid || null);
     setAsanaAsignadoActual(!!o.asana_asignado);
+    setTelegramAvisadoActual(o.telegram_avisado_carga_en || null);
     setPreviewAsana(null);
     setOrdenForm({
       tipo_anunciante: o.tipo_anunciante || TIPOS_ANUNCIANTE[0],
@@ -285,6 +297,7 @@ function OrdenesTab({
       vigencia_hasta_mes: o.vigencia_hasta_mes ? String(o.vigencia_hasta_mes) : '',
       vigencia_hasta_ano: o.vigencia_hasta_ano ? String(o.vigencia_hasta_ano) : '',
       avisar_telegram: o.avisar_telegram === undefined || o.avisar_telegram === null ? true : !!o.avisar_telegram,
+      partir_por_mes: false,
     });
     setLineasProductos(
       (o.detalles || []).length > 0
@@ -566,6 +579,48 @@ function OrdenesTab({
       .finally(() => setCargandoAsanaMasivo(false));
   };
 
+  // Botón manual "Avisar a Operaciones" — además del aviso automático al
+  // crear la orden, sirve para re-avisar si ese falló, o para órdenes viejas
+  // que ya existían antes de que el aviso automático existiera.
+  const handleAvisarTelegram = (ordenId: string) => {
+    setErrorTelegram('');
+    setMensajeTelegram('');
+    setCargandoTelegram(true);
+    axios
+      .post(`/api/ordenes-publicidad/${ordenId}/avisar-telegram`, {}, authHeaders(token))
+      .then((res) => {
+        if (res.data.enviado) {
+          setMensajeTelegram('Aviso mandado a Operaciones.');
+          setTelegramAvisadoActual((prev) => prev || 'avisado');
+          if (detalleId) cargarDetalle(detalleId);
+        } else {
+          setErrorTelegram('No se mandó: el grupo "Operaciones" todavía no tiene el bot/chat_id configurado.');
+        }
+      })
+      .catch((err) => setErrorTelegram(mensajeError(err, 'No se pudo avisar a Operaciones.')))
+      .finally(() => setCargandoTelegram(false));
+  };
+
+  const handleAvisarTelegramMasivo = () => {
+    const ids = Array.from(seleccionadasAsana);
+    if (ids.length === 0) return;
+    setErrorTelegramMasivo('');
+    setMensajeTelegramMasivo('');
+    setCargandoTelegramMasivo(true);
+    axios
+      .post('/api/ordenes-publicidad/telegram/avisar-masivo', { ids }, authHeaders(token))
+      .then((res) => {
+        const { enviadas, total } = res.data;
+        if (enviadas === 0) {
+          setErrorTelegramMasivo('No se mandó ninguno: el grupo "Operaciones" todavía no tiene el bot/chat_id configurado.');
+        } else {
+          setMensajeTelegramMasivo(`Avisadas ${enviadas} de ${total} órdenes tildadas.`);
+        }
+      })
+      .catch((err) => setErrorTelegramMasivo(mensajeError(err, 'No se pudo avisar a Operaciones.')))
+      .finally(() => setCargandoTelegramMasivo(false));
+  };
+
   // Convierte una imagen servida por la app (ej. el logo) a dataURL para que
   // jsPDF pueda embeberla — jsPDF no acepta una URL de archivo directamente.
   const cargarImagenComoDataUrl = (src: string, anchoMaximo = 600): Promise<string> =>
@@ -784,14 +839,17 @@ function OrdenesTab({
   // Baja lógica: la orden desaparece de la lista pero nunca se borra el
   // registro (puede tener facturas/gastos/comisiones ya generados).
   const handleEliminarOrden = async (id: string, numeroOrden: string) => {
-    if (!window.confirm(`¿Dar de baja la orden ${numeroOrden}? No se borra el historial de facturación, pero deja de aparecer en la lista.`)) {
+    if (!window.confirm(`¿Dar de baja la orden ${numeroOrden}? No se borra el historial de facturación, pero deja de aparecer en la lista (y se borra su tarea de Asana, si tiene).`)) {
       return;
     }
     setEliminandoId(id);
     setError('');
     try {
-      await axios.delete(`/api/ordenes-publicidad/${id}`, authHeaders(token));
+      const resp = await axios.delete(`/api/ordenes-publicidad/${id}`, authHeaders(token));
       cargarOrdenes();
+      if (resp.data?.asanaError) {
+        setError(`La orden se dio de baja, pero no se pudo borrar su tarea de Asana (borrala a mano): ${resp.data.asanaError}`);
+      }
     } catch (err: any) {
       setError(mensajeError(err, 'No se pudo dar de baja la orden.'));
     } finally {
@@ -1287,6 +1345,9 @@ function OrdenesTab({
     else doc.save(archivoNombre);
   };
 
+  // N° de orden (agencia) de cada mes a partir del 2º, solo para "Partir en una orden por mes".
+  const [numerosPorMes, setNumerosPorMes] = useState<string[]>([]);
+
   const handleChangeOrden = (campo: keyof typeof ORDEN_VACIA, valor: string | boolean) => {
     setOrdenForm((prev) => ({ ...prev, [campo]: valor }));
   };
@@ -1356,6 +1417,8 @@ function OrdenesTab({
   const sumaPreciosLineas = lineasProductos.reduce((acc, l) => acc + (Number(l.precio) || 0), 0);
   const montoNetoManual = Number(ordenForm.monto_neto) || 0;
   const montoNeto = montoNetoManual || sumaPreciosLineas;
+  const hayDescuadreNetoLineas =
+    sumaPreciosLineas > 0 && montoNetoManual > 0 && Math.abs(montoNetoManual - sumaPreciosLineas) > 1;
   let descuentoMonto = 0;
   let descuentoMonto2 = 0;
   let descuentoFacturasMonto = 0;
@@ -1400,6 +1463,31 @@ function OrdenesTab({
         anoActual += 1;
       }
       clonesVigenciaPreview.push({ mes: mesActual, ano: anoActual, periodoDesde: desdeActual, periodoHasta: hastaActual });
+      guarda += 1;
+    }
+  }
+
+  // Vista previa de "Partir en una orden por mes" — mismo cálculo que
+  // TopviewService.crearOrdenesPorMes en el backend, solo para mostrar antes
+  // de mandar el formulario.
+  const partirPorMesPreview: Array<{ periodoDesde: string; periodoHasta: string }> = [];
+  if (ordenForm.partir_por_mes && ordenForm.periodo_desde && ordenForm.periodo_hasta) {
+    const restarUnDia = (f: string) => {
+      const [y, m, d] = f.split('-').map(Number);
+      const dt = new Date(Date.UTC(y, m - 1, d));
+      dt.setUTCDate(dt.getUTCDate() - 1);
+      return dt.toISOString().slice(0, 10);
+    };
+    let desdeActual = ordenForm.periodo_desde;
+    let guarda = 0;
+    while (guarda < 36) {
+      const siguienteDesde = addMonthClamped(desdeActual);
+      let hastaActual = restarUnDia(siguienteDesde);
+      const esUltimo = hastaActual >= ordenForm.periodo_hasta;
+      if (esUltimo) hastaActual = ordenForm.periodo_hasta;
+      partirPorMesPreview.push({ periodoDesde: desdeActual, periodoHasta: hastaActual });
+      if (esUltimo) break;
+      desdeActual = siguienteDesde;
       guarda += 1;
     }
   }
@@ -1561,6 +1649,7 @@ function OrdenesTab({
           tipo_anunciante: ordenForm.tipo_anunciante,
           nombre_anunciante: ordenForm.nombre_anunciante,
           numero_orden_agencia: ordenForm.numero_orden_agencia || undefined,
+          numeros_orden_agencia_por_mes: ordenForm.partir_por_mes ? numerosPorMes.map((n) => (n || '').trim()) : undefined,
           incluir_numero_orden_agencia: ordenForm.incluir_numero_orden_agencia,
           leyenda_factura: ordenForm.leyenda_factura.trim() || undefined,
           cliente_id: ordenForm.cliente_id,
@@ -1568,7 +1657,13 @@ function OrdenesTab({
           vendedor_id: ordenForm.vendedor_id || undefined,
           periodo_desde: ordenForm.periodo_desde,
           periodo_hasta: ordenForm.periodo_hasta,
-          fecha_facturacion: ordenForm.fecha_facturacion || ordenForm.periodo_hasta,
+          // Partir por mes: si no se tipeó fecha de facturación, el fallback
+          // tiene que ser el "hasta" del PRIMER mes generado, no el período
+          // completo (31/12) — si no, cada mes posterior arranca 2 meses
+          // adelantado (bug real, encontrado probando esto mismo).
+          fecha_facturacion:
+            ordenForm.fecha_facturacion ||
+            (ordenForm.partir_por_mes && partirPorMesPreview[0] ? partirPorMesPreview[0].periodoHasta : ordenForm.periodo_hasta),
           email_contacto: ordenForm.email_contacto,
           costo_produccion: Number(ordenForm.costo_produccion) || 0,
           monto_neto: montoNeto,
@@ -1622,6 +1717,18 @@ function OrdenesTab({
         cargarOrdenes();
         cargarDetalle(editandoOrdenId);
         setEditandoOrdenId(null);
+      } else if (ordenForm.partir_por_mes) {
+        respuesta = await axios.post('/api/ordenes-publicidad/por-mes', payload, authHeaders(token));
+        setMostrarForm(false);
+        setNumerosPorMes([]);
+        cargarOrdenes();
+        const ordenesCreadas: any[] = respuesta.data?.ordenes || [];
+        setMensajeClonado(
+          `Se crearon ${ordenesCreadas.length} órdenes, una por mes (sin REVISAR): ` +
+            ordenesCreadas.map((o) => `${formatFecha(o.periodo_desde)}–${formatFecha(o.periodo_hasta)}`).join(', ')
+        );
+        setGuardando(false);
+        return;
       } else {
         respuesta = await axios.post('/api/ordenes-publicidad', payload, authHeaders(token));
         setMostrarForm(false);
@@ -1877,6 +1984,16 @@ function OrdenesTab({
               )}
             </div>
           )}
+          {puedeEditar && detalle && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+              <button className="btn btn-asana-asignar" onClick={() => handleAvisarTelegram(detalle.id)} disabled={cargandoTelegram}>
+                {cargandoTelegram ? 'Avisando...' : 'Avisar a Operaciones'}
+              </button>
+              {detalle.telegram_avisado_carga_en && (
+                <span style={{ color: '#2f855a', fontWeight: 500, fontSize: '0.8rem' }}>✓ Ya se avisó por Telegram</span>
+              )}
+            </div>
+          )}
           {puedeVerLiquidaciones &&
             onVerLiquidacion &&
             mesLiquidacion &&
@@ -1918,6 +2035,8 @@ function OrdenesTab({
 
         {errorAsana && <div className="error-message">{errorAsana}</div>}
         {mensajeAsana && <div className="success-message">{mensajeAsana}</div>}
+        {errorTelegram && <div className="error-message">{errorTelegram}</div>}
+        {mensajeTelegram && <div className="success-message">{mensajeTelegram}</div>}
         {previewAsana && (
           <div
             style={{
@@ -2008,13 +2127,17 @@ function OrdenesTab({
                 </>
               )}
 
-              <dt>Leyenda en la factura</dt>
-              <dd>
-                {detalle.leyenda_factura ||
-                  (detalle.incluir_numero_orden_agencia && detalle.numero_orden_agencia
-                    ? `Exhibición publicidad S/ OP ${detalle.numero_orden_agencia}`
-                    : 'Exhibición publicidad (automática, según fechas de cada mes)')}
-              </dd>
+              {detalle.tipo_anunciante !== TIPO_ANUNCIANTE_PAUTA_CONCESIONARIO && (
+                <>
+                  <dt>Leyenda en la factura</dt>
+                  <dd>
+                    {detalle.leyenda_factura ||
+                      (detalle.incluir_numero_orden_agencia && detalle.numero_orden_agencia
+                        ? `Exhibición publicidad S/ OP ${detalle.numero_orden_agencia}`
+                        : 'Exhibición publicidad (automática, según fechas de cada mes)')}
+                  </dd>
+                </>
+              )}
 
               <dt>Tipo de anunciante</dt>
               <dd>{detalle.tipo_anunciante}</dd>
@@ -2034,45 +2157,49 @@ function OrdenesTab({
                 {detalle.mes_ingreso ? NOMBRES_MES[detalle.mes_ingreso - 1] : '-'} {detalle.ano_ingreso || ''}
               </dd>
 
-              <dt>Se factura al cliente</dt>
-              <dd><strong>{formatMoney(detalle.monto_neto)}</strong> + IVA (el bruto de la pauta)</dd>
-
-              <dt>Descuento comercial (NC 1)</dt>
-              <dd>{detalle.descuento_porcentaje}% ({formatMoney(detalle.descuento_monto)})</dd>
-
-              {!!detalle.descuento_porcentaje_2 && (
+              {detalle.tipo_anunciante !== TIPO_ANUNCIANTE_PAUTA_CONCESIONARIO && (
                 <>
-                  <dt>Descuento comercial (NC 2)</dt>
+                  <dt>Se factura al cliente</dt>
+                  <dd><strong>{formatMoney(detalle.monto_neto)}</strong> + IVA (el bruto de la pauta)</dd>
+
+                  <dt>Descuento comercial (NC 1)</dt>
+                  <dd>{detalle.descuento_porcentaje}% ({formatMoney(detalle.descuento_monto)})</dd>
+
+                  {!!detalle.descuento_porcentaje_2 && (
+                    <>
+                      <dt>Descuento comercial (NC 2)</dt>
+                      <dd>
+                        {detalle.descuento_porcentaje_2}% ({formatMoney(detalle.descuento_monto_2)}) —{' '}
+                        {detalle.descuento_en_cascada_2 ? 'en cascada sobre el remanente del NC 1' : 'directo sobre el bruto'}
+                      </dd>
+                    </>
+                  )}
+
+                  <dt>Descuento facturas (FC)</dt>
                   <dd>
-                    {detalle.descuento_porcentaje_2}% ({formatMoney(detalle.descuento_monto_2)}) —{' '}
-                    {detalle.descuento_en_cascada_2 ? 'en cascada sobre el remanente del NC 1' : 'directo sobre el bruto'}
+                    {detalle.descuento_facturas_porcentaje}% ({formatMoney(detalle.descuento_facturas_monto)}) —{' '}
+                    {detalle.descuento_facturas_en_cascada ? 'en cascada sobre el remanente' : 'directo sobre el bruto'}
                   </dd>
+
+                  {/* Desagregado de comisiones a comisionistas — solo llega del
+                      servidor si el usuario tiene topview_netos_ver (Administrador/
+                      socios); el resto de la jerarquía nunca ve este bloque. */}
+                  {(detalle.comisiones_desagregado || []).map((c: any, i: number) => (
+                    <Fragment key={i}>
+                      <dt>
+                        Comisión {c.intermediario_nombre} ({c.factura_formal ? 'Tipo 1' : 'Tipo 2'})
+                      </dt>
+                      <dd>
+                        {c.porcentaje_comision}% ({formatMoney(c.monto_comision)}) —{' '}
+                        {c.tipo_calculo === 'cascada' ? 'en cascada sobre el remanente' : 'sobre el neto blanco'}
+                      </dd>
+                    </Fragment>
+                  ))}
+
+                  <dt>Neto Topview (después de NC/FC y comisiones)</dt>
+                  <dd>{formatMoney(detalle.monto_final)}</dd>
                 </>
               )}
-
-              <dt>Descuento facturas (FC)</dt>
-              <dd>
-                {detalle.descuento_facturas_porcentaje}% ({formatMoney(detalle.descuento_facturas_monto)}) —{' '}
-                {detalle.descuento_facturas_en_cascada ? 'en cascada sobre el remanente' : 'directo sobre el bruto'}
-              </dd>
-
-              {/* Desagregado de comisiones a comisionistas — solo llega del
-                  servidor si el usuario tiene topview_netos_ver (Administrador/
-                  socios); el resto de la jerarquía nunca ve este bloque. */}
-              {(detalle.comisiones_desagregado || []).map((c: any, i: number) => (
-                <Fragment key={i}>
-                  <dt>
-                    Comisión {c.intermediario_nombre} ({c.factura_formal ? 'Tipo 1' : 'Tipo 2'})
-                  </dt>
-                  <dd>
-                    {c.porcentaje_comision}% ({formatMoney(c.monto_comision)}) —{' '}
-                    {c.tipo_calculo === 'cascada' ? 'en cascada sobre el remanente' : 'sobre el neto blanco'}
-                  </dd>
-                </Fragment>
-              ))}
-
-              <dt>Neto Topview (después de NC/FC y comisiones)</dt>
-              <dd>{formatMoney(detalle.monto_final)}</dd>
             </dl>
 
             {puedeEditar && (
@@ -2364,6 +2491,7 @@ function OrdenesTab({
   const seleccionNoRegistradas = ordenesSeleccionadas.filter((o) => !esOrdenFacturado(o));
   const totalesSeleccionRegistrado = calcularTotales(seleccionRegistradas);
   const totalesSeleccionNoRegistrado = calcularTotales(seleccionNoRegistradas);
+  const esPautaConcesionario = ordenForm.tipo_anunciante === TIPO_ANUNCIANTE_PAUTA_CONCESIONARIO;
 
   return (
     <>
@@ -2472,6 +2600,34 @@ function OrdenesTab({
               )}
             </div>
           )}
+          {puedeEditar && mostrarForm && editandoOrdenId && (
+            <div style={{ position: 'relative' }}>
+              <button
+                type="button"
+                className="btn btn-asana-asignar"
+                onClick={() => handleAvisarTelegram(editandoOrdenId)}
+                disabled={cargandoTelegram}
+              >
+                {cargandoTelegram ? 'Avisando...' : 'Avisar a Operaciones'}
+              </button>
+              {telegramAvisadoActual && (
+                <span
+                  style={{
+                    position: 'absolute',
+                    top: '100%',
+                    left: 0,
+                    marginTop: '0.3rem',
+                    whiteSpace: 'nowrap',
+                    color: '#2f855a',
+                    fontWeight: 500,
+                    fontSize: '0.8rem',
+                  }}
+                >
+                  ✓ Ya se avisó por Telegram
+                </span>
+              )}
+            </div>
+          )}
           {puedeEditar && !mostrarForm && ordenes && ordenes.length > 0 && (
             <>
             <button
@@ -2501,8 +2657,17 @@ function OrdenesTab({
             >
               {cargandoAsanaMasivo ? 'Borrando...' : 'Borrar tareas Asana'}
             </button>
+            <button
+              type="button"
+              className="btn btn-asana-asignar"
+              style={{ whiteSpace: 'nowrap', flexShrink: 0, width: '15.75rem', textAlign: 'center' }}
+              onClick={handleAvisarTelegramMasivo}
+              disabled={cargandoTelegramMasivo || seleccionadasAsana.size === 0}
+            >
+              {cargandoTelegramMasivo ? 'Avisando...' : 'Avisar a Operaciones'}
+            </button>
             <span
-              title="Tildá órdenes en la tabla para aplicar estas acciones de Asana a todas de una"
+              title="Tildá órdenes en la tabla para aplicar estas acciones a todas de una"
               style={{ fontSize: '0.85rem', color: '#555', whiteSpace: 'nowrap' }}
             >
               {seleccionadasAsana.size} orden(es) tildada(s)
@@ -2523,11 +2688,22 @@ function OrdenesTab({
 
       {mostrarForm && errorAsana && <div className="error-message">{errorAsana}</div>}
       {mostrarForm && mensajeAsana && <div className="success-message">{mensajeAsana}</div>}
+      {mostrarForm && errorTelegram && <div className="error-message">{errorTelegram}</div>}
+      {mostrarForm && mensajeTelegram && <div className="success-message">{mensajeTelegram}</div>}
       {!mostrarForm && errorAsanaMasivo && <div className="error-message">{errorAsanaMasivo}</div>}
       {!mostrarForm && mensajeAsanaMasivo && (
         <div className="success-message" style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem' }}>
           <span>{mensajeAsanaMasivo}</span>
           <button type="button" className="btn-link" onClick={() => setMensajeAsanaMasivo('')}>
+            Cerrar
+          </button>
+        </div>
+      )}
+      {!mostrarForm && errorTelegramMasivo && <div className="error-message">{errorTelegramMasivo}</div>}
+      {!mostrarForm && mensajeTelegramMasivo && (
+        <div className="success-message" style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem' }}>
+          <span>{mensajeTelegramMasivo}</span>
+          <button type="button" className="btn-link" onClick={() => setMensajeTelegramMasivo('')}>
             Cerrar
           </button>
         </div>
@@ -2645,32 +2821,34 @@ function OrdenesTab({
             </label>
           </div>
 
-          <div className="form-group">
-            <label htmlFor="orden_leyenda_factura">Leyenda para el detalle de la factura (opcional)</label>
-            <input
-              id="orden_leyenda_factura"
-              value={ordenForm.leyenda_factura}
-              onChange={(e) => handleChangeOrden('leyenda_factura', e.target.value)}
-              placeholder="Se sugiere automáticamente, dejalo vacío para usarla"
-              disabled={guardando}
-            />
-            <p className="totales-preview">
-              Así va a quedar en la factura de este mes:{' '}
-              <strong>
-                {ordenForm.leyenda_factura.trim()
-                  ? ordenForm.leyenda_factura.trim()
-                  : ordenForm.incluir_numero_orden_agencia && ordenForm.numero_orden_agencia
-                  ? `Exhibición publicidad S/ OP ${ordenForm.numero_orden_agencia}`
-                  : ordenForm.periodo_desde && ordenForm.periodo_hasta
-                  ? `Exhibición publicidad ${ordenForm.periodo_desde.split('-')[2]}-${ordenForm.periodo_desde.split('-')[1]} a ${ordenForm.periodo_hasta.split('-')[2]}-${ordenForm.periodo_hasta.split('-')[1]}`
-                  : 'Exhibición publicidad (elegí el período)'}
-              </strong>
-              {!ordenForm.leyenda_factura.trim() &&
-                !(ordenForm.incluir_numero_orden_agencia && ordenForm.numero_orden_agencia) && (
-                  <> — se recalcula solo con las fechas de cada mes en las facturas siguientes.</>
-                )}
-            </p>
-          </div>
+          {ordenForm.tipo_anunciante !== TIPO_ANUNCIANTE_PAUTA_CONCESIONARIO && (
+            <div className="form-group">
+              <label htmlFor="orden_leyenda_factura">Leyenda para el detalle de la factura (opcional)</label>
+              <input
+                id="orden_leyenda_factura"
+                value={ordenForm.leyenda_factura}
+                onChange={(e) => handleChangeOrden('leyenda_factura', e.target.value)}
+                placeholder="Se sugiere automáticamente, dejalo vacío para usarla"
+                disabled={guardando}
+              />
+              <p className="totales-preview">
+                Así va a quedar en la factura de este mes:{' '}
+                <strong>
+                  {ordenForm.leyenda_factura.trim()
+                    ? ordenForm.leyenda_factura.trim()
+                    : ordenForm.incluir_numero_orden_agencia && ordenForm.numero_orden_agencia
+                    ? `Exhibición publicidad S/ OP ${ordenForm.numero_orden_agencia}`
+                    : ordenForm.periodo_desde && ordenForm.periodo_hasta
+                    ? `Exhibición publicidad ${ordenForm.periodo_desde.split('-')[2]}-${ordenForm.periodo_desde.split('-')[1]} a ${ordenForm.periodo_hasta.split('-')[2]}-${ordenForm.periodo_hasta.split('-')[1]}`
+                    : 'Exhibición publicidad (elegí el período)'}
+                </strong>
+                {!ordenForm.leyenda_factura.trim() &&
+                  !(ordenForm.incluir_numero_orden_agencia && ordenForm.numero_orden_agencia) && (
+                    <> — se recalcula solo con las fechas de cada mes en las facturas siguientes.</>
+                  )}
+              </p>
+            </div>
+          )}
 
           <div className="form-group">
             <label htmlFor="orden_avisar_telegram" style={{ fontWeight: 'normal' }}>
@@ -2897,7 +3075,7 @@ function OrdenesTab({
                   <select
                     value={ordenForm.vigencia_hasta_mes}
                     onChange={(e) => handleChangeVigenciaHastaMes(e.target.value)}
-                    disabled={guardando}
+                    disabled={guardando || ordenForm.partir_por_mes}
                     style={{ display: 'block', marginTop: '0.25rem' }}
                   >
                     <option value="">Sin repetir</option>
@@ -2965,6 +3143,78 @@ function OrdenesTab({
               <small>Hasta qué mes seguís facturando esta pauta — es solo una referencia, no dispara nada automático.</small>
             </div>
           </div>
+
+          {!editandoOrdenId && (
+            <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+              <label htmlFor="orden_partir_por_mes">
+                <input
+                  id="orden_partir_por_mes"
+                  type="checkbox"
+                  checked={ordenForm.partir_por_mes}
+                  onChange={(e) => {
+                    handleChangeOrden('partir_por_mes', e.target.checked);
+                    setNumerosPorMes([]);
+                    if (e.target.checked) {
+                      handleChangeOrden('vigencia_hasta_mes', '');
+                      handleChangeOrden('vigencia_hasta_ano', '');
+                    }
+                  }}
+                  disabled={guardando || !!ordenForm.vigencia_hasta_mes}
+                />
+                {' '}Partir en una orden por mes (ya validado el período completo, no queda para revisar)
+              </label>
+              {ordenForm.partir_por_mes && (
+                <small style={{ display: 'block', marginTop: '0.3rem' }}>
+                  El "Período desde/hasta" de arriba se parte en una orden real por mes — ninguna queda en
+                  REVISAR. El N° de orden (agencia) se copia en la primera; los meses siguientes quedan
+                  sin número salvo que lo cargues a mano en la lista de abajo.
+                </small>
+              )}
+              {partirPorMesPreview.length > 1 && (
+                <div
+                  style={{
+                    marginTop: '0.75rem',
+                    background: '#f4f6f4',
+                    border: '1px solid #dde3dd',
+                    borderRadius: '6px',
+                    padding: '0.6rem 0.75rem',
+                    fontSize: '0.85rem',
+                  }}
+                >
+                  <div style={{ fontWeight: 600, color: '#2e7d32', marginBottom: '0.3rem' }}>
+                    Al guardar se van a crear {partirPorMesPreview.length} órdenes:
+                  </div>
+                  <ul style={{ margin: 0, paddingLeft: '1.1rem' }}>
+                    {partirPorMesPreview.map((p, i) => (
+                      <li key={i} style={{ marginBottom: i > 0 ? '0.25rem' : 0 }}>
+                        {formatFecha(p.periodoDesde)} al {formatFecha(p.periodoHasta)}
+                        {i === 0 && ordenForm.numero_orden_agencia ? ` — N° ${ordenForm.numero_orden_agencia}` : ''}
+                        {i > 0 && (
+                          <>
+                            {' — N° '}
+                            <input
+                              type="text"
+                              value={numerosPorMes[i] || ''}
+                              placeholder="(vacío)"
+                              disabled={guardando}
+                              onChange={(e) =>
+                                setNumerosPorMes((prev) => {
+                                  const sig = [...prev];
+                                  sig[i] = e.target.value;
+                                  return sig;
+                                })
+                              }
+                              style={{ width: '110px', padding: '0.15rem 0.4rem', fontSize: '0.85rem' }}
+                            />
+                          </>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="lineas-factura" style={{ gridColumn: '1 / -1' }}>
             <label>Productos / soportes *</label>
@@ -3112,81 +3362,141 @@ function OrdenesTab({
           <div className="lineas-factura" style={{ gridColumn: '1 / -1' }}>
             <label>Montos y descuentos en cascada</label>
 
-            <div className="linea-factura" style={{ gridTemplateColumns: '1fr 1fr 1fr 1fr' }}>
+            {sumaPreciosLineas > 0 && montoNetoManual > 0 && (() => {
+              const diferencia = montoNetoManual - sumaPreciosLineas;
+              const cierra = Math.abs(diferencia) <= 1;
+              return (
+                <div
+                  style={{
+                    background: cierra ? '#e8f5e9' : diferencia > 0 ? '#fff8e1' : '#fdecea',
+                    border: `1px solid ${cierra ? '#a5d6a7' : diferencia > 0 ? '#f0d58a' : '#f5b7b1'}`,
+                    borderRadius: '6px',
+                    padding: '0.5rem 0.75rem',
+                    fontSize: '0.85rem',
+                    marginBottom: '0.5rem',
+                  }}
+                >
+                  Monto neto <strong>{formatMoney(montoNetoManual)}</strong> · cargado en líneas{' '}
+                  <strong>{formatMoney(sumaPreciosLineas)}</strong> ·{' '}
+                  {cierra ? (
+                    <strong style={{ color: '#2e7d32' }}>sin diferencia ✓</strong>
+                  ) : diferencia > 0 ? (
+                    <strong>falta asignar {formatMoney(diferencia)}</strong>
+                  ) : (
+                    <strong style={{ color: '#c0392b' }}>las líneas se pasan por {formatMoney(-diferencia)}</strong>
+                  )}
+                  {!cierra && (
+                    <div style={{ fontWeight: 700, color: '#c0392b', marginTop: '0.3rem' }}>
+                      ⚠ ATENCIÓN: el Monto neto NO coincide con la suma de las líneas.
+                    </div>
+                  )}
+                  {!cierra && (
+                    <>
+                      {' '}
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        style={{ padding: '0.15rem 0.5rem', fontSize: '0.8rem' }}
+                        onClick={() => handleChangeOrden('monto_neto', '')}
+                        disabled={guardando}
+                      >
+                        Usar la suma de las líneas
+                      </button>
+                    </>
+                  )}
+                </div>
+              );
+            })()}
+
+            <div className="linea-factura" style={{ gridTemplateColumns: esPautaConcesionario ? '1fr' : '1fr 1fr 1fr 1fr' }}>
               <InputMiles
                 placeholder="Monto neto (vacío = suma de líneas)"
                 value={ordenForm.monto_neto}
                 onChange={(v) => handleChangeOrden('monto_neto', v)}
                 disabled={guardando}
               />
-              <InputPorcentaje
-                placeholder="Descuento comercial (NC 1)"
-                value={ordenForm.descuento_porcentaje}
-                onChange={(v) => handleChangeOrden('descuento_porcentaje', v)}
-                disabled={guardando}
-              />
-              <InputPorcentaje
-                placeholder="Descuento comercial (NC 2, opcional)"
-                value={ordenForm.descuento_porcentaje_2}
-                onChange={(v) => handleChangeOrden('descuento_porcentaje_2', v)}
-                disabled={guardando}
-              />
-              <InputPorcentaje
-                placeholder="Descuento facturas (FC)"
-                value={ordenForm.descuento_facturas_porcentaje}
-                onChange={(v) => handleChangeOrden('descuento_facturas_porcentaje', v)}
-                disabled={guardando}
-              />
-            </div>
-            <small style={{ color: '#666' }}>
-              "Monto neto" es solo la exhibición. La producción (impresión, colocación, cambio o reposición de
-              gráfica) se carga como su propia orden en "Órdenes de Producción", no acá. Si lo dejás vacío, se arma
-              solo sumando el precio de cada línea en "Productos / soportes" de arriba. El NC 2 es opcional — algunas
-              agencias negocian un segundo descuento comercial además del primero, se aplica NC 1 → NC 2 → FC en ese
-              orden.
-            </small>
-
-            <label htmlFor="orden_desc_cascada" style={{ fontWeight: 'normal', marginTop: '0.5rem', display: 'block' }}>
-              <input
-                id="orden_desc_cascada"
-                type="checkbox"
-                checked={ordenForm.descuento_en_cascada}
-                onChange={(e) => handleChangeOrden('descuento_en_cascada', e.target.checked)}
-                disabled={guardando}
-              />
-              {' '}Descuento comercial (NC 1) en cascada (reduce la base antes de calcular el NC 2 y el de facturas — solo importa si esos también están en cascada; si no, da lo mismo tildado o no)
-            </label>
-
-            <label htmlFor="orden_desc_cascada_2" style={{ fontWeight: 'normal', marginTop: '0.5rem', display: 'block' }}>
-              <input
-                id="orden_desc_cascada_2"
-                type="checkbox"
-                checked={ordenForm.descuento_en_cascada_2}
-                onChange={(e) => handleChangeOrden('descuento_en_cascada_2', e.target.checked)}
-                disabled={guardando}
-              />
-              {' '}Descuento comercial (NC 2) en cascada sobre el remanente del NC 1 (si no, se calcula directo sobre el mismo bruto que el NC 1 — depende de lo negociado con cada agencia)
-            </label>
-
-            <label htmlFor="orden_desc_facturas_cascada" style={{ fontWeight: 'normal', marginTop: '0.5rem', display: 'block' }}>
-              <input
-                id="orden_desc_facturas_cascada"
-                type="checkbox"
-                checked={ordenForm.descuento_facturas_en_cascada}
-                onChange={(e) => handleChangeOrden('descuento_facturas_en_cascada', e.target.checked)}
-                disabled={guardando}
-              />
-              {' '}Descuento de facturas en cascada sobre el remanente (si no, se calcula directo sobre el mismo neto que el descuento comercial — depende de lo negociado con cada agencia/cliente)
-            </label>
-
-            <p className="totales-preview">
-              Monto neto: {formatMoney(montoNeto)} · Menos desc. comercial (NC 1): -{formatMoney(descuentoMonto)}
-              {Number(ordenForm.descuento_porcentaje_2) > 0 && (
-                <> · Menos desc. comercial (NC 2): -{formatMoney(descuentoMonto2)}</>
+              {!esPautaConcesionario && (
+                <>
+                  <InputPorcentaje
+                    placeholder="Descuento comercial (NC 1)"
+                    value={ordenForm.descuento_porcentaje}
+                    onChange={(v) => handleChangeOrden('descuento_porcentaje', v)}
+                    disabled={guardando}
+                  />
+                  <InputPorcentaje
+                    placeholder="Descuento comercial (NC 2, opcional)"
+                    value={ordenForm.descuento_porcentaje_2}
+                    onChange={(v) => handleChangeOrden('descuento_porcentaje_2', v)}
+                    disabled={guardando}
+                  />
+                  <InputPorcentaje
+                    placeholder="Descuento facturas (FC)"
+                    value={ordenForm.descuento_facturas_porcentaje}
+                    onChange={(v) => handleChangeOrden('descuento_facturas_porcentaje', v)}
+                    disabled={guardando}
+                  />
+                </>
               )}
-              {' '}· Menos desc. facturas: -{formatMoney(descuentoFacturasMonto)} · Monto final:{' '}
-              <strong>{formatMoney(montoFinal)}</strong>
-            </p>
+            </div>
+            {esPautaConcesionario ? (
+              <small style={{ color: '#666' }}>
+                "Monto neto" acá es lo que vendió el concesionario (lo usa la cuenta corriente de comerciales en
+                Liquidaciones) — Topview no le factura nada al cliente en una Pauta Concesionario, así que no hay
+                descuentos comerciales ni leyenda de factura que cargar.
+              </small>
+            ) : (
+              <>
+                <small style={{ color: '#666' }}>
+                  "Monto neto" es solo la exhibición. La producción (impresión, colocación, cambio o reposición de
+                  gráfica) se carga como su propia orden en "Órdenes de Producción", no acá. Si lo dejás vacío, se arma
+                  solo sumando el precio de cada línea en "Productos / soportes" de arriba. El NC 2 es opcional — algunas
+                  agencias negocian un segundo descuento comercial además del primero, se aplica NC 1 → NC 2 → FC en ese
+                  orden.
+                </small>
+
+                <label htmlFor="orden_desc_cascada" style={{ fontWeight: 'normal', marginTop: '0.5rem', display: 'block' }}>
+                  <input
+                    id="orden_desc_cascada"
+                    type="checkbox"
+                    checked={ordenForm.descuento_en_cascada}
+                    onChange={(e) => handleChangeOrden('descuento_en_cascada', e.target.checked)}
+                    disabled={guardando}
+                  />
+                  {' '}Descuento comercial (NC 1) en cascada (reduce la base antes de calcular el NC 2 y el de facturas — solo importa si esos también están en cascada; si no, da lo mismo tildado o no)
+                </label>
+
+                <label htmlFor="orden_desc_cascada_2" style={{ fontWeight: 'normal', marginTop: '0.5rem', display: 'block' }}>
+                  <input
+                    id="orden_desc_cascada_2"
+                    type="checkbox"
+                    checked={ordenForm.descuento_en_cascada_2}
+                    onChange={(e) => handleChangeOrden('descuento_en_cascada_2', e.target.checked)}
+                    disabled={guardando}
+                  />
+                  {' '}Descuento comercial (NC 2) en cascada sobre el remanente del NC 1 (si no, se calcula directo sobre el mismo bruto que el NC 1 — depende de lo negociado con cada agencia)
+                </label>
+
+                <label htmlFor="orden_desc_facturas_cascada" style={{ fontWeight: 'normal', marginTop: '0.5rem', display: 'block' }}>
+                  <input
+                    id="orden_desc_facturas_cascada"
+                    type="checkbox"
+                    checked={ordenForm.descuento_facturas_en_cascada}
+                    onChange={(e) => handleChangeOrden('descuento_facturas_en_cascada', e.target.checked)}
+                    disabled={guardando}
+                  />
+                  {' '}Descuento de facturas en cascada sobre el remanente (si no, se calcula directo sobre el mismo neto que el descuento comercial — depende de lo negociado con cada agencia/cliente)
+                </label>
+
+                <p className="totales-preview">
+                  Monto neto: {formatMoney(montoNeto)} · Menos desc. comercial (NC 1): -{formatMoney(descuentoMonto)}
+                  {Number(ordenForm.descuento_porcentaje_2) > 0 && (
+                    <> · Menos desc. comercial (NC 2): -{formatMoney(descuentoMonto2)}</>
+                  )}
+                  {' '}· Menos desc. facturas: -{formatMoney(descuentoFacturasMonto)} · Monto final:{' '}
+                  <strong>{formatMoney(montoFinal)}</strong>
+                </p>
+              </>
+            )}
           </div>
 
           <div className="lineas-factura" style={{ gridColumn: '1 / -1' }}>
@@ -3310,6 +3620,12 @@ function OrdenesTab({
           </div>
 
           <div className="cliente-form-actions">
+            {hayDescuadreNetoLineas && (
+              <div style={{ color: '#c0392b', fontWeight: 600, fontSize: '0.85rem', marginBottom: '0.4rem' }}>
+                ⚠ El Monto neto ({formatMoney(montoNetoManual)}) no coincide con la suma de las líneas (
+                {formatMoney(sumaPreciosLineas)}). Revisalo antes de guardar.
+              </div>
+            )}
             <button type="submit" className="btn btn-success" disabled={guardando}>
               {guardando ? 'Guardando...' : 'Guardar'}
             </button>

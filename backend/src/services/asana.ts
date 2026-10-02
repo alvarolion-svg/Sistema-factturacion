@@ -1,5 +1,6 @@
 import db from '../database';
 import { AsanaConfigService } from './asanaConfig';
+import { compararLineasPorSoporte } from './calculosTopview';
 
 const NOMBRES_MES = [
   'Enero',
@@ -61,6 +62,19 @@ function formatFecha(fecha: string | null | undefined): string {
   return `${d}/${m}/${y.slice(2)}`;
 }
 
+// Asana a veces responde 429/5xx (ej. 504 "Server timed out") en llamadas
+// que sí se pueden repetir sin riesgo (PUT/GET/DELETE/addTask). Se reintenta
+// con espera creciente antes de dar el error. NO usar en POST que crean cosas
+// nuevas (una tarea que dio 504 pudo haberse creado igual y duplicaría).
+async function fetchReintentando(url: string, init?: RequestInit, intentos = 4): Promise<Response> {
+  let resp = await fetch(url, init);
+  for (let i = 1; i < intentos && (resp.status === 429 || resp.status >= 500); i++) {
+    await new Promise((r) => setTimeout(r, i * 1500));
+    resp = await fetch(url, init);
+  }
+  return resp;
+}
+
 export class AsanaService {
   /**
    * Arma el contenido de la tarea (nombre + cuerpo) a partir de los datos de
@@ -101,7 +115,8 @@ export class AsanaService {
       vigenciaTexto = orden.vigencia_hasta_nota;
     }
 
-    const lineasProductos = detalles
+    const lineasProductos = [...detalles]
+      .sort(compararLineasPorSoporte)
       .map((d) => {
         const partes = [d.locacion_nombre || d.ubicacion || 'Sin locación', d.tipo_producto, `x${d.cantidad}`, d.punto_instalacion];
         return `- ${partes.filter(Boolean).join(' — ')}`;
@@ -199,17 +214,25 @@ export class AsanaService {
       );
     }
 
-    const yaExistia = !!existente?.asana_task_gid;
+    let yaExistia = !!existente?.asana_task_gid;
     let taskGid: string | null = existente?.asana_task_gid || null;
 
     if (taskGid) {
-      const resp = await fetch(`https://app.asana.com/api/1.0/tasks/${taskGid}`, {
+      const resp = await fetchReintentando(`https://app.asana.com/api/1.0/tasks/${taskGid}`, {
         method: 'PUT',
         headers,
         body: JSON.stringify({ data: { name, notes } }),
       });
-      if (!resp.ok) throw new Error(`Asana rechazó la actualización de la tarea (${resp.status}): ${await resp.text()}`);
-    } else {
+      if (resp.status === 404) {
+        // La tarea guardada ya no existe en Asana (se borró a mano allá): se
+        // descarta el ID viejo y se crea de nuevo, en vez de quedar trabada.
+        taskGid = null;
+        yaExistia = false;
+      } else if (!resp.ok) {
+        throw new Error(`Asana rechazó la actualización de la tarea (${resp.status}): ${await resp.text()}`);
+      }
+    }
+    if (!taskGid) {
       const resp = await fetch('https://app.asana.com/api/1.0/tasks', {
         method: 'POST',
         headers,
@@ -229,7 +252,7 @@ export class AsanaService {
 
     // Ubica (o reubica, si el mes de ingreso cambió) la tarea en la sección
     // del mes que corresponde.
-    const respSeccion = await fetch(`https://app.asana.com/api/1.0/sections/${seccion.seccion_gid}/addTask`, {
+    const respSeccion = await fetchReintentando(`https://app.asana.com/api/1.0/sections/${seccion.seccion_gid}/addTask`, {
       method: 'POST',
       headers,
       body: JSON.stringify({ data: { task: taskGid } }),
@@ -268,16 +291,24 @@ export class AsanaService {
       throw new Error('Primero generá la tarea en Asana con el otro botón — todavía no existe.');
     }
 
-    const respAsignarPrincipal = await fetch(`https://app.asana.com/api/1.0/tasks/${taskGid}`, {
+    const respAsignarPrincipal = await fetchReintentando(`https://app.asana.com/api/1.0/tasks/${taskGid}`, {
       method: 'PUT',
       headers,
       body: JSON.stringify({ data: { assignee: ASIGNADO_TRAFICO } }),
     });
+    if (respAsignarPrincipal.status === 404) {
+      await new Promise<void>((resolve, reject) => {
+        db.run('UPDATE ordenes_publicidad SET asana_task_gid = NULL, asana_asignado = 0 WHERE id = ?', [ordenId], (err) =>
+          err ? reject(err) : resolve()
+        );
+      });
+      throw new Error('La tarea de esta orden ya no existe en Asana (se borró allá) — generala de nuevo con el otro botón y después asigná.');
+    }
     if (!respAsignarPrincipal.ok) {
       throw new Error(`Asana rechazó asignar la tarea principal (${respAsignarPrincipal.status}): ${await respAsignarPrincipal.text()}`);
     }
 
-    const respSubtareas = await fetch(`https://app.asana.com/api/1.0/tasks/${taskGid}/subtasks?opt_fields=gid,name`, { headers });
+    const respSubtareas = await fetchReintentando(`https://app.asana.com/api/1.0/tasks/${taskGid}/subtasks?opt_fields=gid,name`, { headers });
     if (!respSubtareas.ok) {
       throw new Error(`Asana rechazó consultar las subtareas (${respSubtareas.status}): ${await respSubtareas.text()}`);
     }
@@ -290,7 +321,7 @@ export class AsanaService {
       else if (subtarea.name.startsWith('Facturar ')) assignee = ASIGNADO_ADMINISTRACION;
       if (!assignee) continue;
 
-      const resp = await fetch(`https://app.asana.com/api/1.0/tasks/${subtarea.gid}`, {
+      const resp = await fetchReintentando(`https://app.asana.com/api/1.0/tasks/${subtarea.gid}`, {
         method: 'PUT',
         headers,
         body: JSON.stringify({ data: { assignee } }),
@@ -333,7 +364,7 @@ export class AsanaService {
         continue;
       }
       try {
-        const resp = await fetch(`https://app.asana.com/api/1.0/tasks/${fila.asana_task_gid}`, { method: 'DELETE', headers });
+        const resp = await fetchReintentando(`https://app.asana.com/api/1.0/tasks/${fila.asana_task_gid}`, { method: 'DELETE', headers });
         if (!resp.ok && resp.status !== 404) {
           throw new Error(`Asana rechazó borrar la tarea (${resp.status}): ${await resp.text()}`);
         }
@@ -385,7 +416,7 @@ export class AsanaService {
     generaFacturacion: boolean,
     headers: Record<string, string>
   ): Promise<void> {
-    const respExistentes = await fetch(`https://app.asana.com/api/1.0/tasks/${taskGid}/subtasks?opt_fields=name`, {
+    const respExistentes = await fetchReintentando(`https://app.asana.com/api/1.0/tasks/${taskGid}/subtasks?opt_fields=name`, {
       headers,
     });
     if (!respExistentes.ok) {

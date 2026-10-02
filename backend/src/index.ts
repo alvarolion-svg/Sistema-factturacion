@@ -699,13 +699,60 @@ app.post('/api/ordenes-publicidad', autenticacion, requierePermiso('topview_crea
     if (orden.avisar_telegram !== 0) {
       const formatFecha = (f: string) => (f ? f.split('-').reverse().join('/') : '-');
       const extra = clonado && clonado.creadas > 0 ? ` (+ ${clonado.creadas} mes(es) clonados por vigencia)` : '';
-      TelegramService.enviarAGrupo(
-        'Operaciones',
-        `🆕 <b>Nueva orden cargada</b>\n${orden.nombre_anunciante} (${orden.tipo_anunciante})\n${formatFecha(orden.periodo_desde)} al ${formatFecha(orden.periodo_hasta)}${extra}`
-      ).catch((err) => console.error('[Telegram] No se pudo avisar la orden nueva:', err.message));
+      TopviewService.construirBloqueUbicacion(orden.id)
+        .then((bloqueUbicacion) =>
+          TelegramService.enviarAGrupo(
+            'Operaciones',
+            `🆕 <b>Nueva orden cargada</b>\n${orden.nombre_anunciante}\n${formatFecha(orden.periodo_desde)} al ${formatFecha(orden.periodo_hasta)}${extra}` +
+              (bloqueUbicacion ? `\n\n${bloqueUbicacion}` : ''),
+            orden.id
+          )
+        )
+        .then(({ enviado }) => {
+          if (enviado) db.run('UPDATE ordenes_publicidad SET telegram_avisado_carga_en = datetime("now") WHERE id = ?', [orden.id]);
+        })
+        .catch((err) => console.error('[Telegram] No se pudo avisar la orden nueva:', err.message));
     }
 
     res.json({ ...orden, _clonado: clonado });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Alternativa a "Repetir automáticamente hasta" — carga el período completo
+// de una y lo parte en una orden real por mes, sin REVISAR (ver comentario
+// en TopviewService.crearOrdenesPorMes).
+app.post('/api/ordenes-publicidad/por-mes', autenticacion, requierePermiso('topview_crear'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const { ordenes } = await TopviewService.crearOrdenesPorMes(req.body);
+    ordenes.forEach((orden) =>
+      AuditoriaService.registrarOperacion('ordenes_publicidad', 'INSERT', orden.id, null, orden, req.usuario?.id, req.ip)
+    );
+
+    if (ordenes.length > 0 && ordenes[0].avisar_telegram !== 0) {
+      const formatFecha = (f: string) => (f ? f.split('-').reverse().join('/') : '-');
+      const primera = ordenes[0];
+      const ultima = ordenes[ordenes.length - 1];
+      TopviewService.construirBloqueUbicacion(primera.id)
+        .then((bloqueUbicacion) =>
+          TelegramService.enviarAGrupo(
+            'Operaciones',
+            `🆕 <b>Nueva orden cargada</b>\n${primera.nombre_anunciante}\n${formatFecha(primera.periodo_desde)} al ${formatFecha(ultima.periodo_hasta)} (${ordenes.length} meses)` +
+              (bloqueUbicacion ? `\n\n${bloqueUbicacion}` : ''),
+            primera.id
+          )
+        )
+        .then(({ enviado }) => {
+          if (enviado) {
+            const ids = ordenes.map((o) => o.id);
+            db.run(`UPDATE ordenes_publicidad SET telegram_avisado_carga_en = datetime("now") WHERE id IN (${ids.map(() => '?').join(',')})`, ids);
+          }
+        })
+        .catch((err) => console.error('[Telegram] No se pudo avisar la orden nueva:', err.message));
+    }
+
+    res.json({ ordenes });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -715,6 +762,19 @@ app.put('/api/ordenes-publicidad/:id', autenticacion, requierePermiso('topview_e
   try {
     const { orden, clonado } = await TopviewService.actualizarOrden(req.params.id, req.body);
     res.json({ ...orden, _clonado: clonado });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Antes de /:id — si no, Express toma "ejecucion" como un id.
+app.get('/api/ordenes-publicidad/ejecucion', autenticacion, requierePermiso('topview_ver'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const mes = req.query.mes ? Number(req.query.mes) : undefined;
+    const ano = req.query.ano ? Number(req.query.ano) : undefined;
+    const tipo_anunciante = (req.query.tipo_anunciante as string) || undefined;
+    const ordenes = await TopviewService.listarEjecucion({ mes, ano, tipo_anunciante });
+    res.json(ordenes);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -827,6 +887,22 @@ app.delete('/api/ordenes-publicidad/asana/borrar-masivo', autenticacion, requier
   }
 });
 
+// Mismo criterio que generar-masivo de Asana de arriba: el frontend arma la
+// lista de ids tildados, acá solo se manda un aviso por cada uno.
+app.post('/api/ordenes-publicidad/telegram/avisar-masivo', autenticacion, requierePermiso('topview_editar'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const ids = req.body.ids;
+    if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: 'Faltan ids de órdenes.' });
+    let enviadas = 0;
+    for (const id of ids) {
+      if (await TopviewService.avisarOrdenATelegram(id)) enviadas += 1;
+    }
+    res.json({ enviadas, total: ids.length });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ==================== CONFIGURACIÓN DE TELEGRAM ====================
 
 app.get('/api/telegram/grupos', autenticacion, requierePermiso('topview_editar'), async (req: RequestConUsuario, res: Response) => {
@@ -854,6 +930,25 @@ app.put(
   }
 );
 
+// Cada grupo puede tener su propio bot de Telegram (ej. Comercial usa un bot
+// distinto al de Operaciones) — si no se configura uno acá, el grupo usa el
+// bot por defecto del .env.
+app.put(
+  '/api/telegram/grupos/:nombre/bot-token',
+  autenticacion,
+  requierePermiso('topview_editar'),
+  async (req: RequestConUsuario, res: Response) => {
+    try {
+      const { token } = req.body;
+      if (!token) return res.status(400).json({ error: 'Falta token.' });
+      await TelegramService.guardarBotToken(req.params.nombre, String(token));
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
 app.post(
   '/api/telegram/grupos/:nombre/probar',
   autenticacion,
@@ -868,13 +963,38 @@ app.post(
   }
 );
 
+// Log de mensajes mandados (message_id real) — para poder borrar por API uno
+// que se mandó por error, ej. una prueba contra el bot ya conectado que
+// terminó avisando al grupo real sin querer.
+app.get('/api/telegram/mensajes', autenticacion, requierePermiso('topview_editar'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const mensajes = await TelegramService.listarMensajes(req.query.limit ? Number(req.query.limit) : 30);
+    res.json(mensajes);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/telegram/mensajes/:id', autenticacion, requierePermiso('topview_editar'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    await TelegramService.borrarMensajeLogueado(req.params.id);
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Solo para ayudar a configurar: trae los últimos mensajes que vio el bot
 // (getUpdates de la API de Telegram) — de ahí se saca el chat_id de un grupo
 // nuevo, apenas se lo agrega y alguien manda un mensaje. No se usa en
 // producción, es un paso único de setup.
 app.get('/api/telegram/updates', autenticacion, requierePermiso('topview_editar'), async (req: RequestConUsuario, res: Response) => {
   try {
-    const token = process.env.TELEGRAM_BOT_TOKEN;
+    // ?grupo=Comercial consulta el bot propio de ese grupo (si tiene uno
+    // guardado); sin el query param, consulta el bot por defecto del .env
+    // (el de Operaciones).
+    const grupo = req.query.grupo as string | undefined;
+    const token = grupo ? await TelegramService.tokenParaGrupo(grupo) : process.env.TELEGRAM_BOT_TOKEN;
     if (!token) return res.status(400).json({ error: 'Falta TELEGRAM_BOT_TOKEN en el .env.' });
     const resp = await fetch(`https://api.telegram.org/bot${token}/getUpdates`);
     const datos = await resp.json();
@@ -967,8 +1087,23 @@ app.get('/api/ordenes-publicidad', autenticacion, requierePermiso('topview_ver')
 
 app.delete('/api/ordenes-publicidad/:id', autenticacion, requierePermiso('topview_editar'), async (req: RequestConUsuario, res: Response) => {
   try {
+    const conTarea: any = await new Promise((resolve) =>
+      db.get('SELECT asana_task_gid FROM ordenes_publicidad WHERE id = ?', [req.params.id], (_e, row) => resolve(row))
+    );
     await TopviewService.eliminarOrden(req.params.id);
-    res.json({ message: 'Orden eliminada' });
+    // Si la orden tenía tarea en Asana, se borra también — si no, quedaba
+    // huérfana en el proyecto. Si Asana falla, la baja igual queda hecha y se
+    // avisa para borrarla a mano.
+    let asanaError: string | undefined;
+    if (conTarea?.asana_task_gid) {
+      try {
+        const [r] = await AsanaService.borrarTareasDesde(req.params.id);
+        if (r?.error) asanaError = r.error;
+      } catch (e: any) {
+        asanaError = e.message;
+      }
+    }
+    res.json({ message: 'Orden eliminada', asanaError });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -1140,6 +1275,25 @@ app.put('/api/ordenes-publicidad/:id/cobro', autenticacion, requierePermiso('top
     const { cobrado, fecha_cobro } = req.body;
     await TopviewService.actualizarCobro(req.params.id, !!cobrado, fecha_cobro);
     res.json({ message: 'Cobro actualizado' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/ordenes-publicidad/:id/certificacion', autenticacion, requierePermiso('topview_editar'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const { enviada } = req.body;
+    await TopviewService.actualizarCertificacion(req.params.id, !!enviada);
+    res.json({ message: 'Certificación actualizada' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/ordenes-publicidad/:id/avisar-telegram', autenticacion, requierePermiso('topview_editar'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const enviado = await TopviewService.avisarOrdenATelegram(req.params.id);
+    res.json({ enviado });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -2196,6 +2350,13 @@ AutenticacionService.migrarPasswordsViejas()
           if (avisadas > 0) console.log(`✓ Telegram: avisadas ${avisadas} campaña(s) que arrancan hoy`);
         })
         .catch((err) => console.error('[Telegram] Error en el chequeo diario:', err.message));
+      // Disparador 3: recordatorio a Comercial de pautas por terminar (10
+      // días de ventana, ver TopviewService.avisarPautasPorTerminar).
+      TopviewService.avisarPautasPorTerminar()
+        .then(({ avisadas }) => {
+          if (avisadas > 0) console.log(`✓ Telegram: avisadas ${avisadas} pauta(s) por terminar a Comercial`);
+        })
+        .catch((err) => console.error('[Telegram] Error en el chequeo de pautas por terminar:', err.message));
     };
     revisarAlertaDiariaTelegram();
     setInterval(revisarAlertaDiariaTelegram, 60 * 60 * 1000);

@@ -129,3 +129,26 @@ export function calcularComisionesCascada(
   });
   return { comisionesCalculadas, montoFinal };
 }
+
+// Orden de lectura de las líneas de una orden (Asana): primero el Circuito de
+// Pantallas LED Verticales, después Video Wall, después Pantalla Gran Formato,
+// y cualquier otro soporte al final. Dentro de cada soporte, alfabético por
+// locación (y por punto de instalación si la locación se repite).
+const ORDEN_SOPORTES = ['Circuito Pantallas LED Verticales', 'Video Wall', 'Pantalla Gran Formato'];
+
+export function compararLineasPorSoporte(
+  a: { tipo_producto?: string | null; locacion_nombre?: string | null; punto_instalacion?: string | null },
+  b: { tipo_producto?: string | null; locacion_nombre?: string | null; punto_instalacion?: string | null }
+): number {
+  const rango = (t?: string | null) => {
+    const i = ORDEN_SOPORTES.indexOf(t || '');
+    return i === -1 ? ORDEN_SOPORTES.length : i;
+  };
+  const alfa = (x?: string | null, y?: string | null) => (x || '').localeCompare(y || '', 'es', { sensitivity: 'base' });
+  return (
+    rango(a.tipo_producto) - rango(b.tipo_producto) ||
+    alfa(a.tipo_producto, b.tipo_producto) ||
+    alfa(a.locacion_nombre, b.locacion_nombre) ||
+    alfa(a.punto_instalacion, b.punto_instalacion)
+  );
+}

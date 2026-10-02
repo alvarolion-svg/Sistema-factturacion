@@ -4,6 +4,7 @@ import {
   subtractMonthClamped,
   calcularDescuentosCascada,
   calcularComisionesCascada,
+  compararLineasPorSoporte,
 } from './calculosTopview';
 
 describe('calcularDescuentosCascada', () => {
@@ -127,5 +128,27 @@ describe('subtractMonthClamped', () => {
 
   it('enero pasa al diciembre del año anterior', () => {
     expect(subtractMonthClamped('2026-01-15')).toBe('2025-12-15');
+  });
+});
+
+describe('compararLineasPorSoporte', () => {
+  it('ordena Circuito LED, luego Video Wall, luego Gran Formato, alfabético por locación', () => {
+    const l = [
+      { tipo_producto: 'Pantalla Gran Formato', locacion_nombre: 'Nordelta CC' },
+      { tipo_producto: 'Circuito Pantallas LED Verticales', locacion_nombre: 'Santa Bárbara' },
+      { tipo_producto: 'Video Wall', locacion_nombre: 'Devoto Shopping' },
+      { tipo_producto: 'Circuito Pantallas LED Verticales', locacion_nombre: 'Bahía Grande' },
+      { tipo_producto: 'Pantalla Gran Formato', locacion_nombre: 'Hey Add Center' },
+      { tipo_producto: 'PPLs', locacion_nombre: 'Euskal' },
+    ];
+    const orden = [...l].sort(compararLineasPorSoporte).map((x) => `${x.tipo_producto}|${x.locacion_nombre}`);
+    expect(orden).toEqual([
+      'Circuito Pantallas LED Verticales|Bahía Grande',
+      'Circuito Pantallas LED Verticales|Santa Bárbara',
+      'Video Wall|Devoto Shopping',
+      'Pantalla Gran Formato|Hey Add Center',
+      'Pantalla Gran Formato|Nordelta CC',
+      'PPLs|Euskal',
+    ]);
   });
 });

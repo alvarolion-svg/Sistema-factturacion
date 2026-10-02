@@ -1676,6 +1676,18 @@ db.serialize(() => {
   // duplicar el aviso si el chequeo diario corre más de una vez el mismo
   // día (ej. el backend se reinició). NULL = todavía no se avisó.
   db.run(`ALTER TABLE ordenes_publicidad ADD COLUMN telegram_avisado_inicio_en DATETIME`, () => {});
+  // Cuándo se mandó (con éxito) el aviso de "orden nueva cargada" — distinto
+  // del de "arranca hoy" de arriba. Lo usa el dashboard de Ejecución para
+  // mostrar si la orden realmente llegó a avisarse, no solo si está
+  // configurada para avisar (avisar_telegram).
+  db.run(`ALTER TABLE ordenes_publicidad ADD COLUMN telegram_avisado_carga_en DATETIME`, () => {});
+
+  // Certificación de exhibición (fotos / link) entregada al cliente — junto
+  // con "Facturada" y avisar_telegram, es una de las señales que mira el
+  // dashboard de Ejecución para saber si una campaña quedó realmente
+  // terminada. Se tilda a mano, no hay integración automática todavía.
+  db.run(`ALTER TABLE ordenes_publicidad ADD COLUMN certificacion_enviada BOOLEAN DEFAULT 0`, () => {});
+  db.run(`ALTER TABLE ordenes_publicidad ADD COLUMN certificacion_enviada_en DATETIME`, () => {});
 
   // Grupos de Telegram a los que se puede avisar — en tabla en vez de en
   // .env porque va a haber más de uno (Operaciones para lo que arranca hoy/
@@ -1690,6 +1702,35 @@ db.serialize(() => {
     )
   `);
   db.run(`INSERT OR IGNORE INTO telegram_grupos (id, nombre, chat_id) VALUES ('operaciones', 'Operaciones', NULL)`);
+  db.run(`INSERT OR IGNORE INTO telegram_grupos (id, nombre, chat_id) VALUES ('comercial', 'Comercial', NULL)`);
+  // Cada grupo puede tener su propio bot de Telegram (su propio token) en vez
+  // de compartir el único TELEGRAM_BOT_TOKEN del .env — ej. Comercial usa
+  // @Topview_comercial_bot, distinto del @topview_ordenes_bot de Operaciones.
+  // Se guarda en la tabla (no en .env) para no tener que reiniciar el backend
+  // cada vez que se agrega un bot nuevo. Si un grupo no tiene bot_token
+  // propio, usa el del .env (así Operaciones sigue andando sin cambios).
+  db.run(`ALTER TABLE telegram_grupos ADD COLUMN bot_token TEXT`, () => {});
+
+  // Marca de que ya se avisó al equipo Comercial que esta orden (la última de
+  // su cadena cliente+anunciante+locación) está por terminar — evita re-avisar
+  // cada vez que corre el chequeo mientras dure la ventana de 10 días.
+  db.run(`ALTER TABLE ordenes_publicidad ADD COLUMN telegram_avisado_vencimiento_en DATETIME`, () => {});
+
+  // Log de mensajes enviados a Telegram (message_id real de la API) para poder
+  // borrarlos después si se mandaron por error — ej. pruebas contra el bot ya
+  // conectado que terminan avisando al grupo real sin querer.
+  db.run(`
+    CREATE TABLE IF NOT EXISTS telegram_mensajes (
+      id TEXT PRIMARY KEY,
+      grupo_nombre TEXT NOT NULL,
+      chat_id TEXT NOT NULL,
+      message_id INTEGER NOT NULL,
+      texto TEXT,
+      orden_id TEXT,
+      borrado BOOLEAN DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
 
   console.log('✓ Base de datos iniciada correctamente');
   console.log('✓ Roles creados (Admin, Gerente, Contador, Vendedor, Comprador, Operario)');

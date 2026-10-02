@@ -284,18 +284,29 @@ más importantes:
     calcula ocupación vs. capacidad), convenciones a respetar (soft-delete, periodo_desde/hasta vs.
     mes_ingreso/ano_ingreso, nombres de permisos) y qué evitar duplicar. Nada de esto está construido
     todavía en este repo — es solo el puente de contexto para que el otro proyecto nazca compatible.
-13. **Avisos automáticos a Telegram — construido y verificado (2026-09-30), falta el bot real**:
-    dos disparadores al grupo "Operaciones" (`backend/src/services/telegram.ts`, mismo patrón que
-    Asana): al cargar una orden nueva (inmediato, en el mismo POST) y "arranca hoy" (un solo mensaje
-    agrupado, chequeo cada hora desde las 8am mientras el backend esté levantado —
-    `TopviewService.avisarCampanasQueArrancanHoy`, idempotente). Tilde por orden "Avisar a
-    Operaciones por Telegram" (default tildado). Los `chat_id` de los grupos viven en la tabla
-    `telegram_grupos`, no en `.env`, porque ya viene un segundo grupo. **Bloqueado en el usuario**:
-    crear el bot con @BotFather, agregarlo al grupo "Operaciones" y cargar el `chat_id` (hay rutas
-    ya listas para ayudar: `GET /api/telegram/updates`, `PUT .../chat-id`, `POST .../probar`).
-    **Pendiente sin diseñar**: 3er disparador — avisar al equipo comercial responsable cuando una
-    pauta está por terminar, para preguntar si continúa (falta definir anticipación en días y cómo
-    se mapea vendedor → grupo de Telegram).
+13. **Avisos automáticos a Telegram — construido, bot real configurado y funcionando
+    (2026-10-01)**: dos disparadores automáticos al grupo "Operaciones"
+    (`backend/src/services/telegram.ts`, mismo patrón que Asana): al cargar una orden nueva
+    (inmediato, en el mismo POST) y "arranca hoy" (un solo mensaje agrupado, chequeo cada hora
+    desde las 8am mientras el backend esté levantado — `TopviewService.avisarCampanasQueArrancanHoy`,
+    idempotente). Tilde por orden "Avisar a Operaciones por Telegram" (default tildado). Los
+    `chat_id` de los grupos viven en la tabla `telegram_grupos`, no en `.env`, porque ya viene un
+    segundo grupo. Bot `@topview_ordenes_bot` cargado y probado con éxito contra el grupo
+    "Operaciones" real. Se sumó además un **botón manual "Avisar a Operaciones"** (individual, en
+    el detalle/formulario de la orden, y masivo, reusando la misma selección tildada de las
+    acciones de Asana en el listado) — útil si el aviso automático falló o para órdenes viejas de
+    antes de que existiera (`TopviewService.avisarOrdenATelegram`, marca
+    `telegram_avisado_carga_en` igual que el automático). El mensaje incluye dónde sale la
+    campaña: agrupado por soporte, con el total de cantidad y una línea por locación con su propia
+    cantidad (`Nordelta CC (x11)`), agregando el punto de instalación siempre que exista — no solo
+    cuando la locación se repite, ver corrección en el punto 21 — para que Operaciones sepa a qué
+    instalación exacta ir a sacar fotos (ej. `Nordelta CC — Nordelta ruta 27 8x4 (x1)`, o el
+    reparto de PPLs de Bahía Grande Nordelta entre Asociación y Lofts) — probado en seco contra
+    varios casos reales (BNA, Iberia, GCBA Parkings, San Andrés, y 11 simulaciones más el
+    2026-10-02) antes de confirmarlo. El tilde "Avisar a Operaciones por Telegram" ya cubre
+    "avisar cuando yo decida": si se destilda al cargar, no dispara nada automático, y se avisa
+    después con el botón manual cuando se quiera — confirmado con el usuario, no hace falta un
+    selector más explícito en la UI.
 14. **Reconciliación de octubre 2026 contra la planilla "Ingreso de Órdenes" — casi completa
     (2026-10-01), falta El Cronista**: se cruzaron las 65 filas de la planilla de octubre contra lo
     ya cargado en el sistema y se cargaron ~26 órdenes faltantes (clonando la estructura de
@@ -313,6 +324,147 @@ más importantes:
     locación (`TopviewService.buscarOrdenExistenteEnMes`). También se agregó un buscador de
     cliente/anunciante en el Timeline y autocompletado de "Vigencia hasta (nota libre)" desde el mes
     elegido en "Repetir automáticamente hasta" cuando esa nota está vacía.
+15. **Dashboard de "Ejecución de campañas" — construido (2026-10-01)**: solapa nueva en Topview,
+    primera, antes de Timeline (`frontend/src/components/EjecucionTab.tsx`). Independiente del
+    listado comercial de Órdenes — mira nivel de ejecución operativa: estado (Cargada/Revisada/
+    Facturada, con "REVISAR" como sub-bandera de pendiente), N° de factura/NC de Colppy, Asana
+    (cargada/asignada), avisada por Telegram, documento adjunto, y **certificación de exhibición
+    enviada** (campo nuevo, tildable a mano: `certificacion_enviada`). Toggle lista/tarjetas en el
+    header (lista por defecto), filtros de mes/año/tipo/buscador, contadores clickeables, lo
+    pendiente va primero con un banner explicando el motivo. "Pendiente" = REVISAR, o
+    `monto_neto = 0` (excepto Pauta Concesionario, donde $0 es normal), o Facturada sin
+    certificación. Se armó mockeando 2 opciones visuales en un Artifact antes de construir en
+    React. De paso se limpió el formulario/detalle de orden para **Pauta Concesionario**: se
+    ocultan Leyenda de factura, descuentos NC1/NC2/FC y "Neto Topview" (Topview no factura esas
+    órdenes), pero se mantiene "Monto neto" porque lo sigue usando la cuenta corriente de
+    comerciales de Liquidaciones.
+16. **Fix de datos: `fecha_facturacion` en día 30 en vez del último día real (2026-10-01)**: 7
+    órdenes clonadas automáticamente el 2026-09-27 (antes de un fix ya presente en el código
+    actual — probado que `addMonthClamped` hoy funciona bien) habían quedado con la fecha de
+    facturación en el día 30 de meses de 31 días (ej. 30/10 en vez de 31/10), mientras que
+    `periodo_hasta` sí tenía el día correcto. Corregidas a mano (`fecha_facturacion = periodo_hasta`
+    para esos 7 casos puntuales) — no hizo falta tocar código, era dato viejo.
+17. **Fix de datos: `cantidad` en "1" en vez de la real en líneas de Circuito LED (2026-10-02)**:
+    armando el mensaje de "Avisar a Operaciones" por Telegram (ver punto 13) se notó que "Circuito
+    Pantallas LED Verticales" se vende siempre completo por locación, y la cantidad real de
+    pantallas vive en el catálogo (`locaciones_capacidad`/`locaciones_puntos`, mismo criterio que
+    el módulo de Disponibilidad), no en la línea de la orden — varias órdenes cargadas/clonadas el
+    2026-10-01 (Zonaprop, ByD, Universidad Católica de la Plata, Telecom, 19 líneas en total)
+    habían quedado con `cantidad = 1` en vez del número real. No afectó montos (`monto_neto` suma
+    `precio` por línea, no `precio × cantidad`). Se corrigieron las 19 líneas, y el mensaje de
+    Telegram ahora resuelve siempre la cantidad real del catálogo para este soporte en particular,
+    sin confiar en la cantidad cargada en la orden.
+18. **"Partir en una orden por mes" — construido (2026-10-02)**: checkbox nuevo en "Nueva orden"
+    (debajo de "Repetir automáticamente hasta", mutuamente excluyentes), para cuando el usuario ya
+    tipea el período completo de una (ej. 01/10 al 31/12) sabiendo que es correcto — a diferencia
+    de "Repetir automáticamente hasta" (clona hacia adelante con `numero_orden_agencia = REVISAR`
+    para completar después), acá ninguna orden generada queda en REVISAR porque el usuario ya
+    validó el rango completo en el momento de cargarlo. Parte el período en una orden real por mes
+    (`TopviewService.crearOrdenesPorMes`, mismo `addMonthClamped` que `generarClonesVigencia`,
+    `POST /api/ordenes-publicidad/por-mes`) — el N° de orden de agencia solo se copia en la
+    primera, los meses siguientes quedan sin número salvo que se cargue a mano por mes (punto 23). Se encontró y
+    corrigió un bug real probando esto mismo: el fallback de fecha de facturación (cuando el campo
+    queda vacío) usaba el fin del período completo en vez del fin del primer mes, corriendo cada
+    mes posterior 2 meses de más.
+19. **Incidente real + fix: mensajes de prueba llegaron al Telegram real de Operaciones
+    (2026-10-02)**: probar "Partir en una orden por mes" (punto 18) creó órdenes de prueba
+    ("TEST PARTIR POR MES BORRAR") contra la API real con el bot ya conectado, lo que disparó
+    avisos reales de "Nueva orden cargada" al grupo "Operaciones" de verdad (visibles para el
+    equipo). No se pudieron borrar esos 2 mensajes puntuales porque el código nunca guardaba el
+    `message_id` que devuelve la API de Telegram al mandar un mensaje. Fix: `enviarMensaje` ahora
+    devuelve el `message_id` real; cada envío exitoso de `enviarAGrupo` se loguea en la tabla nueva
+    `telegram_mensajes` (grupo, chat_id, message_id, texto, orden relacionada, fecha); nuevo
+    `TelegramService.borrarMensajeLogueado(id)` llama al `deleteMessage` real de la API; rutas
+    `GET /api/telegram/mensajes` y `DELETE /api/telegram/mensajes/:id` para listar y borrar. Sirve
+    para la próxima vez que esto pase — no reemplaza pasar `avisar_telegram: false` al probar
+    features que crean órdenes contra la API viva.
+20. **Fix: mensajes automáticos de Telegram sin tipo de anunciante ni ubicación (2026-10-02)**: el
+    mensaje automático "Nueva orden cargada" (único y por-mes) todavía mostraba
+    `(tipo_anunciante)` junto al nombre — regla ya decidida antes para el mensaje manual, pero
+    nunca aplicada a los 2 disparadores automáticos; corregido en los 3 mensajes (incluido
+    "Campañas que arrancan hoy"). Además, esos 2 avisos automáticos no mostraban dónde sale la
+    campaña (soporte/locación) como sí lo hace el mensaje manual — se extrajo esa lógica a
+    `TopviewService.construirBloqueUbicacion(ordenId)`, compartida entre los tres.
+21. **Fix real: el punto de instalación faltaba cuando la locación no se repetía (2026-10-02)**:
+    probando con una simulación real (Dermacycle, Nordelta CC) el usuario notó que el mensaje
+    mostraba "Nordelta CC (x1)" sin decir CUÁL instalación — el código solo agregaba el punto de
+    instalación cuando la misma locación aparecía más de una vez dentro de un soporte. El aviso
+    existe para que Operaciones vaya a sacar fotos de la instalación exacta, así que el punto tiene
+    que aparecer siempre que exista, se repita o no la locación. Corregido en
+    `construirBloqueUbicacion` (afecta los 3 mensajes: manual y los 2 automáticos).
+22. **Disparador 3 — "pauta por terminar" a Comercial, construido y funcionando (2026-10-02)**:
+    recordatorio automático cuando una pauta está por terminar, para preguntarle al cliente si
+    renueva. Un solo grupo "Comercial", no un chat por vendedor; el mensaje menciona al vendedor
+    por nombre. Usa un bot de Telegram propio (`@Topview_comercial_bot`, distinto al de
+    Operaciones) — se generalizó `telegram.ts` para que cada grupo pueda tener su propio
+    `bot_token` (columna nueva en `telegram_grupos`; si no tiene uno propio, usa el del `.env` por
+    defecto, así Operaciones sigue sin cambios). Al configurarlo salió un problema real: el bot
+    nuevo tenía el modo privacidad de Telegram activado y no veía ningún mensaje del grupo (ni
+    mencionándolo); se resolvió desactivándolo con @BotFather → `/setprivacy` → `Disable` — si se
+    agrega un bot nuevo en el futuro, desactivar privacidad de entrada en vez de perder tiempo con
+    menciones. Confirmado de punta a punta: mensaje de prueba real llegó al grupo.
+    `TopviewService.avisarPautasPorTerminar` detecta "la
+    última orden de la cadena" (cliente + anunciante + que comparta locación con otra orden activa
+    de `periodo_hasta` más tardío — mismo criterio que ya evita duplicar clones) sin necesitar una
+    tabla de cadenas: si existe una sucesora, no avisa; si no existe, es la última y dispara.
+    Verificado contra datos reales (Dermacycle partida en Oct/Nov/Dic: solo Diciembre dispara).
+    Ventana de 10 días (no día exacto, por si el backend no está levantado justo ese día),
+    idempotente. Mismo formato que "Avisar a Operaciones" (fechas + ubicación), con el vendedor al
+    frente. De paso se cargaron **Alvaro y Maximo como vendedores** (socios, responsables ante el
+    cliente pero sin comisión) — cada uno con su propia escala en 0% que pisa la escala general de
+    Dardo, sin tocar código (el mecanismo de escala propia por vendedor ya lo soportaba).
+23. **"Partir por mes": N° de orden de agencia editable por mes (2026-10-02)**: en el recuadro
+    "Al guardar se van a crear N órdenes" cada mes desde el 2º tiene un campo "N°" para cargar a
+    mano el número de orden de agencia de ese mes (vacío = queda sin número, como antes; el 1º
+    sigue usando el campo principal). Frontend `OrdenesTab.tsx` (estado `numerosPorMes`), backend
+    `crearOrdenesPorMes` (`numeros_orden_agencia_por_mes`). Probado el render del formulario; el
+    guardado con números distintos no se probó de punta a punta (crea órdenes reales y avisa a
+    Telegram).
+24. **Fix Asana: 404 "Unknown object" al regenerar tareas borradas a mano (2026-10-02)**: el
+    usuario borró tareas directo en Asana y las volvió a crear desde la app; la app seguía con el
+    `asana_task_gid` viejo guardado e intentaba actualizar una tarea inexistente (404). Verificado
+    contra la API: token y proyecto "Sistema" bien; de 55 órdenes con tarea guardada, 53 apuntaban a
+    tareas inexistentes. Fix en `asana.ts`: si el PUT da 404, se descarta el ID y se crea la tarea
+    de nuevo (`generarTareaUnaOrden`); en `asignarResponsables` un 404 limpia el ID y avisa que hay
+    que generarla otra vez. Se limpiaron a mano los 53 IDs muertos. Pendiente: que el usuario
+    pruebe el botón de nuevo (crea tareas reales).
+25. **"Eliminar" orden ahora borra también su tarea de Asana (2026-10-02)**: antes "Eliminar" solo
+    hacía baja lógica (`habilitado = 0`) y la tarea quedaba huérfana en el proyecto "Sistema" (caso
+    real: YPF N° 2026090194, borrada a mano ese día). Ahora la ruta `DELETE /api/ordenes-publicidad/:id`
+    borra la tarea si la orden tiene `asana_task_gid`; si Asana falla, la baja igual queda hecha y se
+    avisa en pantalla para borrarla a mano. El confirm del botón lo aclara. No probado de punta a
+    punta (borra órdenes/tareas reales).
+26. **Monto neto desactualizado al editar líneas (2026-10-02)**: caso YPF N° 2026100318 (línea de
+    Parque C. Avellaneda con precio equivocado vs. el PDF: $2.599.883 en vez de $2.854.681). El
+    Monto neto se guardó al cargar y al editar el formulario queda como valor manual fijo (la app
+    usa `monto manual || suma de líneas`), así que no seguía los cambios de las líneas. Se agregó
+    en el formulario un aviso cuando las líneas suman distinto que el Monto neto cargado, con botón
+    "Usar la suma de las líneas". No se recalcula solo (muchas órdenes tienen el monto a mano con las
+    líneas en 0); pendiente decidir si se auto-actualiza cuando el monto coincidía con la suma.
+27. **Asana en producción: proyecto "Ordenes 2026" (2026-10-02)**: se salió del proyecto de prueba
+    "Sistema". Config guardada en `asana_config`/`asana_secciones_mes`: proyecto "Ordenes 2026"
+    (gid 1211935727977431), con cada mes de 2026 apuntando a su sección real ("Enero 26" … "Diciembre
+    26"), así cada orden va a la sección de su mes de ingreso. Ojo: las ~54 órdenes que ya tenían
+    tarea en "Sistema" conservan ese vínculo — antes de generar en el proyecto real hay que usar
+    "Borrar tareas Asana" para esas (si no, se actualizaría la tarea vieja y quedaría en los dos
+    proyectos). Las tareas de "Sistema" no se tocaron.
+28. **Orden de lectura de las líneas de una orden (2026-10-02)**: las líneas de productos/soportes
+    se muestran ordenadas — primero Circuito Pantallas LED Verticales, luego Video Wall, luego
+    Pantalla Gran Formato, cualquier otro soporte al final; dentro de cada uno, alfabético por
+    locación (`compararLineasPorSoporte` en `calculosTopview.ts`, con test). Aplica a la tarea de
+    Asana, al aviso de Telegram y al detalle de la orden que usan la pantalla de detalle, el PDF y
+    el formulario de edición. Las tareas ya creadas en Asana se ordenan recién al regenerarlas.
+29. **Asana: reintentos ante 504/429/5xx (2026-10-02)**: "Asignar responsables" falló en 3 órdenes con
+    504 "Server timed out" (timeout de Asana, no de los datos). `asana.ts` ahora reintenta hasta 4
+    veces con espera creciente las llamadas repetibles sin riesgo (PUT/GET/DELETE/addTask); los POST
+    que crean tareas/subtareas NO se reintentan para no duplicar. Sin probar contra un 504 real.
+30. **World Padel: Pauta Concesionario excluida de Reportes (2026-10-02)**: `reporteOrdenes`
+    (Reportes → Topview) ahora excluye `tipo_anunciante = 'Pauta Concesionario'` en todos sus cortes
+    (por tipo, totales, mes de facturación/venta/registro, segmento, mix de soportes y top clientes).
+    Verificado con datos reales: salen 24 órdenes (monto $0, así que los montos no cambian, pero sí
+    la cantidad de órdenes y el mix de soportes). El "Dashboard" actual es solo la pantalla de
+    bienvenida, sin datos de ventas, así que no había nada que excluir; si se le agregan métricas,
+    aplicar el mismo filtro. Cierra el pendiente "Reportes/Dashboard" de World Padel.
 
 ## Cómo trabaja este usuario (para que una sesión nueva no tenga que redescubrirlo)
 

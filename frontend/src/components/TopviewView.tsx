@@ -10,6 +10,7 @@ import CondicionesTab from './CondicionesTab';
 import VendedoresTab from './VendedoresTab';
 import TimelineTab from './TimelineTab';
 import OrdenesTab from './OrdenesTab';
+import EjecucionTab from './EjecucionTab';
 
 interface TopviewViewProps {
   token: string;
@@ -34,6 +35,7 @@ function TopviewView({ token, usuario }: TopviewViewProps) {
   const puedeCargarLiquidaciones = permisos.has('liquidaciones_cargar');
 
   const [seccion, setSeccion] = useState<
+    | 'ejecucion'
     | 'timeline'
     | 'ordenes'
     | 'produccion'
@@ -64,6 +66,12 @@ function TopviewView({ token, usuario }: TopviewViewProps) {
       </div>
 
       <div className="reportes-tabs">
+        <button
+          className={`reportes-tab ${seccion === 'ejecucion' ? 'active' : ''}`}
+          onClick={() => setSeccion('ejecucion')}
+        >
+          Ejecución
+        </button>
         <button
           className={`reportes-tab ${seccion === 'timeline' ? 'active' : ''}`}
           onClick={() => setSeccion('timeline')}
@@ -142,6 +150,17 @@ function TopviewView({ token, usuario }: TopviewViewProps) {
         )}
       </div>
 
+      {seccion === 'ejecucion' && (
+        <EjecucionTab
+          token={token}
+          puedeEditar={puedeEditar}
+          onVerOrden={(ordenId) => {
+            setSeccionOrigenOrden(seccion);
+            setOrdenIdParaAbrir(ordenId);
+            setSeccion('ordenes');
+          }}
+        />
+      )}
       {seccion === 'timeline' && (
         <TimelineTab
           token={token}
