@@ -1,4 +1,4 @@
-import db from '../database';
+import { dbAll, dbGet, dbRun } from '../dbHelpers';
 import { AsanaConfigService } from './asanaConfig';
 import { compararLineasPorSoporte } from './calculosTopview';
 
@@ -24,6 +24,48 @@ const ASIGNADO_TRAFICO = '1203107710323832'; // trafico@topview.com.ar
 const ASIGNADO_OPERACIONES = '1203119091840060'; // operaciones@topview.com.ar
 const ASIGNADO_ADMINISTRACION = '1203119042662425'; // administracion@topview.com.ar
 
+interface OrdenAsana {
+  nombre_anunciante: string;
+  numero_orden_agencia: string | null;
+  tipo_anunciante: string;
+  periodo_desde: string;
+  periodo_hasta: string;
+  mes_ingreso: number | null;
+  ano_ingreso: number | null;
+  vigencia_hasta_mes: number | null;
+  vigencia_hasta_ano: number | null;
+  vigencia_hasta_nota: string | null;
+  facturado: number | null;
+}
+
+interface DetalleAsana {
+  tipo_producto: string | null;
+  cantidad: number;
+  punto_instalacion: string | null;
+  ubicacion: string | null;
+  locacion_nombre: string | null;
+}
+
+interface MesOrden {
+  mes_ingreso: number | null;
+  ano_ingreso: number | null;
+}
+
+interface TareaVinculada extends MesOrden {
+  asana_task_gid: string | null;
+}
+
+interface RespuestaAsana<T> {
+  data: T;
+}
+
+interface SubtareaAsana {
+  gid: string;
+  name: string;
+}
+
+const mensajeDe = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+
 interface TareaAsana {
   nombreMes: string;
   name: string;
@@ -33,8 +75,8 @@ interface TareaAsana {
 
 interface ResultadoGeneracion {
   ordenId: string;
-  mes: number;
-  ano: number;
+  mes?: number;
+  ano?: number;
   gid?: string;
   url?: string;
   yaExistia?: boolean;
@@ -43,16 +85,16 @@ interface ResultadoGeneracion {
 
 interface ResultadoBorrado {
   ordenId: string;
-  mes: number;
-  ano: number;
+  mes?: number;
+  ano?: number;
   borrada: boolean;
   error?: string;
 }
 
 interface ResultadoAsignacion {
   ordenId: string;
-  mes: number;
-  ano: number;
+  mes?: number;
+  ano?: number;
   error?: string;
 }
 
@@ -82,20 +124,15 @@ export class AsanaService {
    * descuentos, número de orden interno OPB-...).
    */
   static async construirTarea(ordenId: string): Promise<TareaAsana> {
-    const orden: any = await new Promise((resolve, reject) => {
-      db.get('SELECT * FROM ordenes_publicidad WHERE id = ?', [ordenId], (err, row) => (err ? reject(err) : resolve(row)));
-    });
+    const orden = await dbGet<OrdenAsana>('SELECT * FROM ordenes_publicidad WHERE id = ?', [ordenId]);
     if (!orden) throw new Error('Orden no encontrada.');
 
-    const detalles: any[] = await new Promise((resolve, reject) => {
-      db.all(
-        `SELECT d.*, l.nombre as locacion_nombre FROM ordenes_publicidad_detalles d
-         LEFT JOIN locaciones l ON l.id = d.locacion_id
-         WHERE d.orden_id = ?`,
-        [ordenId],
-        (err, rows) => (err ? reject(err) : resolve((rows as any[]) || []))
-      );
-    });
+    const detalles = await dbAll<DetalleAsana>(
+      `SELECT d.*, l.nombre as locacion_nombre FROM ordenes_publicidad_detalles d
+       LEFT JOIN locaciones l ON l.id = d.locacion_id
+       WHERE d.orden_id = ?`,
+      [ordenId]
+    );
 
     const mesIngreso = orden.mes_ingreso || Number((orden.periodo_desde || '').split('-')[1]);
     const anoIngreso = orden.ano_ingreso || Number((orden.periodo_desde || '').split('-')[0]);
@@ -176,13 +213,9 @@ export class AsanaService {
     for (const ordenId of ordenIds) {
       try {
         resultados.push(await this.generarTareaUnaOrden(ordenId));
-      } catch (err: any) {
-        const datosOrden: any = await new Promise((resolve, reject) => {
-          db.get('SELECT mes_ingreso, ano_ingreso FROM ordenes_publicidad WHERE id = ?', [ordenId], (e, row) =>
-            e ? reject(e) : resolve(row)
-          );
-        });
-        resultados.push({ ordenId, mes: datosOrden?.mes_ingreso, ano: datosOrden?.ano_ingreso, error: err.message });
+      } catch (err) {
+        const datosOrden = await dbGet<MesOrden>('SELECT mes_ingreso, ano_ingreso FROM ordenes_publicidad WHERE id = ?', [ordenId]);
+        resultados.push({ ordenId, mes: datosOrden?.mes_ingreso ?? undefined, ano: datosOrden?.ano_ingreso ?? undefined, error: mensajeDe(err) });
       }
     }
     return resultados;
@@ -197,20 +230,22 @@ export class AsanaService {
     const headers = this.headers();
     const { nombreMes, name, notes, generaFacturacion } = await this.construirTarea(ordenId);
 
-    const existente: any = await new Promise((resolve, reject) => {
-      db.get('SELECT asana_task_gid, mes_ingreso, ano_ingreso FROM ordenes_publicidad WHERE id = ?', [ordenId], (err, row) =>
-        err ? reject(err) : resolve(row)
-      );
-    });
+    const existente = await dbGet<TareaVinculada>(
+      'SELECT asana_task_gid, mes_ingreso, ano_ingreso FROM ordenes_publicidad WHERE id = ?',
+      [ordenId]
+    );
+    if (!existente) throw new Error('Orden no encontrada.');
+    const mesIngreso = Number(existente.mes_ingreso);
+    const anoIngreso = Number(existente.ano_ingreso);
 
     const proyecto = await AsanaConfigService.obtenerProyecto();
     if (!proyecto.gid) {
       throw new Error('Todavía no hay un proyecto de Asana configurado — elegilo en la solapa "Asana".');
     }
-    const seccion = await AsanaConfigService.obtenerSeccion(existente.ano_ingreso, existente.mes_ingreso);
+    const seccion = await AsanaConfigService.obtenerSeccion(anoIngreso, mesIngreso);
     if (!seccion) {
       throw new Error(
-        `Todavía no está configurada la sección de ${nombreMes} ${existente.ano_ingreso} — agregala en la solapa "Asana" y volvé a intentar.`
+        `Todavía no está configurada la sección de ${nombreMes} ${anoIngreso} — agregala en la solapa "Asana" y volvé a intentar.`
       );
     }
 
@@ -239,15 +274,11 @@ export class AsanaService {
         body: JSON.stringify({ data: { name, notes, projects: [proyecto.gid] } }),
       });
       if (!resp.ok) throw new Error(`Asana rechazó la creación de la tarea (${resp.status}): ${await resp.text()}`);
-      const creada: any = await resp.json();
+      const creada = (await resp.json()) as RespuestaAsana<{ gid: string }>;
       taskGid = creada.data.gid;
 
       // Nueva de verdad: sin asignar (la asignación es un paso aparte).
-      await new Promise<void>((resolve, reject) => {
-        db.run('UPDATE ordenes_publicidad SET asana_task_gid = ?, asana_asignado = 0 WHERE id = ?', [taskGid, ordenId], (err) =>
-          err ? reject(err) : resolve()
-        );
-      });
+      await dbRun('UPDATE ordenes_publicidad SET asana_task_gid = ?, asana_asignado = 0 WHERE id = ?', [taskGid, ordenId]);
     }
 
     // Ubica (o reubica, si el mes de ingreso cambió) la tarea en la sección
@@ -265,8 +296,8 @@ export class AsanaService {
 
     return {
       ordenId,
-      mes: existente.mes_ingreso,
-      ano: existente.ano_ingreso,
+      mes: mesIngreso,
+      ano: anoIngreso,
       gid: taskGid as string,
       url: `https://app.asana.com/0/${proyecto.gid}/${taskGid}`,
       yaExistia,
@@ -283,9 +314,7 @@ export class AsanaService {
    */
   static async asignarResponsables(ordenId: string): Promise<void> {
     const headers = this.headers();
-    const existente: any = await new Promise((resolve, reject) => {
-      db.get('SELECT asana_task_gid FROM ordenes_publicidad WHERE id = ?', [ordenId], (err, row) => (err ? reject(err) : resolve(row)));
-    });
+    const existente = await dbGet<{ asana_task_gid: string | null }>('SELECT asana_task_gid FROM ordenes_publicidad WHERE id = ?', [ordenId]);
     const taskGid = existente?.asana_task_gid;
     if (!taskGid) {
       throw new Error('Primero generá la tarea en Asana con el otro botón — todavía no existe.');
@@ -297,11 +326,7 @@ export class AsanaService {
       body: JSON.stringify({ data: { assignee: ASIGNADO_TRAFICO } }),
     });
     if (respAsignarPrincipal.status === 404) {
-      await new Promise<void>((resolve, reject) => {
-        db.run('UPDATE ordenes_publicidad SET asana_task_gid = NULL, asana_asignado = 0 WHERE id = ?', [ordenId], (err) =>
-          err ? reject(err) : resolve()
-        );
-      });
+      await dbRun('UPDATE ordenes_publicidad SET asana_task_gid = NULL, asana_asignado = 0 WHERE id = ?', [ordenId]);
       throw new Error('La tarea de esta orden ya no existe en Asana (se borró allá) — generala de nuevo con el otro botón y después asigná.');
     }
     if (!respAsignarPrincipal.ok) {
@@ -312,7 +337,7 @@ export class AsanaService {
     if (!respSubtareas.ok) {
       throw new Error(`Asana rechazó consultar las subtareas (${respSubtareas.status}): ${await respSubtareas.text()}`);
     }
-    const subtareas: any = await respSubtareas.json();
+    const subtareas = (await respSubtareas.json()) as Partial<RespuestaAsana<SubtareaAsana[]>>;
 
     for (const subtarea of subtareas.data || []) {
       let assignee: string | null = null;
@@ -331,9 +356,7 @@ export class AsanaService {
       }
     }
 
-    await new Promise<void>((resolve, reject) => {
-      db.run('UPDATE ordenes_publicidad SET asana_asignado = 1 WHERE id = ?', [ordenId], (err) => (err ? reject(err) : resolve()));
-    });
+    await dbRun('UPDATE ordenes_publicidad SET asana_asignado = 1 WHERE id = ?', [ordenId]);
   }
 
   /**
@@ -354,13 +377,12 @@ export class AsanaService {
     const headers = this.headers();
     const resultados: ResultadoBorrado[] = [];
     for (const ordenId of ordenIds) {
-      const fila: any = await new Promise((resolve, reject) => {
-        db.get('SELECT asana_task_gid, mes_ingreso, ano_ingreso FROM ordenes_publicidad WHERE id = ?', [ordenId], (err, row) =>
-          err ? reject(err) : resolve(row)
-        );
-      });
+      const fila = await dbGet<TareaVinculada>(
+        'SELECT asana_task_gid, mes_ingreso, ano_ingreso FROM ordenes_publicidad WHERE id = ?',
+        [ordenId]
+      );
       if (!fila?.asana_task_gid) {
-        resultados.push({ ordenId, mes: fila?.mes_ingreso, ano: fila?.ano_ingreso, borrada: false });
+        resultados.push({ ordenId, mes: fila?.mes_ingreso ?? undefined, ano: fila?.ano_ingreso ?? undefined, borrada: false });
         continue;
       }
       try {
@@ -368,14 +390,10 @@ export class AsanaService {
         if (!resp.ok && resp.status !== 404) {
           throw new Error(`Asana rechazó borrar la tarea (${resp.status}): ${await resp.text()}`);
         }
-        await new Promise<void>((resolve, reject) => {
-          db.run('UPDATE ordenes_publicidad SET asana_task_gid = NULL, asana_asignado = 0 WHERE id = ?', [ordenId], (err) =>
-            err ? reject(err) : resolve()
-          );
-        });
-        resultados.push({ ordenId, mes: fila.mes_ingreso, ano: fila.ano_ingreso, borrada: true });
-      } catch (err: any) {
-        resultados.push({ ordenId, mes: fila.mes_ingreso, ano: fila.ano_ingreso, borrada: false, error: err.message });
+        await dbRun('UPDATE ordenes_publicidad SET asana_task_gid = NULL, asana_asignado = 0 WHERE id = ?', [ordenId]);
+        resultados.push({ ordenId, mes: fila.mes_ingreso ?? undefined, ano: fila.ano_ingreso ?? undefined, borrada: true });
+      } catch (err) {
+        resultados.push({ ordenId, mes: fila.mes_ingreso ?? undefined, ano: fila.ano_ingreso ?? undefined, borrada: false, error: mensajeDe(err) });
       }
     }
     return resultados;
@@ -389,16 +407,12 @@ export class AsanaService {
   static async asignarResponsablesMasivo(ordenIds: string[]): Promise<ResultadoAsignacion[]> {
     const resultados: ResultadoAsignacion[] = [];
     for (const ordenId of ordenIds) {
-      const datosOrden: any = await new Promise((resolve, reject) => {
-        db.get('SELECT mes_ingreso, ano_ingreso FROM ordenes_publicidad WHERE id = ?', [ordenId], (e, row) =>
-          e ? reject(e) : resolve(row)
-        );
-      });
+      const datosOrden = await dbGet<MesOrden>('SELECT mes_ingreso, ano_ingreso FROM ordenes_publicidad WHERE id = ?', [ordenId]);
       try {
         await this.asignarResponsables(ordenId);
-        resultados.push({ ordenId, mes: datosOrden?.mes_ingreso, ano: datosOrden?.ano_ingreso });
-      } catch (err: any) {
-        resultados.push({ ordenId, mes: datosOrden?.mes_ingreso, ano: datosOrden?.ano_ingreso, error: err.message });
+        resultados.push({ ordenId, mes: datosOrden?.mes_ingreso ?? undefined, ano: datosOrden?.ano_ingreso ?? undefined });
+      } catch (err) {
+        resultados.push({ ordenId, mes: datosOrden?.mes_ingreso ?? undefined, ano: datosOrden?.ano_ingreso ?? undefined, error: mensajeDe(err) });
       }
     }
     return resultados;
@@ -422,8 +436,8 @@ export class AsanaService {
     if (!respExistentes.ok) {
       throw new Error(`Asana rechazó consultar las subtareas existentes (${respExistentes.status}): ${await respExistentes.text()}`);
     }
-    const existentes: any = await respExistentes.json();
-    const nombresExistentes = new Set((existentes.data || []).map((t: any) => t.name));
+    const existentes = (await respExistentes.json()) as Partial<RespuestaAsana<SubtareaAsana[]>>;
+    const nombresExistentes = new Set((existentes.data || []).map((t) => t.name));
 
     const subtareasDeseadas = [
       `Fotos ${nombreTarea}`,
@@ -453,7 +467,7 @@ export class AsanaService {
   private static async ordenarSubtareas(taskGid: string, nombresEnOrden: string[], headers: Record<string, string>): Promise<void> {
     const resp = await fetchReintentando(`https://app.asana.com/api/1.0/tasks/${taskGid}/subtasks?opt_fields=gid,name`, { headers });
     if (!resp.ok) return;
-    const actuales: Array<{ gid: string; name: string }> = ((await resp.json()) as any).data || [];
+    const actuales: SubtareaAsana[] = ((await resp.json()) as Partial<RespuestaAsana<SubtareaAsana[]>>).data || [];
     const deseadas = nombresEnOrden
       .map((n) => actuales.find((a) => a.name === n))
       .filter((a): a is { gid: string; name: string } => !!a);

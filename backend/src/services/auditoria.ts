@@ -1,5 +1,6 @@
 import { v4 as uuid } from 'uuid';
 import db from '../database';
+import { dbAll } from '../dbHelpers';
 import { AuditoriaRecord } from '../types';
 
 export class AuditoriaService {
@@ -7,8 +8,8 @@ export class AuditoriaService {
     tabla: string,
     tipoOperacion: 'INSERT' | 'UPDATE' | 'DELETE',
     registroId: string,
-    datosAnteriores?: any,
-    datosNuevos?: any,
+    datosAnteriores?: unknown,
+    datosNuevos?: unknown,
     usuario?: string,
     ip?: string
   ): void {
@@ -40,19 +41,13 @@ export class AuditoriaService {
   }
 
   static obtenerHistorial(tabla: string, registroId: string): Promise<AuditoriaRecord[]> {
-    return new Promise((resolve, reject) => {
-      db.all(
-        `
-        SELECT * FROM auditoria
-        WHERE tabla = ? AND registro_id = ?
-        ORDER BY created_at DESC
-      `,
-        [tabla, registroId],
-        (err, rows: AuditoriaRecord[]) => {
-          if (err) reject(err);
-          else resolve(rows || []);
-        }
-      );
-    });
+    return dbAll<AuditoriaRecord>(
+      `
+      SELECT * FROM auditoria
+      WHERE tabla = ? AND registro_id = ?
+      ORDER BY created_at DESC
+    `,
+      [tabla, registroId]
+    );
   }
 }

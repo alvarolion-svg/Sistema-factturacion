@@ -1,5 +1,13 @@
 import { v4 as uuid } from 'uuid';
-import db from '../database';
+import { dbAll, dbGet, dbRun } from '../dbHelpers';
+
+interface FilaConfig {
+  valor: string;
+}
+
+interface RespuestaAsana<T> {
+  data?: T;
+}
 
 export interface SeccionMes {
   id: string;
@@ -7,24 +15,6 @@ export interface SeccionMes {
   mes: number;
   seccion_gid: string;
   seccion_nombre: string | null;
-}
-
-function queryGet(sql: string, params: any[] = []): Promise<any> {
-  return new Promise((resolve, reject) => {
-    db.get(sql, params, (err, row) => (err ? reject(err) : resolve(row)));
-  });
-}
-
-function queryAll(sql: string, params: any[] = []): Promise<any[]> {
-  return new Promise((resolve, reject) => {
-    db.all(sql, params, (err, rows) => (err ? reject(err) : resolve((rows as any[]) || [])));
-  });
-}
-
-function run(sql: string, params: any[] = []): Promise<void> {
-  return new Promise((resolve, reject) => {
-    db.run(sql, params, (err) => (err ? reject(err) : resolve()));
-  });
 }
 
 /**
@@ -35,40 +25,40 @@ function run(sql: string, params: any[] = []): Promise<void> {
  */
 export class AsanaConfigService {
   static async obtenerProyecto(): Promise<{ gid: string | null; nombre: string | null }> {
-    const filaGid = await queryGet(`SELECT valor FROM asana_config WHERE clave = 'proyecto_gid'`);
-    const filaNombre = await queryGet(`SELECT valor FROM asana_config WHERE clave = 'proyecto_nombre'`);
+    const filaGid = await dbGet<FilaConfig>(`SELECT valor FROM asana_config WHERE clave = 'proyecto_gid'`);
+    const filaNombre = await dbGet<FilaConfig>(`SELECT valor FROM asana_config WHERE clave = 'proyecto_nombre'`);
     return { gid: filaGid?.valor || null, nombre: filaNombre?.valor || null };
   }
 
   static async setProyecto(gid: string, nombre: string): Promise<void> {
-    await run(`INSERT INTO asana_config (clave, valor) VALUES ('proyecto_gid', ?) ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor`, [
+    await dbRun(`INSERT INTO asana_config (clave, valor) VALUES ('proyecto_gid', ?) ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor`, [
       gid,
     ]);
-    await run(
+    await dbRun(
       `INSERT INTO asana_config (clave, valor) VALUES ('proyecto_nombre', ?) ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor`,
       [nombre]
     );
   }
 
   static async listarSecciones(): Promise<SeccionMes[]> {
-    return queryAll(`SELECT * FROM asana_secciones_mes ORDER BY ano, mes`);
+    return dbAll<SeccionMes>(`SELECT * FROM asana_secciones_mes ORDER BY ano, mes`);
   }
 
   static async obtenerSeccion(ano: number, mes: number): Promise<SeccionMes | null> {
-    const fila = await queryGet(`SELECT * FROM asana_secciones_mes WHERE ano = ? AND mes = ?`, [ano, mes]);
+    const fila = await dbGet<SeccionMes>(`SELECT * FROM asana_secciones_mes WHERE ano = ? AND mes = ?`, [ano, mes]);
     return fila || null;
   }
 
   static async guardarSeccion(ano: number, mes: number, seccionGid: string, seccionNombre: string): Promise<void> {
     const existente = await this.obtenerSeccion(ano, mes);
     if (existente) {
-      await run(`UPDATE asana_secciones_mes SET seccion_gid = ?, seccion_nombre = ? WHERE id = ?`, [
+      await dbRun(`UPDATE asana_secciones_mes SET seccion_gid = ?, seccion_nombre = ? WHERE id = ?`, [
         seccionGid,
         seccionNombre,
         existente.id,
       ]);
     } else {
-      await run(`INSERT INTO asana_secciones_mes (id, ano, mes, seccion_gid, seccion_nombre) VALUES (?, ?, ?, ?, ?)`, [
+      await dbRun(`INSERT INTO asana_secciones_mes (id, ano, mes, seccion_gid, seccion_nombre) VALUES (?, ?, ?, ?, ?)`, [
         uuid(),
         ano,
         mes,
@@ -79,7 +69,7 @@ export class AsanaConfigService {
   }
 
   static async eliminarSeccion(id: string): Promise<void> {
-    await run(`DELETE FROM asana_secciones_mes WHERE id = ?`, [id]);
+    await dbRun(`DELETE FROM asana_secciones_mes WHERE id = ?`, [id]);
   }
 
   private static headers(): Record<string, string> {
@@ -98,7 +88,7 @@ export class AsanaConfigService {
     const headers = this.headers();
     const respMe = await fetch('https://app.asana.com/api/1.0/users/me?opt_fields=workspaces.gid', { headers });
     if (!respMe.ok) throw new Error(`Asana rechazó consultar el workspace (${respMe.status}): ${await respMe.text()}`);
-    const me: any = await respMe.json();
+    const me = (await respMe.json()) as RespuestaAsana<{ workspaces?: Array<{ gid: string }> }>;
     const workspaceGid = me.data?.workspaces?.[0]?.gid;
     if (!workspaceGid) throw new Error('No se encontró un workspace de Asana para este token.');
 
@@ -107,8 +97,8 @@ export class AsanaConfigService {
       { headers }
     );
     if (!respProyectos.ok) throw new Error(`Asana rechazó listar proyectos (${respProyectos.status}): ${await respProyectos.text()}`);
-    const proyectos: any = await respProyectos.json();
-    return (proyectos.data || []).map((p: any) => ({ gid: p.gid, name: p.name }));
+    const proyectos = (await respProyectos.json()) as RespuestaAsana<Array<{ gid: string; name: string }>>;
+    return (proyectos.data || []).map((p) => ({ gid: p.gid, name: p.name }));
   }
 
   /**
@@ -119,7 +109,7 @@ export class AsanaConfigService {
     const headers = this.headers();
     const resp = await fetch(`https://app.asana.com/api/1.0/projects/${proyectoGid}/sections?opt_fields=name`, { headers });
     if (!resp.ok) throw new Error(`Asana rechazó listar las secciones (${resp.status}): ${await resp.text()}`);
-    const data: any = await resp.json();
-    return (data.data || []).map((s: any) => ({ gid: s.gid, name: s.name }));
+    const data = (await resp.json()) as RespuestaAsana<Array<{ gid: string; name: string }>>;
+    return (data.data || []).map((s) => ({ gid: s.gid, name: s.name }));
   }
 }

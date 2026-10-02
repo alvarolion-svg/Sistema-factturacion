@@ -1,6 +1,14 @@
 import { v4 as uuid } from 'uuid';
 import db from '../database';
+import { dbAll } from '../dbHelpers';
 import { Movimiento } from '../types';
+
+interface CuentaTesoreria {
+  id: string;
+  moneda: string;
+  saldo: number;
+  [campo: string]: unknown;
+}
 
 export class TesoreriaService {
   /**
@@ -114,27 +122,12 @@ export class TesoreriaService {
   /**
    * Obtiene el estado de tesorería completo
    */
-  static obtenerEstadoTesoreria(): Promise<any> {
-    return new Promise((resolve, reject) => {
-      db.all('SELECT * FROM cuentas WHERE habilitada = 1', (err, cuentas) => {
-        if (err) return reject(err);
-
-        const totalARS = (cuentas as any[])
-          .filter((c) => c.moneda === 'ARS')
-          .reduce((sum, c) => sum + c.saldo, 0);
-
-        const totalUSD = (cuentas as any[])
-          .filter((c) => c.moneda === 'USD')
-          .reduce((sum, c) => sum + c.saldo, 0);
-
-        resolve({
-          cuentas,
-          totales: {
-            ARS: totalARS,
-            USD: totalUSD,
-          },
-        });
-      });
-    });
+  static async obtenerEstadoTesoreria(): Promise<{
+    cuentas: CuentaTesoreria[];
+    totales: { ARS: number; USD: number };
+  }> {
+    const cuentas = await dbAll<CuentaTesoreria>('SELECT * FROM cuentas WHERE habilitada = 1');
+    const total = (moneda: string) => cuentas.filter((c) => c.moneda === moneda).reduce((sum, c) => sum + c.saldo, 0);
+    return { cuentas, totales: { ARS: total('ARS'), USD: total('USD') } };
   }
 }
