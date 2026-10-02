@@ -101,6 +101,7 @@ const SQL_INGRESO_FINAL = 'CASE WHEN facturado = 0 THEN monto_neto ELSE monto_fi
 const TIPO_ANUNCIANTE_PAUTA_CONCESIONARIO = 'Pauta Concesionario';
 
 interface DatosOrden {
+  razon_social?: string; // se completa solo desde el cliente al crear
   tipo_anunciante: string;
   nombre_anunciante: string;
   numero_orden_agencia?: string;
@@ -169,62 +170,71 @@ export class TopviewService {
    * crearOrden, que envuelve esta función y arma los clones mensuales).
    */
   private static async crearOrdenUnica(datos: DatosOrden): Promise<OrdenPublicidad> {
-    return new Promise((resolve, reject) => {
-      if (!datos.cliente_id) return reject(new Error('Elegí un cliente: la orden se factura a nombre suyo.'));
-      if (!datos.periodo_desde || !datos.periodo_hasta) {
-        return reject(new Error('El período (desde/hasta) es obligatorio.'));
-      }
+    if (!datos.cliente_id) throw new Error('Elegí un cliente: la orden se factura a nombre suyo.');
+    if (!datos.periodo_desde || !datos.periodo_hasta) {
+      throw new Error('El período (desde/hasta) es obligatorio.');
+    }
 
-      // Defensivo: si llega sin detalles_productos (ej. un llamado directo a la
-      // API sin pasar por el formulario) no debe tirar abajo el proceso entero.
-      datos.detalles_productos = datos.detalles_productos || [];
+    // Defensivo: si llega sin detalles_productos (ej. un llamado directo a la
+    // API sin pasar por el formulario) no debe tirar abajo el proceso entero.
+    datos.detalles_productos = datos.detalles_productos || [];
 
-      // La razón social no se tipea a mano: se toma siempre del cliente elegido
-      // (es a quien realmente se factura), para que nunca quede desincronizada.
-      db.get('SELECT razon_social FROM clientes WHERE id = ?', [datos.cliente_id], async (err, cliente: any) => {
-        if (err) return reject(err);
-        if (!cliente) return reject(new Error('El cliente elegido no existe.'));
+    // La razón social no se tipea a mano: se toma siempre del cliente elegido
+    // (es a quien realmente se factura), para que nunca quede desincronizada.
+    const cliente = await dbGet<{ razon_social: string }>('SELECT razon_social FROM clientes WHERE id = ?', [datos.cliente_id]);
+    if (!cliente) throw new Error('El cliente elegido no existe.');
 
-        const razonSocial = cliente.razon_social;
-        (datos as any).razon_social = razonSocial;
-        const ordenId = uuid();
-        const numeroOrden = `OPB-${Date.now()}`;
+    const razonSocial = cliente.razon_social;
+    datos.razon_social = razonSocial;
+    const ordenId = uuid();
+    const numeroOrden = `OPB-${Date.now()}`;
 
-        // factura_formal (Tipo 1 con factura / Tipo 2 efectivo) ya NO es fija
-        // por comisionista — un mismo comisionista puede tener negocios de
-        // ambos tipos. Viaja por línea, copiada de la condición elegida al
-        // cargar la orden (ver handleChangeIntermediario en el frontend), y
-        // acá se toma tal cual la manda el formulario.
-        type IntermediarioLinea = NonNullable<typeof datos.intermediarios>[number];
-        const intermediariosConFacturaFormal: IntermediarioLinea[] = (datos.intermediarios || []).map((inter) => ({
-          ...inter,
-          factura_formal: !!inter.factura_formal,
-        }));
+    // factura_formal (Tipo 1 con factura / Tipo 2 efectivo) ya NO es fija
+    // por comisionista — un mismo comisionista puede tener negocios de
+    // ambos tipos. Viaja por línea, copiada de la condición elegida al
+    // cargar la orden (ver handleChangeIntermediario en el frontend), y
+    // acá se toma tal cual la manda el formulario.
+    type IntermediarioLinea = NonNullable<typeof datos.intermediarios>[number];
+    const intermediariosConFacturaFormal: IntermediarioLinea[] = (datos.intermediarios || []).map((inter) => ({
+      ...inter,
+      factura_formal: !!inter.factura_formal,
+    }));
 
-        // Descuentos NC1/NC2/FC y comisiones a comisionistas — ver
-        // calcularDescuentosCascada/calcularComisionesCascada más arriba en
-        // este archivo para el detalle de la lógica (misma que actualizarOrden).
-        const { descuentoMonto, descuentoMonto2, descuentoFacturasMonto, montoNetoAplicado, montoNetoBlanco } =
-          calcularDescuentosCascada(datos.monto_neto, [
-            { pct: datos.descuento_porcentaje, cascada: !!datos.descuento_en_cascada },
-            { pct: datos.descuento_porcentaje_2 || 0, cascada: !!datos.descuento_en_cascada_2 },
-            { pct: datos.descuento_facturas_porcentaje, cascada: !!datos.descuento_facturas_en_cascada },
-          ]);
+    // Descuentos NC1/NC2/FC y comisiones a comisionistas — ver
+    // calcularDescuentosCascada/calcularComisionesCascada más arriba en
+    // este archivo para el detalle de la lógica (misma que actualizarOrden).
+    const { descuentoMonto, descuentoMonto2, descuentoFacturasMonto, montoNetoAplicado, montoNetoBlanco } =
+      calcularDescuentosCascada(datos.monto_neto, [
+        { pct: datos.descuento_porcentaje, cascada: !!datos.descuento_en_cascada },
+        { pct: datos.descuento_porcentaje_2 || 0, cascada: !!datos.descuento_en_cascada_2 },
+        { pct: datos.descuento_facturas_porcentaje, cascada: !!datos.descuento_facturas_en_cascada },
+      ]);
 
-        const { comisionesCalculadas, montoFinal } = calcularComisionesCascada(
-          montoNetoBlanco,
-          intermediariosConFacturaFormal || []
-        );
+    const { comisionesCalculadas, montoFinal } = calcularComisionesCascada(
+      montoNetoBlanco,
+      intermediariosConFacturaFormal || []
+    );
 
-        // Mes/año de ingreso: si no se especifica, se toma por defecto el mes/año de
-        // inicio del período — pero es un campo discrecional, editable en la carga.
-        const [anoDesde, mesDesde] = datos.periodo_desde.split('-').map(Number);
-        const mesIngreso = datos.mes_ingreso || mesDesde;
-        const anoIngreso = datos.ano_ingreso || anoDesde;
+    // Mes/año de ingreso: si no se especifica, se toma por defecto el mes/año de
+    // inicio del período — pero es un campo discrecional, editable en la carga.
+    const [anoDesde, mesDesde] = datos.periodo_desde.split('-').map(Number);
+    const mesIngreso = datos.mes_ingreso || mesDesde;
+    const anoIngreso = datos.ano_ingreso || anoDesde;
 
-        // Insertar orden
-        db.run(
-          `
+    // tipo_producto queda como copia de solo lectura del nombre del producto
+    // (para no tener que hacer join en cada pantalla que ya lo muestra
+    // directo). Se resuelve ANTES de insertar nada: si algún producto no
+    // existe, no queda una orden a medias.
+    const nombresProducto: string[] = [];
+    for (const detalle of datos.detalles_productos) {
+      const producto = await dbGet<{ nombre: string }>('SELECT nombre FROM productos WHERE id = ?', [detalle.producto_id]);
+      if (!producto) throw new Error('El producto/soporte elegido no existe.');
+      nombresProducto.push(producto.nombre);
+    }
+
+    // Insertar orden
+    await dbRun(
+      `
         INSERT INTO ordenes_publicidad (
           id, numero_orden, numero_orden_agencia, incluir_numero_orden_agencia, leyenda_factura,
           tipo_anunciante, razon_social, nombre_anunciante,
@@ -236,152 +246,101 @@ export class TopviewService {
           vigencia_hasta_nota, vigencia_hasta_mes, vigencia_hasta_ano, estado, avisar_telegram
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
-          [
-            ordenId,
-            numeroOrden,
-            datos.numero_orden_agencia || null,
-            datos.incluir_numero_orden_agencia === false ? 0 : 1,
-            datos.leyenda_factura || null,
-            datos.tipo_anunciante,
-            razonSocial,
-            datos.nombre_anunciante,
-            datos.cliente_id,
-            datos.agencia_id || null,
-            datos.vendedor_id || null,
-            datos.periodo_desde,
-            datos.periodo_hasta,
-            datos.fecha_facturacion,
-            datos.email_contacto,
-            datos.costo_produccion,
-            datos.monto_neto,
-            datos.descuento_porcentaje,
-            datos.descuento_en_cascada ? 1 : 0,
-            descuentoMonto,
-            datos.descuento_porcentaje_2 || 0,
-            datos.descuento_en_cascada_2 ? 1 : 0,
-            descuentoMonto2,
-            montoNetoAplicado,
-            datos.descuento_facturas_porcentaje,
-            descuentoFacturasMonto,
-            datos.descuento_facturas_en_cascada ? 1 : 0,
-            montoFinal,
-            datos.notas || null,
-            datos.facturado === false ? 0 : 1,
-            mesIngreso,
-            anoIngreso,
-            datos.vigencia_hasta_nota || null,
-            datos.vigencia_hasta_mes || null,
-            datos.vigencia_hasta_ano || null,
-            'Cargada',
-            datos.avisar_telegram === false ? 0 : 1,
-          ],
-          async (err) => {
-            if (err) return reject(err);
+      [
+        ordenId,
+        numeroOrden,
+        datos.numero_orden_agencia || null,
+        datos.incluir_numero_orden_agencia === false ? 0 : 1,
+        datos.leyenda_factura || null,
+        datos.tipo_anunciante,
+        razonSocial,
+        datos.nombre_anunciante,
+        datos.cliente_id,
+        datos.agencia_id || null,
+        datos.vendedor_id || null,
+        datos.periodo_desde,
+        datos.periodo_hasta,
+        datos.fecha_facturacion,
+        datos.email_contacto,
+        datos.costo_produccion,
+        datos.monto_neto,
+        datos.descuento_porcentaje,
+        datos.descuento_en_cascada ? 1 : 0,
+        descuentoMonto,
+        datos.descuento_porcentaje_2 || 0,
+        datos.descuento_en_cascada_2 ? 1 : 0,
+        descuentoMonto2,
+        montoNetoAplicado,
+        datos.descuento_facturas_porcentaje,
+        descuentoFacturasMonto,
+        datos.descuento_facturas_en_cascada ? 1 : 0,
+        montoFinal,
+        datos.notas || null,
+        datos.facturado === false ? 0 : 1,
+        mesIngreso,
+        anoIngreso,
+        datos.vigencia_hasta_nota || null,
+        datos.vigencia_hasta_mes || null,
+        datos.vigencia_hasta_ano || null,
+        'Cargada',
+        datos.avisar_telegram === false ? 0 : 1,
+      ]
+    );
 
-          // Insertar comisiones ya calculadas más arriba en ordenes_intermediarios
-          comisionesCalculadas.forEach((inter, index) => {
-            const intermedId = uuid();
-            db.run(
-              `
-                INSERT INTO ordenes_intermediarios (
-                  id, orden_id, intermediario_id, numero_nivel, porcentaje_comision,
-                  monto_comision, tipo_calculo, factura_formal
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-              `,
-              [
-                intermedId,
-                ordenId,
-                inter.intermediario_id,
-                index + 1,
-                inter.porcentaje_comision,
-                inter.monto_comision,
-                inter.tipo_calculo,
-                inter.factura_formal ? 1 : 0,
-              ],
-              (err) => {
-                if (err) return reject(err);
-              }
-            );
-          });
-
-          // Insertar detalles de productos. tipo_producto queda como copia de
-          // solo lectura del nombre del producto (para no tener que hacer
-          // join en cada pantalla que ya lo muestra directo).
-          let detallesInsertados = 0;
-          if (datos.detalles_productos.length > 0) {
-            datos.detalles_productos.forEach((detalle) => {
-              const detalleId = uuid();
-              db.get('SELECT nombre FROM productos WHERE id = ?', [detalle.producto_id], (err, producto: any) => {
-                if (err) return reject(err);
-                if (!producto) return reject(new Error('El producto/soporte elegido no existe.'));
-
-                db.run(
-                  `
-                INSERT INTO ordenes_publicidad_detalles (
-                  id, orden_id, tipo_producto, producto_id, cantidad, ubicacion, especificaciones, locacion_id, punto_instalacion, precio
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-              `,
-                  [
-                    detalleId,
-                    ordenId,
-                    producto.nombre,
-                    detalle.producto_id,
-                    detalle.cantidad,
-                    detalle.ubicacion || null,
-                    detalle.especificaciones || null,
-                    detalle.locacion_id || null,
-                    detalle.punto_instalacion || null,
-                    detalle.precio || 0,
-                  ],
-                  (err) => {
-                    if (err) return reject(err);
-                    detallesInsertados++;
-
-                  // Si todos los detalles se insertaron
-                  if (detallesInsertados === datos.detalles_productos.length) {
-                    this.insertarContactosEmail(ordenId, datos.emails_contacto || []);
-                    this.insertarArreglosNoRegistrables(ordenId, datos.arreglos_no_registrables || []);
-                    if (datos.facturado !== false && datos.tipo_anunciante !== TIPO_ANUNCIANTE_PAUTA_CONCESIONARIO) {
-                      this.crearReplicacionesFacturacion(ordenId, mesIngreso, anoIngreso);
-                    }
-                    this.completarCreacionOrden(
-                      ordenId,
-                      numeroOrden,
-                      datos,
-                      descuentoMonto,
-                      montoNetoAplicado,
-                      descuentoFacturasMonto,
-                      montoFinal,
-                      resolve,
-                      reject
-                    );
-                  }
-                  }
-                );
-              });
-            });
-          } else {
-            this.insertarContactosEmail(ordenId, datos.emails_contacto || []);
-            this.insertarArreglosNoRegistrables(ordenId, datos.arreglos_no_registrables || []);
-            if (datos.facturado !== false && datos.tipo_anunciante !== TIPO_ANUNCIANTE_PAUTA_CONCESIONARIO) {
-              this.crearReplicacionesFacturacion(ordenId, mesIngreso, anoIngreso);
-            }
-            this.completarCreacionOrden(
-              ordenId,
-              numeroOrden,
-              datos,
-              descuentoMonto,
-              montoNetoAplicado,
-              descuentoFacturasMonto,
-              montoFinal,
-              resolve,
-              reject
-            );
-          }
-        }
+    // Insertar comisiones ya calculadas más arriba en ordenes_intermediarios
+    for (const [index, inter] of comisionesCalculadas.entries()) {
+      await dbRun(
+        `
+          INSERT INTO ordenes_intermediarios (
+            id, orden_id, intermediario_id, numero_nivel, porcentaje_comision,
+            monto_comision, tipo_calculo, factura_formal
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+        [
+          uuid(),
+          ordenId,
+          inter.intermediario_id,
+          index + 1,
+          inter.porcentaje_comision,
+          inter.monto_comision,
+          inter.tipo_calculo,
+          inter.factura_formal ? 1 : 0,
+        ]
       );
-      });
-    });
+    }
+
+    // Insertar detalles de productos
+    for (const [i, detalle] of datos.detalles_productos.entries()) {
+      await dbRun(
+        `
+          INSERT INTO ordenes_publicidad_detalles (
+            id, orden_id, tipo_producto, producto_id, cantidad, ubicacion, especificaciones, locacion_id, punto_instalacion, precio
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+        [
+          uuid(),
+          ordenId,
+          nombresProducto[i],
+          detalle.producto_id,
+          detalle.cantidad,
+          detalle.ubicacion || null,
+          detalle.especificaciones || null,
+          detalle.locacion_id || null,
+          detalle.punto_instalacion || null,
+          detalle.precio || 0,
+        ]
+      );
+    }
+
+    this.insertarContactosEmail(ordenId, datos.emails_contacto || []);
+    this.insertarArreglosNoRegistrables(ordenId, datos.arreglos_no_registrables || []);
+    if (datos.facturado !== false && datos.tipo_anunciante !== TIPO_ANUNCIANTE_PAUTA_CONCESIONARIO) {
+      this.crearReplicacionesFacturacion(ordenId, mesIngreso, anoIngreso);
+    }
+
+    const orden = (await dbGet<OrdenPublicidad>('SELECT * FROM ordenes_publicidad WHERE id = ?', [ordenId])) as OrdenPublicidad;
+    AuditoriaService.registrarOperacion('ordenes_publicidad', 'INSERT', ordenId, null, datos);
+    return orden;
   }
 
   /**
@@ -1001,29 +960,6 @@ export class TopviewService {
       `INSERT INTO replicaciones_facturacion (id, orden_id, numero_mes, ano, estado) VALUES (?, ?, ?, ?, 'Pendiente')`,
       [uuid(), ordenId, mesIngreso, anoIngreso]
     );
-  }
-
-  /**
-   * Completar la creación de la orden
-   */
-  private static completarCreacionOrden(
-    ordenId: string,
-    numeroOrden: string,
-    datos: any,
-    descuentoMonto: number,
-    montoNetoAplicado: number,
-    descuentoFacturasMonto: number,
-    montoFinal: number,
-    resolve: any,
-    reject: any
-  ): void {
-    db.get('SELECT * FROM ordenes_publicidad WHERE id = ?', [ordenId], (err, orden: any) => {
-      if (err) return reject(err);
-
-      AuditoriaService.registrarOperacion('ordenes_publicidad', 'INSERT', ordenId, null, datos);
-
-      resolve(orden);
-    });
   }
 
   /**
