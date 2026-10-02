@@ -480,6 +480,16 @@ más importantes:
     En Ejecución el backend (`listarEjecucion`) acepta varios tipos separados por coma. Verificado:
     Órdenes de octubre 54 → 8 / 13 / 26 con 1 / 2 / 3 tipos; la API de Ejecución devuelve solo los
     tipos pedidos.
+33. **Socios responsables cargados en las órdenes existentes (2026-10-02)**: con la lista que pasó el
+    usuario (razón social + anunciante → Alvaro o Maximo) se asignó `vendedor_id` a todas las órdenes
+    activas que coinciden (cliente + anunciante, en cualquier mes): 76 de Alvaro y 76 de Maximo. Las 46
+    filas de la lista encontraron órdenes, sin conflictos ni pisar vendedores previos. Quedaron **42
+    órdenes activas sin socio** por no estar en la lista (AMEX, AVA Cancun, Al Mundo, Cauquenes, Ente
+    Mixto de Promoción Turística, Ford Parque Fijo, GCBA a secas, Inmobiliaria Berraz/Soldati, TOM,
+    YPF Parque Fijo Lubricantes/OEMs, Zonaprop y las "Pauta Concesionario": IEB, OSDE, PAX, SSI, St.
+    Matthew's, Universidad Austral) — pendiente que el usuario diga a quién va cada una. Hecho
+    por script directo a la base (backup en /tmp, no en el repo); las órdenes nuevas siguen
+    eligiendo vendedor a mano en el formulario.
 
 ## Cómo trabaja este usuario (para que una sesión nueva no tenga que redescubrirlo)
 
