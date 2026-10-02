@@ -513,6 +513,23 @@ más importantes:
     `topview.ts` (54 `any`, 29 promesas manuales), `liquidaciones.ts` (18), `locaciones.ts` (15),
     `produccionTopview.ts` (9), `index.ts` (20 restantes). `DB_PATH` permite apuntar a una copia de la base
     para pruebas comparativas.
+36. **Limpieza de topview.ts (2026-10-02)**: de 54 a 11 `any` y de 29 a 6 promesas manuales (`any` total
+    del backend: 248 → 91). Los helpers privados `queryAll/queryGet/runQuery` ahora son genéricos
+    sobre `dbHelpers` (`queryGet` mantiene a propósito el `{}` cuando no hay fila; `dbGet` devuelve
+    `undefined`). Convertidos: `actualizarOrden`, `crearOrdenUnica`, `clonarOrdenAMes`,
+    `listarOrdenes`, `adjuntarDocumento`, avisos de Telegram, reporte de órdenes y tipos de fila.
+    `OrdenPublicidad` (types.ts) estaba desactualizado: se le agregaron `agencia_id`, `vendedor_id`,
+    `facturado`, descuentos 2 y vigencia mes/año. **Verificación:** foto de 290 endpoints de la API real
+    (idéntica antes/después en cada paso) + prueba comparativa vieja-vs-nueva sobre copias de la base
+    (36 operaciones: crear con clones por vigencia, partir por mes, clonar adelante/atrás, actualizar,
+    estado, cobro, eliminar y casos de error; 28 órdenes y todas sus tablas hijas idénticas). **Cambios
+    de comportamiento (solo en errores, todos para bien):** (1) `crearOrden` ahora valida que existan
+    todos los productos ANTES de insertar — antes un producto inexistente dejaba la orden creada a medias;
+    (2) clonar una orden inexistente y "Avisar a Operaciones" de una orden inexistente dan "Orden no
+    encontrada" — antes uno daba un error técnico y el otro mandaba a Telegram un aviso con "undefined".
+    **Sin tocar a propósito:** `generarFacturasReplicadas` y su cadena (arma facturas y cuentas
+    corrientes, flujo de plata, igual criterio que ventas.ts) y `obtenerOrden` (devuelve un objeto
+    armado de muchas tablas, sin tipo propio todavía).
 
 ## Cómo trabaja este usuario (para que una sesión nueva no tenga que redescubrirlo)
 
