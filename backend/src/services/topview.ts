@@ -1,5 +1,16 @@
 import { v4 as uuid } from 'uuid';
 import db from '../database';
+import { dbAll, dbGet, dbRun, Parametro } from '../dbHelpers';
+
+type FilaBD = Record<string, unknown>;
+
+// Fila de ordenes_publicidad: solo lo que este archivo lee por nombre; el resto
+// de las columnas viaja igual (índice abierto) porque se copia/devuelve entera.
+interface FilaOrden {
+  id?: string;
+  cliente_id?: string | null;
+  [columna: string]: unknown;
+}
 import { OrdenPublicidad, ReplicacionFacturacion } from '../types';
 import { AuditoriaService } from './auditoria';
 import { TesoreriaService } from './tesoreria';
@@ -446,7 +457,7 @@ export class TopviewService {
     ano: number,
     idExcluir: string,
     locacionIds: string[]
-  ): Promise<{ id: string } | undefined> {
+  ): Promise<{ id?: string }> {
     const locacionesUnicas = Array.from(new Set(locacionIds.filter((id): id is string => !!id)));
     if (locacionesUnicas.length === 0) {
       return this.queryGet(
@@ -660,14 +671,10 @@ export class TopviewService {
     if (!datos.periodo_desde || !datos.periodo_hasta) throw new Error('El período (desde/hasta) es obligatorio.');
     datos.detalles_productos = datos.detalles_productos || [];
 
-    const existente: any = await new Promise((resolve, reject) => {
-      db.get('SELECT * FROM ordenes_publicidad WHERE id = ?', [ordenId], (err, row) => (err ? reject(err) : resolve(row)));
-    });
+    const existente = await dbGet<FilaOrden>('SELECT * FROM ordenes_publicidad WHERE id = ?', [ordenId]);
     if (!existente) throw new Error('Orden no encontrada.');
 
-    const cliente: any = await new Promise((resolve, reject) => {
-      db.get('SELECT razon_social FROM clientes WHERE id = ?', [datos.cliente_id], (err, row) => (err ? reject(err) : resolve(row)));
-    });
+    const cliente = await dbGet<{ razon_social: string }>('SELECT razon_social FROM clientes WHERE id = ?', [datos.cliente_id]);
     if (!cliente) throw new Error('El cliente elegido no existe.');
     const razonSocial = cliente.razon_social;
 
@@ -695,8 +702,7 @@ export class TopviewService {
     const mesIngreso = datos.mes_ingreso || mesDesde;
     const anoIngreso = datos.ano_ingreso || anoDesde;
 
-    await new Promise<void>((resolve, reject) => {
-      db.run(
+    await dbRun(
         `UPDATE ordenes_publicidad SET
           numero_orden_agencia = ?, incluir_numero_orden_agencia = ?, leyenda_factura = ?,
           tipo_anunciante = ?, razon_social = ?, nombre_anunciante = ?,
@@ -746,17 +752,11 @@ export class TopviewService {
           datos.vigencia_hasta_ano || null,
           datos.avisar_telegram === false ? 0 : 1,
           ordenId,
-        ],
-        (err) => (err ? reject(err) : resolve())
-      );
-    });
+        ]);
 
-    await new Promise<void>((resolve, reject) => {
-      db.run('DELETE FROM ordenes_intermediarios WHERE orden_id = ?', [ordenId], (err) => (err ? reject(err) : resolve()));
-    });
+    await dbRun('DELETE FROM ordenes_intermediarios WHERE orden_id = ?', [ordenId]);
     for (const [index, inter] of comisionesCalculadas.entries()) {
-      await new Promise<void>((resolve, reject) => {
-        db.run(
+      await dbRun(
           `INSERT INTO ordenes_intermediarios (id, orden_id, intermediario_id, numero_nivel, porcentaje_comision, monto_comision, tipo_calculo, factura_formal)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
           [
@@ -768,10 +768,7 @@ export class TopviewService {
             inter.monto_comision,
             inter.tipo_calculo,
             inter.factura_formal ? 1 : 0,
-          ],
-          (err) => (err ? reject(err) : resolve())
-        );
-      });
+          ]);
     }
 
     // Se actualiza in place por id la línea que ya existía (para no romper
@@ -780,26 +777,19 @@ export class TopviewService {
     // cualquier otra cosa de la orden), se inserta nueva la que no traía id,
     // y se borra (junto con lo ya liquidado en esa línea) la que el usuario
     // sacó del formulario.
-    const idsExistentes: string[] = (
-      await new Promise<any[]>((resolve, reject) => {
-        db.all('SELECT id FROM ordenes_publicidad_detalles WHERE orden_id = ?', [ordenId], (err, rows) =>
-          err ? reject(err) : resolve(rows as any[])
-        );
-      })
-    ).map((r) => r.id);
+    const idsExistentes: string[] = (await dbAll<{ id: string }>('SELECT id FROM ordenes_publicidad_detalles WHERE orden_id = ?', [ordenId])).map(
+      (r) => r.id
+    );
 
     const idsConservados = new Set<string>();
     for (const detalle of datos.detalles_productos) {
-      const producto: any = await new Promise((resolve, reject) => {
-        db.get('SELECT nombre FROM productos WHERE id = ?', [detalle.producto_id], (err, row) => (err ? reject(err) : resolve(row)));
-      });
+      const producto = await dbGet<{ nombre: string }>('SELECT nombre FROM productos WHERE id = ?', [detalle.producto_id]);
       if (!producto) throw new Error('El producto/soporte elegido no existe.');
 
       const idExistente = detalle.id && idsExistentes.includes(detalle.id) ? detalle.id : null;
       if (idExistente) {
         idsConservados.add(idExistente);
-        await new Promise<void>((resolve, reject) => {
-          db.run(
+        await dbRun(
             `UPDATE ordenes_publicidad_detalles SET
               tipo_producto = ?, producto_id = ?, cantidad = ?, ubicacion = ?, especificaciones = ?,
               locacion_id = ?, punto_instalacion = ?, precio = ?
@@ -814,13 +804,9 @@ export class TopviewService {
               detalle.punto_instalacion || null,
               detalle.precio || 0,
               idExistente,
-            ],
-            (err) => (err ? reject(err) : resolve())
-          );
-        });
+            ]);
       } else {
-        await new Promise<void>((resolve, reject) => {
-          db.run(
+        await dbRun(
             `INSERT INTO ordenes_publicidad_detalles (id, orden_id, tipo_producto, producto_id, cantidad, ubicacion, especificaciones, locacion_id, punto_instalacion, precio)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
@@ -834,40 +820,25 @@ export class TopviewService {
               detalle.locacion_id || null,
               detalle.punto_instalacion || null,
               detalle.precio || 0,
-            ],
-            (err) => (err ? reject(err) : resolve())
-          );
-        });
+            ]);
       }
     }
 
     const idsAEliminar = idsExistentes.filter((id) => !idsConservados.has(id));
     if (idsAEliminar.length > 0) {
       const marcadores = idsAEliminar.map(() => '?').join(',');
-      await new Promise<void>((resolve, reject) => {
-        db.run(
+      await dbRun(
           `DELETE FROM liquidaciones_detalle WHERE orden_detalle_id IN (${marcadores})`,
-          idsAEliminar,
-          (err) => (err ? reject(err) : resolve())
-        );
-      });
-      await new Promise<void>((resolve, reject) => {
-        db.run(
+          idsAEliminar);
+      await dbRun(
           `DELETE FROM ordenes_publicidad_detalles WHERE id IN (${marcadores})`,
-          idsAEliminar,
-          (err) => (err ? reject(err) : resolve())
-        );
-      });
+          idsAEliminar);
     }
 
-    await new Promise<void>((resolve, reject) => {
-      db.run('DELETE FROM contactos_email WHERE orden_id = ?', [ordenId], (err) => (err ? reject(err) : resolve()));
-    });
+    await dbRun('DELETE FROM contactos_email WHERE orden_id = ?', [ordenId]);
     this.insertarContactosEmail(ordenId, datos.emails_contacto || []);
 
-    await new Promise<void>((resolve, reject) => {
-      db.run('DELETE FROM arreglos_no_registrables WHERE orden_id = ?', [ordenId], (err) => (err ? reject(err) : resolve()));
-    });
+    await dbRun('DELETE FROM arreglos_no_registrables WHERE orden_id = ?', [ordenId]);
     this.insertarArreglosNoRegistrables(ordenId, datos.arreglos_no_registrables || []);
 
     // Una orden no registrada (facturado: false) o vendida directamente por
@@ -875,11 +846,7 @@ export class TopviewService {
     // si se edita y queda así, se borran (los "Generada" con factura real ya
     // emitida quedan intactos, eso no se toca).
     if (datos.facturado === false || datos.tipo_anunciante === TIPO_ANUNCIANTE_PAUTA_CONCESIONARIO) {
-      await new Promise<void>((resolve, reject) => {
-        db.run(`DELETE FROM replicaciones_facturacion WHERE orden_id = ? AND estado = 'Pendiente'`, [ordenId], (err) =>
-          err ? reject(err) : resolve()
-        );
-      });
+      await dbRun(`DELETE FROM replicaciones_facturacion WHERE orden_id = ? AND estado = 'Pendiente'`, [ordenId]);
     } else {
       await this.reconciliarReplicaciones(ordenId, mesIngreso, anoIngreso);
     }
@@ -891,9 +858,7 @@ export class TopviewService {
     // nunca reemplaza ni toca la orden editada en sí.
     const clonado = await this.generarClonesVigencia({ ...datos, mes_ingreso: mesIngreso, ano_ingreso: anoIngreso }, ordenId);
 
-    const orden: any = await new Promise((resolve, reject) => {
-      db.get('SELECT * FROM ordenes_publicidad WHERE id = ?', [ordenId], (err, row) => (err ? reject(err) : resolve(row)));
-    });
+    const orden = (await dbGet<OrdenPublicidad>('SELECT * FROM ordenes_publicidad WHERE id = ?', [ordenId])) as OrdenPublicidad;
     return { orden, clonado };
   }
 
@@ -905,23 +870,15 @@ export class TopviewService {
    * ese mes ya tiene una factura generada, no se toca ni se duplica.
    */
   private static async reconciliarReplicaciones(ordenId: string, mesIngreso: number, anoIngreso: number): Promise<void> {
-    await new Promise<void>((resolve, reject) => {
-      db.run(`DELETE FROM replicaciones_facturacion WHERE orden_id = ? AND estado = 'Pendiente'`, [ordenId], (err) =>
-        err ? reject(err) : resolve()
-      );
-    });
+    await dbRun(`DELETE FROM replicaciones_facturacion WHERE orden_id = ? AND estado = 'Pendiente'`, [ordenId]);
     const yaExiste = await this.queryGet(
       `SELECT id FROM replicaciones_facturacion WHERE orden_id = ? AND ano = ? AND numero_mes = ?`,
       [ordenId, anoIngreso, mesIngreso]
     );
     if (!yaExiste?.id) {
-      await new Promise<void>((resolve, reject) => {
-        db.run(
+      await dbRun(
           `INSERT INTO replicaciones_facturacion (id, orden_id, numero_mes, ano, estado) VALUES (?, ?, ?, ?, 'Pendiente')`,
-          [uuid(), ordenId, mesIngreso, anoIngreso],
-          (err) => (err ? reject(err) : resolve())
-        );
-      });
+          [uuid(), ordenId, mesIngreso, anoIngreso]);
     }
   }
 
@@ -1018,7 +975,7 @@ export class TopviewService {
    * comisiones reales al guardar con el array vacío).
    */
   static async obtenerOrden(ordenId: string, incluirComisiones: boolean = false): Promise<any> {
-    const orden = await this.queryGet('SELECT * FROM ordenes_publicidad WHERE id = ?', [ordenId]);
+    const orden = await this.queryGet<FilaOrden>('SELECT * FROM ordenes_publicidad WHERE id = ?', [ordenId]);
     if (!orden || !orden.id) throw new Error('Orden no encontrada');
 
     // Datos de facturación del cliente (a quien se le emite la factura, no
@@ -1462,7 +1419,7 @@ export class TopviewService {
         try {
           // Cantidad por producto de cada orden, para la vista tipo planilla
           // (una columna por soporte) sin tener que traer el detalle completo orden por orden.
-          const filasCantidades = await this.queryAll(
+          const filasCantidades = await this.queryAll<{ orden_id: string; producto_id: string; cantidad: number }>(
             `SELECT orden_id, producto_id, SUM(cantidad) as cantidad
              FROM ordenes_publicidad_detalles
              WHERE producto_id IS NOT NULL
@@ -1780,28 +1737,18 @@ export class TopviewService {
     return { avisadas };
   }
 
-  private static queryAll(sql: string, params: any[] = []): Promise<any[]> {
-    return new Promise((resolve, reject) => {
-      db.all(sql, params, (err, filas: any[]) => {
-        if (err) return reject(err);
-        resolve(filas || []);
-      });
-    });
+  private static queryAll<T = FilaBD>(sql: string, params: Parametro[] = []): Promise<T[]> {
+    return dbAll<T>(sql, params);
   }
 
-  private static queryGet(sql: string, params: any[] = []): Promise<any> {
-    return new Promise((resolve, reject) => {
-      db.get(sql, params, (err, fila: any) => {
-        if (err) return reject(err);
-        resolve(fila || {});
-      });
-    });
+  // OJO: devuelve {} (no undefined) si no hay fila — varios `if (!fila)` de
+  // este archivo dependen de eso. dbGet (dbHelpers) devuelve undefined.
+  private static async queryGet<T = FilaBD>(sql: string, params: Parametro[] = []): Promise<Partial<T>> {
+    return (await dbGet<T>(sql, params)) ?? {};
   }
 
-  private static runQuery(sql: string, params: any[] = []): Promise<void> {
-    return new Promise((resolve, reject) => {
-      db.run(sql, params, (err) => (err ? reject(err) : resolve()));
-    });
+  private static async runQuery(sql: string, params: Parametro[] = []): Promise<void> {
+    await dbRun(sql, params);
   }
 
   /**
