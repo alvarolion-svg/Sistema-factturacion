@@ -473,6 +473,13 @@ más importantes:
     Link, Fotos). `asana.ts` ahora reordena con `setParent`/`insert_after` después de crearlas
     (`ordenarSubtareas`), solo si hace falta y sin tocar subtareas agregadas a mano. Aplicado a las
     54 tareas de octubre y verificado en Asana: todas en el orden nuevo, asignaciones intactas.
+32. **Filtro "Tipo de anunciante" multi-selección (2026-10-02)**: en Órdenes y en Ejecución se pueden
+    tildar varios tipos a la vez (ej. 5 de 6) sin cambiar el layout — componente
+    `SelectorMultiple.tsx`: cerrado es un `<select>` (mismo estilo y tamaño que antes, muestra "Todos",
+    el nombre si hay uno, o "N seleccionados"); al abrirlo da una lista con casillas. Vacío = Todos.
+    En Ejecución el backend (`listarEjecucion`) acepta varios tipos separados por coma. Verificado:
+    Órdenes de octubre 54 → 8 / 13 / 26 con 1 / 2 / 3 tipos; la API de Ejecución devuelve solo los
+    tipos pedidos.
 
 ## Cómo trabaja este usuario (para que una sesión nueva no tenga que redescubrirlo)
 

@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
+import SelectorMultiple from './SelectorMultiple';
 import axios from 'axios';
 import ExcelJS from 'exceljs';
 import jsPDF from 'jspdf';
@@ -998,7 +999,7 @@ function OrdenesTab({
   // historial real de facturación pueden tener también órdenes sueltas
   // marcadas como no facturables, y mezclarlas en un mismo total confunde.
   const [filtroFacturado, setFiltroFacturado] = useState('');
-  const [filtroTipoAnunciante, setFiltroTipoAnunciante] = useState('');
+  const [filtroTipoAnunciante, setFiltroTipoAnunciante] = useState<string[]>([]);
   // El mes/año de arriba puede filtrar por "Fecha de facturación" (cuándo se
   // factura) o por "Mes de ingreso (venta)" (cuándo se cargó/vendió la
   // pauta) — son preguntas distintas: una orden vendida en agosto puede
@@ -1094,7 +1095,7 @@ function OrdenesTab({
       ];
       return campos.some((c) => (c || '').toLowerCase().includes(q));
     })
-    .filter((o) => !filtroTipoAnunciante || o.tipo_anunciante === filtroTipoAnunciante)
+    .filter((o) => filtroTipoAnunciante.length === 0 || filtroTipoAnunciante.includes(o.tipo_anunciante))
     // Mismo orden que en el armado de la pauta (Pequeños Anunciantes, Pautas
     // Estado, Pautas Anuales, Pautas Mensuales, Pautas en dólares); dentro de
     // cada tipo, las no registradas van al final — sigue el mismo correlato
@@ -3721,19 +3722,13 @@ function OrdenesTab({
           </div>
           <div className="form-group" style={{ margin: 0 }}>
             <label htmlFor="filtro_tipo_anunciante">Tipo de anunciante</label>
-            <select
+            <SelectorMultiple
               id="filtro_tipo_anunciante"
-              value={filtroTipoAnunciante}
-              onChange={(e) => setFiltroTipoAnunciante(e.target.value)}
+              opciones={TIPOS_ANUNCIANTE}
+              valor={filtroTipoAnunciante}
+              onChange={setFiltroTipoAnunciante}
               style={{ width: '10rem' }}
-            >
-              <option value="">Todos</option>
-              {TIPOS_ANUNCIANTE.map((tipo) => (
-                <option key={tipo} value={tipo}>
-                  {tipo}
-                </option>
-              ))}
-            </select>
+            />
           </div>
           <button
             type="button"
@@ -3744,7 +3739,7 @@ function OrdenesTab({
                 filtroAno !== String(hoyOrdenes.getFullYear()) ||
                 busqueda ||
                 filtroFacturado ||
-                filtroTipoAnunciante ||
+                filtroTipoAnunciante.length > 0 ||
                 filtroMesTipo !== 'ingreso'
                   ? 'visible'
                   : 'hidden',
@@ -3754,7 +3749,7 @@ function OrdenesTab({
               setFiltroAno('');
               setBusqueda('');
               setFiltroFacturado('');
-              setFiltroTipoAnunciante('');
+              setFiltroTipoAnunciante([]);
               setFiltroMesTipo('ingreso');
               setSeleccionadasAsana(new Set());
             }}

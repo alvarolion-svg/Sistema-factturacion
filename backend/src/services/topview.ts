@@ -1497,7 +1497,9 @@ export class TopviewService {
   ): Promise<any[]> {
     const mes = filtros.mes ?? null;
     const ano = filtros.ano ?? null;
-    const tipo = filtros.tipo_anunciante ?? null;
+    // Acepta varios tipos separados por coma (filtro multi-selección).
+    const tipos = (filtros.tipo_anunciante || '').split(',').map((t) => t.trim()).filter(Boolean);
+    const filtroTipos = tipos.length > 0 ? `AND o.tipo_anunciante IN (${tipos.map(() => '?').join(',')})` : '';
     return this.queryAll(
       `SELECT o.*,
           (SELECT COUNT(*) FROM documentos_adjuntos d WHERE d.orden_id = o.id) AS documentos_count
@@ -1505,9 +1507,9 @@ export class TopviewService {
        WHERE (o.habilitado != 0 OR o.habilitado IS NULL)
          AND (? IS NULL OR o.mes_ingreso = ?)
          AND (? IS NULL OR o.ano_ingreso = ?)
-         AND (? IS NULL OR o.tipo_anunciante = ?)
+         ${filtroTipos}
        ORDER BY o.created_at DESC`,
-      [mes, mes, ano, ano, tipo, tipo]
+      [mes, mes, ano, ano, ...tipos]
     );
   }
 

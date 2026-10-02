@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import SelectorMultiple from './SelectorMultiple';
 import axios from 'axios';
 import { authHeaders, mensajeError } from '../utils/api';
 import { TIPOS_ANUNCIANTE, NOMBRES_MES, TIPO_ANUNCIANTE_PAUTA_CONCESIONARIO } from '../utils/constantesTopview';
@@ -91,7 +92,7 @@ function EjecucionTab({
   const hoy = new Date();
   const [mes, setMes] = useState(String(hoy.getMonth() + 1));
   const [ano, setAno] = useState(String(hoy.getFullYear()));
-  const [tipo, setTipo] = useState('');
+  const [tipo, setTipo] = useState<string[]>([]);
   const [busqueda, setBusqueda] = useState('');
   const [estadoFiltro, setEstadoFiltro] = useState<'' | 'PEND' | 'Cargada' | 'Revisada' | 'Facturada'>('');
   const [vista, setVista] = useState<'tabla' | 'tarjetas'>('tabla');
@@ -103,7 +104,7 @@ function EjecucionTab({
     const params = new URLSearchParams();
     if (mes) params.set('mes', mes);
     if (ano) params.set('ano', ano);
-    if (tipo) params.set('tipo_anunciante', tipo);
+    if (tipo.length > 0) params.set('tipo_anunciante', tipo.join(','));
     axios
       .get(`/api/ordenes-publicidad/ejecucion?${params.toString()}`, authHeaders(token))
       .then((res) => setOrdenes(res.data))
@@ -258,14 +259,7 @@ function EjecucionTab({
           </label>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.68rem', color: '#71717a', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.03em' }}>
             Tipo de anunciante
-            <select value={tipo} onChange={(e) => setTipo(e.target.value)} style={{ minWidth: 170 }}>
-              <option value="">Todos</option>
-              {TIPOS_ANUNCIANTE.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
+            <SelectorMultiple opciones={TIPOS_ANUNCIANTE} valor={tipo} onChange={setTipo} style={{ minWidth: 170 }} />
           </label>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.68rem', color: '#71717a', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.03em' }}>
             Buscar
