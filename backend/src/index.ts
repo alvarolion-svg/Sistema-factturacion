@@ -15,6 +15,18 @@ import { TelegramService } from './services/telegram';
 import { ProduccionTopviewService } from './services/produccionTopview';
 import { LocacionesService } from './services/locaciones';
 import { LiquidacionesService } from './services/liquidaciones';
+import { mensajeDe } from './errores';
+import { Parametro } from './dbHelpers';
+
+interface ContactoClienteEntrada {
+  nombre?: string;
+  apellido?: string;
+  email?: string;
+  rol?: string;
+  telefono?: string;
+  interno?: string;
+  skype?: string;
+}
 import { AsanaService } from './services/asana';
 import { AsanaConfigService } from './services/asanaConfig';
 import { autenticacion, requierePermiso, RequestConUsuario } from './middleware';
@@ -95,8 +107,8 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
 
     const resultado = await AutenticacionService.login(email, password, req.ip);
     res.json(resultado);
-  } catch (err: any) {
-    res.status(401).json({ error: err.message });
+  } catch (err) {
+    res.status(401).json({ error: mensajeDe(err) });
   }
 });
 
@@ -107,8 +119,8 @@ app.post('/api/auth/logout', autenticacion, async (req: RequestConUsuario, res: 
       await AutenticacionService.logout(token);
     }
     res.json({ message: 'Logout exitoso' });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -116,8 +128,8 @@ app.get('/api/auth/me', autenticacion, async (req: RequestConUsuario, res: Respo
   try {
     const usuario = await AutenticacionService.obtenerUsuarioCompleto(req.usuario.id);
     res.json(usuario);
-  } catch (err: any) {
-    res.status(401).json({ error: err.message });
+  } catch (err) {
+    res.status(401).json({ error: mensajeDe(err) });
   }
 });
 
@@ -134,8 +146,8 @@ app.get('/api/usuarios', autenticacion, requierePermiso('usuarios_gestionar'), a
   try {
     const usuarios = await AutenticacionService.listarUsuarios();
     res.json(usuarios);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -144,8 +156,8 @@ app.post('/api/usuarios', autenticacion, requierePermiso('usuarios_gestionar'), 
     const usuario = await AutenticacionService.crearUsuario(req.body);
     AuditoriaService.registrarOperacion('usuarios', 'INSERT', usuario.id, null, usuario, req.usuario?.id, req.ip);
     res.json(usuario);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -155,8 +167,8 @@ app.put('/api/usuarios/:id/rol', autenticacion, requierePermiso('usuarios_gestio
     const usuario = await AutenticacionService.cambiarRol(req.params.id, nuevo_rol_id);
     AuditoriaService.registrarOperacion('usuarios', 'UPDATE', req.params.id, null, { rol_id: nuevo_rol_id }, req.usuario?.id, req.ip);
     res.json(usuario);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -166,8 +178,8 @@ app.get('/api/reportes/ventas', autenticacion, async (req: RequestConUsuario, re
   try {
     const reporte = await ReportesService.reporteVentas(req.usuario.id, req.permisos || [], req.query);
     res.json(reporte);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -175,8 +187,8 @@ app.get('/api/reportes/compras', autenticacion, async (req: RequestConUsuario, r
   try {
     const reporte = await ReportesService.reporteCompras(req.usuario.id, req.permisos || [], req.query);
     res.json(reporte);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -184,8 +196,8 @@ app.get('/api/reportes/financieros', autenticacion, async (req: RequestConUsuari
   try {
     const reporte = await ReportesService.reporteFinanciero(req.usuario.id, req.permisos || [], req.query);
     res.json(reporte);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -193,8 +205,8 @@ app.get('/api/reportes/impositiva', autenticacion, async (req: RequestConUsuario
   try {
     const reporte = await ReportesService.reporteImpositiva(req.usuario.id, req.permisos || [], req.query);
     res.json(reporte);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -202,8 +214,8 @@ app.get('/api/reportes/clientes', autenticacion, async (req: RequestConUsuario, 
   try {
     const reporte = await ReportesService.reporteClientes(req.usuario.id, req.permisos || []);
     res.json(reporte);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -211,8 +223,8 @@ app.get('/api/reportes/proveedores', autenticacion, async (req: RequestConUsuari
   try {
     const reporte = await ReportesService.reporteProveedores(req.usuario.id, req.permisos || []);
     res.json(reporte);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -220,8 +232,8 @@ app.get('/api/reportes/auditoria', autenticacion, async (req: RequestConUsuario,
   try {
     const reporte = await ReportesService.reporteAuditoria(req.usuario.id, req.permisos || [], req.query);
     res.json(reporte);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -367,7 +379,7 @@ app.post('/api/clientes', autenticacion, requierePermiso('clientes_crear'), (req
       if (err) return res.status(500).json({ error: err.message });
       AuditoriaService.registrarOperacion('clientes', 'INSERT', id, null, req.body, req.usuario?.id, req.ip);
 
-      const contactos: any[] = Array.isArray(req.body.contactos) ? req.body.contactos : [];
+      const contactos: ContactoClienteEntrada[] = Array.isArray(req.body.contactos) ? req.body.contactos : [];
       contactos.forEach((c) => {
         db.run(
           `INSERT INTO contactos_cliente (id, cliente_id, nombre, apellido, email, rol, telefono, interno, skype)
@@ -588,8 +600,8 @@ app.post('/api/facturas', autenticacion, requierePermiso('facturas_crear'), asyn
     );
     AuditoriaService.registrarOperacion('facturas', 'INSERT', factura.id, null, factura, req.usuario?.id, req.ip);
     res.json(factura);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -628,8 +640,8 @@ app.post('/api/cobros', autenticacion, requierePermiso('cobros_registrar'), asyn
     const result = await VentasService.registrarCobro(factura_id, monto, cuenta_banco_id);
     AuditoriaService.registrarOperacion('cobros', 'INSERT', factura_id, null, { monto, cuenta_banco_id }, req.usuario?.id, req.ip);
     res.json(result);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -641,8 +653,8 @@ app.post('/api/notas-credito', autenticacion, requierePermiso('notas_credito_cre
     const nc = await VentasService.crearNotaCredito(factura_id, motivo);
     AuditoriaService.registrarOperacion('notas_credito', 'INSERT', nc.id, null, nc, req.usuario?.id, req.ip);
     res.json(nc);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -652,8 +664,8 @@ app.get('/api/tesoreria/estado', autenticacion, requierePermiso('tesoreria_ver')
   try {
     const estado = await TesoreriaService.obtenerEstadoTesoreria();
     res.json(estado);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -682,8 +694,8 @@ app.get('/api/auditoria/:tabla/:id', autenticacion, requierePermiso('auditoria_v
     const { tabla, id } = req.params;
     const historial = await AuditoriaService.obtenerHistorial(tabla, id);
     res.json(historial);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -715,8 +727,8 @@ app.post('/api/ordenes-publicidad', autenticacion, requierePermiso('topview_crea
     }
 
     res.json({ ...orden, _clonado: clonado });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -753,8 +765,8 @@ app.post('/api/ordenes-publicidad/por-mes', autenticacion, requierePermiso('topv
     }
 
     res.json({ ordenes });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -762,8 +774,8 @@ app.put('/api/ordenes-publicidad/:id', autenticacion, requierePermiso('topview_e
   try {
     const { orden, clonado } = await TopviewService.actualizarOrden(req.params.id, req.body);
     res.json({ ...orden, _clonado: clonado });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -775,8 +787,8 @@ app.get('/api/ordenes-publicidad/ejecucion', autenticacion, requierePermiso('top
     const tipo_anunciante = (req.query.tipo_anunciante as string) || undefined;
     const ordenes = await TopviewService.listarEjecucion({ mes, ano, tipo_anunciante });
     res.json(ordenes);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -785,8 +797,8 @@ app.get('/api/ordenes-publicidad/:id', autenticacion, requierePermiso('topview_v
     const incluirComisiones = !!req.permisos?.includes('topview_netos_ver');
     const orden = await TopviewService.obtenerOrden(req.params.id, incluirComisiones);
     res.json(orden);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -804,8 +816,8 @@ app.post(
         AuditoriaService.registrarOperacion('ordenes_publicidad', 'INSERT', orden.id, null, orden, req.usuario?.id, req.ip);
       }
       res.json({ orden, ya_existia: yaExistia });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      res.status(500).json({ error: mensajeDe(err) });
     }
   }
 );
@@ -817,8 +829,8 @@ app.get('/api/ordenes-publicidad/:id/asana-preview', autenticacion, requierePerm
   try {
     const tarea = await AsanaService.construirTarea(req.params.id);
     res.json(tarea);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -826,8 +838,8 @@ app.post('/api/ordenes-publicidad/:id/asana', autenticacion, requierePermiso('to
   try {
     const resultado = await AsanaService.generarTarea(req.params.id);
     res.json(resultado);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -835,8 +847,8 @@ app.post('/api/ordenes-publicidad/:id/asana/asignar', autenticacion, requierePer
   try {
     await AsanaService.asignarResponsables(req.params.id);
     res.json({ ok: true });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -844,8 +856,8 @@ app.delete('/api/ordenes-publicidad/:id/asana', autenticacion, requierePermiso('
   try {
     const resultado = await AsanaService.borrarTareasDesde(req.params.id);
     res.json(resultado);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -860,8 +872,8 @@ app.post('/api/ordenes-publicidad/asana/generar-masivo', autenticacion, requiere
     if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: 'Faltan ids de órdenes.' });
     const resultado = await AsanaService.generarTareas(ids);
     res.json(resultado);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -871,8 +883,8 @@ app.post('/api/ordenes-publicidad/asana/asignar-masivo', autenticacion, requiere
     if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: 'Faltan ids de órdenes.' });
     const resultado = await AsanaService.asignarResponsablesMasivo(ids);
     res.json(resultado);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -882,8 +894,8 @@ app.delete('/api/ordenes-publicidad/asana/borrar-masivo', autenticacion, requier
     if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: 'Faltan ids de órdenes.' });
     const resultado = await AsanaService.borrarTareas(ids);
     res.json(resultado);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -898,8 +910,8 @@ app.post('/api/ordenes-publicidad/telegram/avisar-masivo', autenticacion, requie
       if (await TopviewService.avisarOrdenATelegram(id)) enviadas += 1;
     }
     res.json({ enviadas, total: ids.length });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -909,8 +921,8 @@ app.get('/api/telegram/grupos', autenticacion, requierePermiso('topview_editar')
   try {
     const grupos = await TelegramService.listarGrupos();
     res.json(grupos);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -924,8 +936,8 @@ app.put(
       if (!chatId) return res.status(400).json({ error: 'Falta chatId.' });
       await TelegramService.guardarChatId(req.params.nombre, String(chatId));
       res.json({ ok: true });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      res.status(500).json({ error: mensajeDe(err) });
     }
   }
 );
@@ -943,8 +955,8 @@ app.put(
       if (!token) return res.status(400).json({ error: 'Falta token.' });
       await TelegramService.guardarBotToken(req.params.nombre, String(token));
       res.json({ ok: true });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      res.status(500).json({ error: mensajeDe(err) });
     }
   }
 );
@@ -957,8 +969,8 @@ app.post(
     try {
       await TelegramService.enviarAGrupo(req.params.nombre, `✅ Prueba de conexión desde Sistema de Facturación — ${new Date().toLocaleString('es-AR')}`);
       res.json({ ok: true });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      res.status(500).json({ error: mensajeDe(err) });
     }
   }
 );
@@ -970,8 +982,8 @@ app.get('/api/telegram/mensajes', autenticacion, requierePermiso('topview_editar
   try {
     const mensajes = await TelegramService.listarMensajes(req.query.limit ? Number(req.query.limit) : 30);
     res.json(mensajes);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -979,8 +991,8 @@ app.delete('/api/telegram/mensajes/:id', autenticacion, requierePermiso('topview
   try {
     await TelegramService.borrarMensajeLogueado(req.params.id);
     res.json({ ok: true });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -999,8 +1011,8 @@ app.get('/api/telegram/updates', autenticacion, requierePermiso('topview_editar'
     const resp = await fetch(`https://api.telegram.org/bot${token}/getUpdates`);
     const datos = await resp.json();
     res.json(datos);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -1011,8 +1023,8 @@ app.get('/api/asana/config', autenticacion, requierePermiso('topview_editar'), a
     const proyecto = await AsanaConfigService.obtenerProyecto();
     const secciones = await AsanaConfigService.listarSecciones();
     res.json({ proyecto, secciones });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -1022,8 +1034,8 @@ app.put('/api/asana/config/proyecto', autenticacion, requierePermiso('topview_ed
     if (!gid) throw new Error('Elegí un proyecto.');
     await AsanaConfigService.setProyecto(gid, nombre || '');
     res.json({ ok: true });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -1033,8 +1045,8 @@ app.post('/api/asana/config/secciones', autenticacion, requierePermiso('topview_
     if (!ano || !mes || !seccion_gid) throw new Error('Completá mes, año y sección.');
     await AsanaConfigService.guardarSeccion(Number(ano), Number(mes), seccion_gid, seccion_nombre || '');
     res.json({ ok: true });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -1042,8 +1054,8 @@ app.delete('/api/asana/config/secciones/:id', autenticacion, requierePermiso('to
   try {
     await AsanaConfigService.eliminarSeccion(req.params.id);
     res.json({ ok: true });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -1051,8 +1063,8 @@ app.get('/api/asana/proyectos-disponibles', autenticacion, requierePermiso('topv
   try {
     const proyectos = await AsanaConfigService.listarProyectosDisponibles();
     res.json(proyectos);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -1064,8 +1076,8 @@ app.get(
     try {
       const secciones = await AsanaConfigService.listarSeccionesDisponibles(req.params.gid);
       res.json(secciones);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      res.status(500).json({ error: mensajeDe(err) });
     }
   }
 );
@@ -1080,8 +1092,8 @@ app.get('/api/ordenes-publicidad', autenticacion, requierePermiso('topview_ver')
     };
     const ordenes = await TopviewService.listarOrdenes(filtros);
     res.json(ordenes);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -1099,13 +1111,13 @@ app.delete('/api/ordenes-publicidad/:id', autenticacion, requierePermiso('topvie
       try {
         const [r] = await AsanaService.borrarTareasDesde(req.params.id);
         if (r?.error) asanaError = r.error;
-      } catch (e: any) {
-        asanaError = e.message;
+      } catch (e) {
+        asanaError = mensajeDe(e);
       }
     }
     res.json({ message: 'Orden eliminada', asanaError });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -1113,8 +1125,8 @@ app.get('/api/ordenes-produccion', autenticacion, requierePermiso('topview_ver')
   try {
     const ordenes = await ProduccionTopviewService.listarOrdenesProduccion();
     res.json(ordenes);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -1122,8 +1134,8 @@ app.get('/api/ordenes-produccion/:id', autenticacion, requierePermiso('topview_v
   try {
     const orden = await ProduccionTopviewService.obtenerOrdenProduccion(req.params.id);
     res.json(orden);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -1131,8 +1143,8 @@ app.post('/api/ordenes-produccion', autenticacion, requierePermiso('topview_crea
   try {
     const orden = await ProduccionTopviewService.crearOrdenProduccion(req.body);
     res.json(orden);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -1140,8 +1152,8 @@ app.put('/api/ordenes-produccion/:id', autenticacion, requierePermiso('topview_e
   try {
     const orden = await ProduccionTopviewService.actualizarOrdenProduccion(req.params.id, req.body);
     res.json(orden);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -1149,8 +1161,8 @@ app.delete('/api/ordenes-produccion/:id', autenticacion, requierePermiso('topvie
   try {
     await ProduccionTopviewService.eliminarOrdenProduccion(req.params.id);
     res.json({ message: 'Orden de producción eliminada' });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -1158,8 +1170,8 @@ app.post('/api/ordenes-produccion/:id/facturar', autenticacion, requierePermiso(
   try {
     const facturaId = await ProduccionTopviewService.generarFactura(req.params.id);
     res.json({ message: 'Factura generada', factura_id: facturaId });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -1168,8 +1180,8 @@ app.put('/api/ordenes-produccion/:id/estado', autenticacion, requierePermiso('to
     const { nuevoEstado } = req.body;
     await ProduccionTopviewService.actualizarEstado(req.params.id, nuevoEstado);
     res.json({ message: 'Estado actualizado' });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -1178,8 +1190,8 @@ app.put('/api/ordenes-produccion/:id/facturacion-colppy', autenticacion, requier
     const { numero_factura_colppy, numero_nc_colppy } = req.body;
     await ProduccionTopviewService.actualizarFacturacionColppy(req.params.id, { numero_factura_colppy, numero_nc_colppy });
     res.json({ message: 'Datos de Colppy actualizados' });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -1188,8 +1200,8 @@ app.put('/api/ordenes-publicidad/:id/estado', autenticacion, requierePermiso('to
     const { nuevoEstado, numero_factura_colppy, numero_nc_colppy } = req.body;
     await TopviewService.actualizarEstado(req.params.id, nuevoEstado, { numero_factura_colppy, numero_nc_colppy });
     res.json({ message: 'Estado actualizado' });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -1198,8 +1210,8 @@ app.put('/api/ordenes-publicidad/:id/facturacion-colppy', autenticacion, requier
     const { numero_factura_colppy, numero_nc_colppy } = req.body;
     await TopviewService.actualizarFacturacionColppy(req.params.id, { numero_factura_colppy, numero_nc_colppy });
     res.json({ message: 'Datos de Colppy actualizados' });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -1207,32 +1219,32 @@ app.put('/api/ordenes-publicidad/:id/facturacion-colppy', autenticacion, requier
 app.get('/api/locaciones', autenticacion, requierePermiso('topview_ver'), async (req: RequestConUsuario, res: Response) => {
   try {
     res.json(await LocacionesService.listarLocaciones());
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
 app.get('/api/locaciones/:id', autenticacion, requierePermiso('topview_ver'), async (req: RequestConUsuario, res: Response) => {
   try {
     res.json(await LocacionesService.obtenerLocacion(req.params.id));
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
 app.post('/api/locaciones', autenticacion, requierePermiso('topview_crear'), async (req: RequestConUsuario, res: Response) => {
   try {
     res.json(await LocacionesService.crearLocacion(req.body));
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
 app.put('/api/locaciones/:id', autenticacion, requierePermiso('topview_editar'), async (req: RequestConUsuario, res: Response) => {
   try {
     res.json(await LocacionesService.actualizarLocacion(req.params.id, req.body));
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -1240,24 +1252,24 @@ app.delete('/api/locaciones/:id', autenticacion, requierePermiso('topview_editar
   try {
     await LocacionesService.eliminarLocacion(req.params.id);
     res.json({ message: 'Locación eliminada' });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
 app.post('/api/locaciones/:id/soportes', autenticacion, requierePermiso('topview_editar'), async (req: RequestConUsuario, res: Response) => {
   try {
     res.json(await LocacionesService.agregarSoporte(req.params.id, req.body));
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
 app.put('/api/locaciones/soportes/:capacidadId', autenticacion, requierePermiso('topview_editar'), async (req: RequestConUsuario, res: Response) => {
   try {
     res.json(await LocacionesService.actualizarSoporte(req.params.capacidadId, req.body));
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -1265,8 +1277,8 @@ app.delete('/api/locaciones/soportes/:capacidadId', autenticacion, requierePermi
   try {
     await LocacionesService.eliminarSoporte(req.params.capacidadId);
     res.json({ message: 'Soporte eliminado de la locación' });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -1275,8 +1287,8 @@ app.put('/api/ordenes-publicidad/:id/cobro', autenticacion, requierePermiso('top
     const { cobrado, fecha_cobro } = req.body;
     await TopviewService.actualizarCobro(req.params.id, !!cobrado, fecha_cobro);
     res.json({ message: 'Cobro actualizado' });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -1285,8 +1297,8 @@ app.put('/api/ordenes-publicidad/:id/certificacion', autenticacion, requierePerm
     const { enviada } = req.body;
     await TopviewService.actualizarCertificacion(req.params.id, !!enviada);
     res.json({ message: 'Certificación actualizada' });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -1294,8 +1306,8 @@ app.post('/api/ordenes-publicidad/:id/avisar-telegram', autenticacion, requiereP
   try {
     const enviado = await TopviewService.avisarOrdenATelegram(req.params.id);
     res.json({ enviado });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -1310,8 +1322,8 @@ app.post('/api/ordenes-publicidad/:id/documentos', autenticacion, requierePermis
       descripcion
     );
     res.json(documento);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -1321,8 +1333,8 @@ app.post(
   autenticacion,
   requierePermiso('topview_editar'),
   (req: RequestConUsuario, res: Response, next: NextFunction) => {
-    uploadDocumento.single('archivo')(req, res, (err: any) => {
-      if (err) return res.status(400).json({ error: err.message });
+    uploadDocumento.single('archivo')(req, res, (err: unknown) => {
+      if (err) return res.status(400).json({ error: mensajeDe(err) });
       next();
     });
   },
@@ -1336,14 +1348,14 @@ app.post(
         req.file.originalname,
         req.file.mimetype,
         undefined,
-        (req.body as any).descripcion,
+        (req.body as { descripcion?: string }).descripcion,
         rutaRelativa,
         req.usuario?.id,
         req.ip
       );
       res.json(documento);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      res.status(500).json({ error: mensajeDe(err) });
     }
   }
 );
@@ -1371,8 +1383,8 @@ app.post('/api/ordenes-publicidad/:id/facturas', autenticacion, requierePermiso(
     const facturas = await TopviewService.generarFacturasReplicadas(req.params.id);
     AuditoriaService.registrarOperacion('facturas', 'INSERT', req.params.id, null, { facturas_generadas: facturas.length }, req.usuario?.id, req.ip);
     res.json({ message: `${facturas.length} facturas generadas`, facturas });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -1392,8 +1404,8 @@ app.get('/api/topview/agencias', autenticacion, async (req: RequestConUsuario, r
       });
     });
     res.json(agencias);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -1406,8 +1418,8 @@ app.get('/api/topview/intermediarios', autenticacion, requierePermiso('topview_c
       });
     });
     res.json(intermediarios);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -1459,8 +1471,8 @@ app.get('/api/topview/intermediarios/reporte', autenticacion, requierePermiso('t
     }
 
     res.json(Array.from(porIntermediario.values()));
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -1468,8 +1480,8 @@ app.get('/api/liquidaciones/concesionarios', autenticacion, requierePermiso('liq
   try {
     const concesionarios = await LiquidacionesService.listarConcesionarios();
     res.json(concesionarios);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -1527,8 +1539,8 @@ app.get('/api/liquidaciones', autenticacion, requierePermiso('liquidaciones_ver'
       percepciones: percepcionesCalculadas,
       total_a_pagar: totalAPagar,
     });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -1536,8 +1548,8 @@ app.get('/api/liquidaciones/condiciones', autenticacion, requierePermiso('liquid
   try {
     const condiciones = await LiquidacionesService.listarCondiciones();
     res.json(condiciones);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -1554,8 +1566,8 @@ app.put('/api/liquidaciones/condiciones/:concesionarioId', autenticacion, requie
       notas
     );
     res.json({ ok: true });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message });
+  } catch (err) {
+    res.status(400).json({ error: mensajeDe(err) });
   }
 });
 
@@ -1569,8 +1581,8 @@ app.put('/api/liquidaciones/condiciones/:concesionarioId/esteban-vivo', autentic
       porcentajeVivo: Number(porcentaje_vivo) || 0,
     });
     res.json({ ok: true });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message });
+  } catch (err) {
+    res.status(400).json({ error: mensajeDe(err) });
   }
 });
 
@@ -1580,8 +1592,8 @@ app.get('/api/liquidaciones/esteban-vivo', autenticacion, requierePermiso('liqui
     if (!mes || !ano) return res.status(400).json({ error: 'Faltan mes o año.' });
     const resultado = await LiquidacionesService.calcularEstebanVivoTodos(Number(mes), Number(ano));
     res.json(resultado);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -1590,8 +1602,8 @@ app.put('/api/liquidaciones/condiciones/:concesionarioId/iris-chiterer', autenti
     const { porcentaje } = req.body;
     await LiquidacionesService.guardarCondicionIrisChiterer(req.params.concesionarioId, Number(porcentaje) || 0);
     res.json({ ok: true });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message });
+  } catch (err) {
+    res.status(400).json({ error: mensajeDe(err) });
   }
 });
 
@@ -1601,8 +1613,8 @@ app.get('/api/liquidaciones/iris-chiterer', autenticacion, requierePermiso('liqu
     if (!mes || !ano) return res.status(400).json({ error: 'Faltan mes o año.' });
     const resultado = await LiquidacionesService.calcularIrisChitererTodos(Number(mes), Number(ano));
     res.json(resultado);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -1615,8 +1627,8 @@ app.put('/api/liquidaciones/condiciones/:concesionarioId/comerciales', autentica
       ocultarLiquidacionDinero: !!ocultar_liquidacion_dinero,
     });
     res.json({ ok: true });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message });
+  } catch (err) {
+    res.status(400).json({ error: mensajeDe(err) });
   }
 });
 
@@ -1626,8 +1638,8 @@ app.get('/api/liquidaciones/comerciales', autenticacion, requierePermiso('liquid
     if (!concesionario_id || !mes || !ano) return res.status(400).json({ error: 'Faltan concesionario_id, mes o año.' });
     const resultado = await LiquidacionesService.calcularCuentaCorrienteComerciales(String(concesionario_id), Number(mes), Number(ano));
     res.json(resultado);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -1639,8 +1651,8 @@ app.get('/api/liquidaciones/oxant', autenticacion, requierePermiso('liquidacione
     }
     const resultado = await LiquidacionesService.calcularOxant(Number(mes), Number(ano));
     res.json(resultado);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -1652,8 +1664,8 @@ app.put('/api/liquidaciones/condiciones/oxant', autenticacion, requierePermiso('
       ivaPorcentaje: Number(iva_porcentaje) || 0,
     });
     res.json({ ok: true });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message });
+  } catch (err) {
+    res.status(400).json({ error: mensajeDe(err) });
   }
 });
 
@@ -1667,8 +1679,8 @@ app.post('/api/liquidaciones/condiciones/:concesionarioId/percepciones', autenti
       tipo === 'resta' ? 'resta' : 'suma'
     );
     res.json(percepcion);
-  } catch (err: any) {
-    res.status(400).json({ error: err.message });
+  } catch (err) {
+    res.status(400).json({ error: mensajeDe(err) });
   }
 });
 
@@ -1682,8 +1694,8 @@ app.put('/api/liquidaciones/condiciones/percepciones/:id', autenticacion, requie
       tipo === 'resta' ? 'resta' : 'suma'
     );
     res.json(percepcion);
-  } catch (err: any) {
-    res.status(400).json({ error: err.message });
+  } catch (err) {
+    res.status(400).json({ error: mensajeDe(err) });
   }
 });
 
@@ -1691,8 +1703,8 @@ app.delete('/api/liquidaciones/condiciones/percepciones/:id', autenticacion, req
   try {
     await LiquidacionesService.eliminarPercepcion(req.params.id);
     res.json({ ok: true });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message });
+  } catch (err) {
+    res.status(400).json({ error: mensajeDe(err) });
   }
 });
 
@@ -1707,8 +1719,8 @@ app.put('/api/liquidaciones/:ordenDetalleId/estado-especial', autenticacion, req
     }
     await LiquidacionesService.marcarEstadoEspecial(req.params.ordenDetalleId, Number(mes), Number(ano), estado_especial);
     res.json({ ok: true });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message });
+  } catch (err) {
+    res.status(400).json({ error: mensajeDe(err) });
   }
 });
 
@@ -1720,8 +1732,8 @@ app.put('/api/liquidaciones/:ordenDetalleId', autenticacion, requierePermiso('li
     }
     await LiquidacionesService.guardarMonto(req.params.ordenDetalleId, Number(mes), Number(ano), Number(monto));
     res.json({ ok: true });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message });
+  } catch (err) {
+    res.status(400).json({ error: mensajeDe(err) });
   }
 });
 
@@ -1733,8 +1745,8 @@ app.put('/api/liquidaciones/:ordenDetalleId/exclusion', autenticacion, requiereP
     }
     await LiquidacionesService.marcarExclusion(req.params.ordenDetalleId, Number(mes), Number(ano), !!excluida);
     res.json({ ok: true });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message });
+  } catch (err) {
+    res.status(400).json({ error: mensajeDe(err) });
   }
 });
 
@@ -1753,8 +1765,8 @@ app.post('/api/liquidaciones/manual', autenticacion, requierePermiso('liquidacio
       tipo: tipo === 'resta' ? 'resta' : 'suma',
     });
     res.json(linea);
-  } catch (err: any) {
-    res.status(400).json({ error: err.message });
+  } catch (err) {
+    res.status(400).json({ error: mensajeDe(err) });
   }
 });
 
@@ -1767,8 +1779,8 @@ app.put('/api/liquidaciones/manual/:id', autenticacion, requierePermiso('liquida
       tipo: tipo === 'resta' ? 'resta' : 'suma',
     });
     res.json(linea);
-  } catch (err: any) {
-    res.status(400).json({ error: err.message });
+  } catch (err) {
+    res.status(400).json({ error: mensajeDe(err) });
   }
 });
 
@@ -1776,8 +1788,8 @@ app.delete('/api/liquidaciones/manual/:id', autenticacion, requierePermiso('liqu
   try {
     await LiquidacionesService.eliminarLineaManual(req.params.id);
     res.json({ ok: true });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message });
+  } catch (err) {
+    res.status(400).json({ error: mensajeDe(err) });
   }
 });
 
@@ -1870,10 +1882,10 @@ app.delete('/api/topview/intermediarios/:id', autenticacion, requierePermiso('to
 app.get('/api/topview/condiciones-agencia', autenticacion, requierePermiso('topview_ver'), async (req: RequestConUsuario, res: Response) => {
   const { agencia_id } = req.query;
   let query = 'SELECT * FROM condiciones_agencia WHERE habilitado = 1';
-  const params: any[] = [];
+  const params: Parametro[] = [];
   if (agencia_id) {
     query += ' AND agencia_id = ?';
-    params.push(agencia_id);
+    params.push(String(agencia_id));
   }
   db.all(query, params, (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
@@ -1934,10 +1946,10 @@ app.delete('/api/topview/condiciones-agencia/:id', autenticacion, requierePermis
 app.get('/api/topview/condiciones-intermediario', autenticacion, requierePermiso('topview_comisionistas_ver'), async (req: RequestConUsuario, res: Response) => {
   const { intermediario_id } = req.query;
   let query = 'SELECT * FROM condiciones_intermediario WHERE habilitado = 1';
-  const params: any[] = [];
+  const params: Parametro[] = [];
   if (intermediario_id) {
     query += ' AND intermediario_id = ?';
-    params.push(intermediario_id);
+    params.push(String(intermediario_id));
   }
   db.all(query, params, (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
@@ -2173,8 +2185,8 @@ app.get('/api/topview/vendedores/reporte', autenticacion, requierePermiso('topvi
     });
 
     res.json(reporte);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
@@ -2265,7 +2277,7 @@ app.get('/api/comisiones-efectivo', autenticacion, requierePermiso('topview_comi
     JOIN ordenes_publicidad o ON o.id = ce.orden_id
     LEFT JOIN facturas f ON f.id = ce.factura_id
   `;
-  const params: any[] = [];
+  const params: Parametro[] = [];
   if (pagado === '0' || pagado === '1') {
     query += ' WHERE ce.pagado = ?';
     params.push(pagado);
@@ -2301,14 +2313,14 @@ app.get('/api/reportes/topview', autenticacion, requierePermiso('topview_ver'), 
     const incluirNetos = !!req.permisos?.includes('topview_netos_ver');
     const reporte = await TopviewService.reporteOrdenes(incluirNetos);
     res.json(reporte);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    res.status(500).json({ error: mensajeDe(err) });
   }
 });
 
 // ==================== ERROR HANDLING ====================
 
-app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.error(err.stack);
   res.status(500).json({ error: 'Internal server error', message: err.message });
 });
