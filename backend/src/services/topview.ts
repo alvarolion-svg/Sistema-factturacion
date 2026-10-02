@@ -325,6 +325,22 @@ export class TopviewService {
     return { orden: ordenCreada, clonado };
   }
 
+  // Solo para deshacer una creación fallida (ver crearOrdenesPorMes): borra la
+  // orden recién creada con todo lo que se le generó. Nunca para órdenes con
+  // facturas o historial real — por eso las demás bajas son lógicas.
+  private static async borrarOrdenCreadaDefinitivamente(ordenId: string): Promise<void> {
+    for (const tabla of [
+      'replicaciones_facturacion',
+      'ordenes_intermediarios',
+      'ordenes_publicidad_detalles',
+      'contactos_email',
+      'arreglos_no_registrables',
+    ]) {
+      await this.runQuery(`DELETE FROM ${tabla} WHERE orden_id = ?`, [ordenId]);
+    }
+    await this.runQuery('DELETE FROM ordenes_publicidad WHERE id = ?', [ordenId]);
+  }
+
   /**
    * Alternativa a "Repetir automáticamente hasta": en vez de cargar un solo
    * mes y clonar hacia adelante (con REVISAR para completar después), el
@@ -342,6 +358,9 @@ export class TopviewService {
     if (!datos.periodo_desde || !datos.periodo_hasta) {
       throw new Error('El período (desde/hasta) es obligatorio.');
     }
+    if (!datos.fecha_facturacion) {
+      throw new Error('La fecha de facturación es obligatoria para partir la orden por mes.');
+    }
     const restarUnDia = (fecha: string): string => {
       const [y, m, d] = fecha.split('-').map(Number);
       const dt = new Date(Date.UTC(y, m - 1, d));
@@ -358,35 +377,46 @@ export class TopviewService {
     const ordenes: OrdenPublicidad[] = [];
     let primera = true;
     let indice = 0;
-    while (true) {
-      const siguienteDesde = addMonthClamped(desdeActual);
-      let hastaActual = restarUnDia(siguienteDesde);
-      const esUltimo = hastaActual >= datos.periodo_hasta;
-      if (esUltimo) hastaActual = datos.periodo_hasta;
+    // Todo o nada: si falla la creación de cualquier mes, se borran los que ya
+    // se habían creado (las órdenes se crean de a una, sin transacción única).
+    try {
+      while (true) {
+        const siguienteDesde = addMonthClamped(desdeActual);
+        let hastaActual = restarUnDia(siguienteDesde);
+        const esUltimo = hastaActual >= datos.periodo_hasta;
+        if (esUltimo) hastaActual = datos.periodo_hasta;
 
-      const orden = await this.crearOrdenUnica({
-        ...datos,
-        periodo_desde: desdeActual,
-        periodo_hasta: hastaActual,
-        fecha_facturacion: fechaFacturacionActual,
-        mes_ingreso: mesActual,
-        ano_ingreso: anoActual,
-        numero_orden_agencia: primera ? datos.numero_orden_agencia : datos.numeros_orden_agencia_por_mes?.[indice] || undefined,
-        vigencia_hasta_mes: undefined,
-        vigencia_hasta_ano: undefined,
-      });
-      ordenes.push(orden);
+        const orden = await this.crearOrdenUnica({
+          ...datos,
+          periodo_desde: desdeActual,
+          periodo_hasta: hastaActual,
+          fecha_facturacion: fechaFacturacionActual,
+          mes_ingreso: mesActual,
+          ano_ingreso: anoActual,
+          numero_orden_agencia: primera ? datos.numero_orden_agencia : datos.numeros_orden_agencia_por_mes?.[indice] || undefined,
+          vigencia_hasta_mes: undefined,
+          vigencia_hasta_ano: undefined,
+        });
+        ordenes.push(orden);
 
-      if (esUltimo) break;
-      desdeActual = siguienteDesde;
-      fechaFacturacionActual = addMonthClamped(fechaFacturacionActual);
-      mesActual += 1;
-      if (mesActual > 12) {
-        mesActual = 1;
-        anoActual += 1;
+        if (esUltimo) break;
+        desdeActual = siguienteDesde;
+        fechaFacturacionActual = addMonthClamped(fechaFacturacionActual);
+        mesActual += 1;
+        if (mesActual > 12) {
+          mesActual = 1;
+          anoActual += 1;
+        }
+        primera = false;
+        indice += 1;
       }
-      primera = false;
-      indice += 1;
+    } catch (err: any) {
+      for (const creada of ordenes) {
+        await this.borrarOrdenCreadaDefinitivamente(creada.id);
+      }
+      throw new Error(
+        `${err.message}${ordenes.length > 0 ? ` (no se creó ninguna orden: se deshizo ${ordenes.length === 1 ? 'la 1 ya creada' : `las ${ordenes.length} ya creadas`})` : ''}`
+      );
     }
     return { ordenes };
   }

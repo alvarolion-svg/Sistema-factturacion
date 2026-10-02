@@ -419,7 +419,9 @@ más importantes:
     sigue usando el campo principal). Frontend `OrdenesTab.tsx` (estado `numerosPorMes`), backend
     `crearOrdenesPorMes` (`numeros_orden_agencia_por_mes`). Probado de punta a punta (2026-10-02)
     con órdenes de prueba: 3 meses con N° T1/T2/T3, sin REVISAR y sin aviso de Telegram. Al probarlo se
-    vio que, si falla la creación de un mes intermedio, los meses ya creados quedan (no es atómico).
+    vio que, si fallaba la creación de un mes intermedio, los meses ya creados quedaban: se hizo todo o
+    nada (`crearOrdenesPorMes` deshace las ya creadas con `borrarOrdenCreadaDefinitivamente` y avisa;
+    además exige fecha de facturación). Probado forzando una falla en el 2º mes: no quedó nada.
 24. **Fix Asana: 404 "Unknown object" al regenerar tareas borradas a mano (2026-10-02)**: el
     usuario borró tareas directo en Asana y las volvió a crear desde la app; la app seguía con el
     `asana_task_gid` viejo guardado e intentaba actualizar una tarea inexistente (404). Verificado
