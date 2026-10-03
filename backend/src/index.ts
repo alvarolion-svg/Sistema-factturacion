@@ -10,13 +10,15 @@ import { TesoreriaService } from './services/tesoreria';
 import { AuditoriaService } from './services/auditoria';
 import { AutenticacionService } from './services/autenticacion';
 import { RolesService } from './services/roles';
+import { VistasOperativasService } from './services/vistasOperativas';
+import { limpiarOrdenParaVista, limpiarListaParaVista } from './services/visibilidadOrdenes';
 import { ReportesService } from './services/reportes';
 import { TopviewService } from './services/topview';
 import { TelegramService } from './services/telegram';
 import { ProduccionTopviewService } from './services/produccionTopview';
 import { LocacionesService } from './services/locaciones';
 import { LiquidacionesService } from './services/liquidaciones';
-import { mensajeDe, estadoHttpDe } from './errores';
+import { mensajeDe, estadoHttpDe, ErrorNegocio, ErrorPermiso } from './errores';
 import { Parametro, dbAll, dbGet } from './dbHelpers';
 
 // Filas que las rutas de este archivo leen con db.get/db.all directo — solo las
@@ -953,9 +955,36 @@ app.get('/api/ordenes-publicidad/ejecucion', autenticacion, requierePermiso('top
     const ano = req.query.ano ? Number(req.query.ano) : undefined;
     const tipo_anunciante = (req.query.tipo_anunciante as string) || undefined;
     const ordenes = await TopviewService.listarEjecucion({ mes, ano, tipo_anunciante });
-    res.json(ordenes);
+    res.json(limpiarListaParaVista(ordenes as unknown as Record<string, unknown>[], req.permisos || []));
   } catch (err) {
     res.status(500).json({ error: mensajeDe(err) });
+  }
+});
+
+// Vistas simples para el equipo operativo (sin montos). Van ANTES de "/:id".
+app.get('/api/ordenes-publicidad/novedades', autenticacion, requierePermiso('topview_novedades_ver'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    res.json(await VistasOperativasService.novedadesDelDia());
+  } catch (err) {
+    res.status(estadoHttpDe(err)).json({ error: mensajeDe(err) });
+  }
+});
+
+app.get('/api/ordenes-publicidad/campanas', autenticacion, requierePermiso('topview_campanas_ver'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const mes = req.query.mes ? Number(req.query.mes) : undefined;
+    const ano = req.query.ano ? Number(req.query.ano) : undefined;
+    res.json(await VistasOperativasService.campanas(mes, ano));
+  } catch (err) {
+    res.status(estadoHttpDe(err)).json({ error: mensajeDe(err) });
+  }
+});
+
+app.get('/api/ordenes-publicidad/campanas/:id', autenticacion, requierePermiso('topview_campanas_ver'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    res.json(await VistasOperativasService.campana(req.params.id));
+  } catch (err) {
+    res.status(estadoHttpDe(err) === 400 ? 404 : estadoHttpDe(err)).json({ error: mensajeDe(err) });
   }
 });
 
@@ -963,7 +992,7 @@ app.get('/api/ordenes-publicidad/:id', autenticacion, requierePermiso('topview_v
   try {
     const incluirComisiones = !!req.permisos?.includes('topview_netos_ver');
     const orden = await TopviewService.obtenerOrden(req.params.id, incluirComisiones);
-    res.json(orden);
+    res.json(limpiarOrdenParaVista(orden, req.permisos || []));
   } catch (err) {
     res.status(500).json({ error: mensajeDe(err) });
   }
@@ -1258,7 +1287,7 @@ app.get('/api/ordenes-publicidad', autenticacion, requierePermiso('topview_ver')
       fecha_hasta: req.query.fecha_hasta as string,
     };
     const ordenes = await TopviewService.listarOrdenes(filtros);
-    res.json(ordenes);
+    res.json(limpiarListaParaVista(ordenes as unknown as Record<string, unknown>[], req.permisos || []));
   } catch (err) {
     res.status(500).json({ error: mensajeDe(err) });
   }
@@ -1360,17 +1389,31 @@ app.put('/api/ordenes-produccion/:id/facturacion-colppy', autenticacion, requier
   }
 });
 
-app.put('/api/ordenes-publicidad/:id/estado', autenticacion, requierePermiso('topview_editar'), async (req: RequestConUsuario, res: Response) => {
+// Cambio de estado según el permiso de cada persona: marcar Revisada es de
+// Socios para arriba; Facturada y devolver a Cargada también puede el Facturador.
+// El Facturador solo puede facturar lo que ya está Revisada.
+app.put('/api/ordenes-publicidad/:id/estado', autenticacion, async (req: RequestConUsuario, res: Response) => {
   try {
     const { nuevoEstado, numero_factura_colppy, numero_nc_colppy } = req.body;
+    const permisos = req.permisos || [];
+    const puedeRevisar = permisos.includes('topview_marcar_revisada');
+    const puedeFacturar = permisos.includes('topview_facturar');
+    if (!['Cargada', 'Revisada', 'Facturada'].includes(nuevoEstado)) throw new ErrorNegocio('Estado inválido.');
+    const autorizado = nuevoEstado === 'Revisada' ? puedeRevisar : nuevoEstado === 'Facturada' ? puedeFacturar : puedeRevisar || puedeFacturar;
+    if (!autorizado) throw new ErrorPermiso('No tiene permiso para cambiar la orden a ese estado.');
+    if (nuevoEstado === 'Facturada' && !puedeRevisar) {
+      const actual = await dbGet<{ estado: string }>('SELECT estado FROM ordenes_publicidad WHERE id = ?', [req.params.id]);
+      if (!actual) throw new ErrorNegocio('Orden no encontrada.');
+      if (actual.estado === 'Cargada') throw new ErrorNegocio('La orden tiene que estar Revisada antes de facturarla.');
+    }
     await TopviewService.actualizarEstado(req.params.id, nuevoEstado, { numero_factura_colppy, numero_nc_colppy });
     res.json({ message: 'Estado actualizado' });
   } catch (err) {
-    res.status(500).json({ error: mensajeDe(err) });
+    res.status(estadoHttpDe(err)).json({ error: mensajeDe(err) });
   }
 });
 
-app.put('/api/ordenes-publicidad/:id/facturacion-colppy', autenticacion, requierePermiso('topview_editar'), async (req: RequestConUsuario, res: Response) => {
+app.put('/api/ordenes-publicidad/:id/facturacion-colppy', autenticacion, requierePermiso('topview_facturar'), async (req: RequestConUsuario, res: Response) => {
   try {
     const { numero_factura_colppy, numero_nc_colppy } = req.body;
     await TopviewService.actualizarFacturacionColppy(req.params.id, { numero_factura_colppy, numero_nc_colppy });
@@ -1447,7 +1490,7 @@ app.delete('/api/locaciones/soportes/:capacidadId', autenticacion, requierePermi
   }
 });
 
-app.put('/api/ordenes-publicidad/:id/cobro', autenticacion, requierePermiso('topview_editar'), async (req: RequestConUsuario, res: Response) => {
+app.put('/api/ordenes-publicidad/:id/cobro', autenticacion, requierePermiso('topview_facturar'), async (req: RequestConUsuario, res: Response) => {
   try {
     const { cobrado, fecha_cobro } = req.body;
     await TopviewService.actualizarCobro(req.params.id, !!cobrado, fecha_cobro);
@@ -1457,7 +1500,7 @@ app.put('/api/ordenes-publicidad/:id/cobro', autenticacion, requierePermiso('top
   }
 });
 
-app.put('/api/ordenes-publicidad/:id/certificacion', autenticacion, requierePermiso('topview_editar'), async (req: RequestConUsuario, res: Response) => {
+app.put('/api/ordenes-publicidad/:id/certificacion', autenticacion, requierePermiso('topview_certificacion_marcar'), async (req: RequestConUsuario, res: Response) => {
   try {
     const { enviada } = req.body;
     await TopviewService.actualizarCertificacion(req.params.id, !!enviada);

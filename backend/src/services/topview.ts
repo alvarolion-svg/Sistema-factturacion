@@ -72,6 +72,15 @@ interface DocumentoAdjunto {
   fecha_carga: string;
 }
 
+// Dónde sale una campaña: agrupado por soporte, con la cantidad real de cada
+// locación (y su punto de instalación). Lo usan el texto de Telegram y las
+// vistas de Tráfico y Operaciones — nunca lleva montos.
+export interface BloqueUbicacion {
+  tipo: string;
+  total: number;
+  lineas: Array<{ locacion: string; punto: string | null; cantidad: number }>;
+}
+
 interface OrdenAviso {
   id: string;
   nombre_anunciante: string;
@@ -1543,7 +1552,7 @@ export class TopviewService {
   // soporte (ej. GCBA Parkings: "Pisman" son 3 instalaciones físicas
   // distintas, cada una en una dirección) — si no se repite, el nombre de la
   // locación solo ya alcanza.
-  static async construirBloqueUbicacion(ordenId: string): Promise<string> {
+  static async obtenerBloquesUbicacion(ordenId: string): Promise<BloqueUbicacion[]> {
     const detalles = await this.queryAll<DetalleBloqueUbicacion>(
       `SELECT d.tipo_producto, d.cantidad, d.punto_instalacion, d.locacion_id, p.codigo as producto_codigo,
               l.nombre as locacion_nombre
@@ -1590,17 +1599,26 @@ export class TopviewService {
       g.total += cantidad;
       g.locaciones.push({ nombre: d.locacion_nombre, punto: d.punto_instalacion || null, cantidad });
     }
-    return Array.from(grupos.entries())
-      .map(([tipo, g]) => {
-        const lineas = g.locaciones.map((l) => {
+    return Array.from(grupos.entries()).map(([tipo, g]) => ({
+      tipo,
+      total: g.total,
+      lineas: g.locaciones.map((l) => ({ locacion: l.nombre, punto: l.punto, cantidad: l.cantidad })),
+    }));
+  }
+
+  static async construirBloqueUbicacion(ordenId: string): Promise<string> {
+    const bloques = await this.obtenerBloquesUbicacion(ordenId);
+    return bloques
+      .map((g) => {
+        const lineas = g.lineas.map((l) => {
           // El punto de instalación va siempre que exista (se repita o no la
           // locación): el aviso es para que Operaciones vaya a sacar fotos
           // a la instalación exacta, no alcanza con saber la locación sola.
-          const base = l.punto ? `${l.nombre} — ${l.punto}` : l.nombre;
+          const base = l.punto ? `${l.locacion} — ${l.punto}` : l.locacion;
           return `${base} (x${l.cantidad})`;
         });
-        if (lineas.length === 1) return `${tipo} — ${lineas[0]}`;
-        return `${tipo} — Total: ${g.total}\n` + lineas.map((l) => `• — ${l}`).join('\n');
+        if (lineas.length === 1) return `${g.tipo} — ${lineas[0]}`;
+        return `${g.tipo} — Total: ${g.total}\n` + lineas.map((l) => `• — ${l}`).join('\n');
       })
       .join('\n\n');
   }
