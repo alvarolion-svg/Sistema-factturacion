@@ -1767,19 +1767,30 @@ export class TopviewService {
     const formatFecha = (f: string) => (f ? f.split('-').reverse().join('/') : '-');
     let avisadas = 0;
     for (const o of candidatas) {
-      const vendedor = o.vendedor_id
-        ? await dbGet<{ nombre: string; apellido: string | null }>('SELECT nombre, apellido FROM vendedores WHERE id = ?', [o.vendedor_id])
-        : undefined;
-      const nombreVendedor = vendedor ? `${vendedor.nombre} ${vendedor.apellido || ''}`.trim() : '(sin vendedor asignado)';
-      const bloqueUbicacion = await this.construirBloqueUbicacion(o.id);
-      const texto =
-        `🆕 <b>${nombreVendedor}</b> — Pauta de ${o.nombre_anunciante} por terminar, preguntar al cliente si renueva\n` +
-        `${formatFecha(o.periodo_desde)} al ${formatFecha(o.periodo_hasta)}` +
-        (bloqueUbicacion ? `\n\n${bloqueUbicacion}` : '');
-      const { enviado } = await TelegramService.enviarAGrupo('Comercial', texto, o.id);
-      if (enviado) {
-        await this.runQuery('UPDATE ordenes_publicidad SET telegram_avisado_vencimiento_en = datetime("now") WHERE id = ?', [o.id]);
+      // Reserva atómica antes de enviar (ver avisarCampanasQueArrancanHoy):
+      // solo quien llega primero manda el aviso.
+      const { changes } = await dbRun(
+        `UPDATE ordenes_publicidad SET telegram_avisado_vencimiento_en = datetime('now') WHERE id = ? AND telegram_avisado_vencimiento_en IS NULL`,
+        [o.id]
+      );
+      if (changes !== 1) continue;
+      try {
+        const vendedor = o.vendedor_id
+          ? await dbGet<{ nombre: string; apellido: string | null }>('SELECT nombre, apellido FROM vendedores WHERE id = ?', [o.vendedor_id])
+          : undefined;
+        const nombreVendedor = vendedor ? `${vendedor.nombre} ${vendedor.apellido || ''}`.trim() : '(sin vendedor asignado)';
+        const bloqueUbicacion = await this.construirBloqueUbicacion(o.id);
+        const texto =
+          `🆕 <b>${nombreVendedor}</b> — Pauta de ${o.nombre_anunciante} por terminar, preguntar al cliente si renueva\n` +
+          `${formatFecha(o.periodo_desde)} al ${formatFecha(o.periodo_hasta)}` +
+          (bloqueUbicacion ? `\n\n${bloqueUbicacion}` : '');
+        const { enviado } = await TelegramService.enviarAGrupo('Comercial', texto, o.id);
+        if (!enviado) throw new Error('grupo sin chat_id');
         avisadas += 1;
+      } catch (err) {
+        // No salió: se libera la reserva para reintentar en el próximo chequeo.
+        await dbRun('UPDATE ordenes_publicidad SET telegram_avisado_vencimiento_en = NULL WHERE id = ?', [o.id]);
+        console.error('[Telegram] No se pudo avisar la pauta por terminar:', err instanceof Error ? err.message : err);
       }
     }
     return { avisadas };
