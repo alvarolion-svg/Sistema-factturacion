@@ -346,7 +346,7 @@ app.get('/api/reportes/ventas', autenticacion, async (req: RequestConUsuario, re
     const reporte = await ReportesService.reporteVentas(req.usuario!.id, req.permisos || [], req.query);
     res.json(reporte);
   } catch (err) {
-    res.status(500).json({ error: mensajeDe(err) });
+    res.status(estadoHttpDe(err)).json({ error: mensajeDe(err) });
   }
 });
 
@@ -355,7 +355,7 @@ app.get('/api/reportes/compras', autenticacion, async (req: RequestConUsuario, r
     const reporte = await ReportesService.reporteCompras(req.usuario!.id, req.permisos || [], req.query);
     res.json(reporte);
   } catch (err) {
-    res.status(500).json({ error: mensajeDe(err) });
+    res.status(estadoHttpDe(err)).json({ error: mensajeDe(err) });
   }
 });
 
@@ -364,7 +364,7 @@ app.get('/api/reportes/financieros', autenticacion, async (req: RequestConUsuari
     const reporte = await ReportesService.reporteFinanciero(req.usuario!.id, req.permisos || [], req.query);
     res.json(reporte);
   } catch (err) {
-    res.status(500).json({ error: mensajeDe(err) });
+    res.status(estadoHttpDe(err)).json({ error: mensajeDe(err) });
   }
 });
 
@@ -373,7 +373,7 @@ app.get('/api/reportes/impositiva', autenticacion, async (req: RequestConUsuario
     const reporte = await ReportesService.reporteImpositiva(req.usuario!.id, req.permisos || [], req.query);
     res.json(reporte);
   } catch (err) {
-    res.status(500).json({ error: mensajeDe(err) });
+    res.status(estadoHttpDe(err)).json({ error: mensajeDe(err) });
   }
 });
 
@@ -382,7 +382,7 @@ app.get('/api/reportes/clientes', autenticacion, async (req: RequestConUsuario, 
     const reporte = await ReportesService.reporteClientes(req.usuario!.id, req.permisos || []);
     res.json(reporte);
   } catch (err) {
-    res.status(500).json({ error: mensajeDe(err) });
+    res.status(estadoHttpDe(err)).json({ error: mensajeDe(err) });
   }
 });
 
@@ -391,7 +391,7 @@ app.get('/api/reportes/proveedores', autenticacion, async (req: RequestConUsuari
     const reporte = await ReportesService.reporteProveedores(req.usuario!.id, req.permisos || []);
     res.json(reporte);
   } catch (err) {
-    res.status(500).json({ error: mensajeDe(err) });
+    res.status(estadoHttpDe(err)).json({ error: mensajeDe(err) });
   }
 });
 
@@ -400,7 +400,7 @@ app.get('/api/reportes/auditoria', autenticacion, async (req: RequestConUsuario,
     const reporte = await ReportesService.reporteAuditoria(req.usuario!.id, req.permisos || [], req.query);
     res.json(reporte);
   } catch (err) {
-    res.status(500).json({ error: mensajeDe(err) });
+    res.status(estadoHttpDe(err)).json({ error: mensajeDe(err) });
   }
 });
 

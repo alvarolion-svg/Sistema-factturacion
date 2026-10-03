@@ -20,6 +20,7 @@ interface UsuarioFila {
   password: string;
   rol_id: string;
   departamento?: string;
+  vendedor_id?: string | null;
   activo: boolean;
   created_at: string;
   updated_at: string;
@@ -190,17 +191,19 @@ export class AutenticacionService {
     password: string;
     rol_id: string;
     departamento?: string;
+    vendedor_id?: string;
   }): Promise<Usuario> {
     this.validarPassword(datos.password);
+    const vendedorId = await this.validarVendedor(datos.vendedor_id);
     const passwordHash = await bcrypt.hash(datos.password, BCRYPT_SALT_ROUNDS);
     const id = uuid();
 
     await dbRun(
       `
-        INSERT INTO usuarios (id, nombre, email, password, rol_id, departamento)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO usuarios (id, nombre, email, password, rol_id, departamento, vendedor_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
       `,
-      [id, datos.nombre, datos.email, passwordHash, datos.rol_id, datos.departamento || null]
+      [id, datos.nombre, datos.email, passwordHash, datos.rol_id, datos.departamento || null, vendedorId]
     );
 
     // Obtener rol y permisos
@@ -248,6 +251,14 @@ export class AutenticacionService {
   }
 
   // ---- Gestión de usuarios: contraseñas, activación y datos ----
+
+  // Vincula el usuario a un vendedor (para "ver solo lo propio"). Vacío = sin vínculo.
+  private static async validarVendedor(vendedorId?: string | null): Promise<string | null> {
+    if (!vendedorId) return null;
+    const v = await dbGet<{ id: string }>('SELECT id FROM vendedores WHERE id = ? AND habilitado = 1', [vendedorId]);
+    if (!v) throw new ErrorNegocio('El vendedor elegido no existe.');
+    return vendedorId;
+  }
 
   private static validarPassword(password: unknown): string {
     if (typeof password !== 'string' || password.length < 8) {
@@ -347,7 +358,7 @@ export class AutenticacionService {
    */
   static async actualizarDatos(
     usuarioId: string,
-    datos: { nombre?: string; email?: string; departamento?: string }
+    datos: { nombre?: string; email?: string; departamento?: string; vendedor_id?: string | null }
   ): Promise<void> {
     const usuario = await dbGet<{ id: string }>('SELECT id FROM usuarios WHERE id = ?', [usuarioId]);
     if (!usuario) throw new ErrorNegocio('Usuario no encontrado.');
@@ -357,10 +368,12 @@ export class AutenticacionService {
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new ErrorNegocio('El email no es válido.');
     const repetido = await dbGet<{ id: string }>('SELECT id FROM usuarios WHERE lower(email) = ? AND id != ?', [email, usuarioId]);
     if (repetido) throw new ErrorNegocio('Ya hay otro usuario con ese email.');
-    await dbRun('UPDATE usuarios SET nombre = ?, email = ?, departamento = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [
+    const vendedorId = await this.validarVendedor(datos.vendedor_id);
+    await dbRun('UPDATE usuarios SET nombre = ?, email = ?, departamento = ?, vendedor_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [
       nombre,
       email,
       (datos.departamento || '').trim() || null,
+      vendedorId,
       usuarioId,
     ]);
   }
@@ -369,10 +382,11 @@ export class AutenticacionService {
    * Listar usuarios
    */
   static async listarUsuarios(): Promise<Usuario[]> {
-    const usuarios = await dbAll<UsuarioFila & { rol_nombre: string | null }>(`
-        SELECT u.*, r.nombre as rol_nombre
+    const usuarios = await dbAll<UsuarioFila & { rol_nombre: string | null; vendedor_nombre: string | null }>(`
+        SELECT u.*, r.nombre as rol_nombre, trim(v.nombre || ' ' || COALESCE(v.apellido, '')) as vendedor_nombre
         FROM usuarios u
         LEFT JOIN roles r ON u.rol_id = r.id
+        LEFT JOIN vendedores v ON v.id = u.vendedor_id
         ORDER BY u.nombre
       `);
     return usuarios.map((u) => ({
@@ -381,6 +395,8 @@ export class AutenticacionService {
       email: u.email,
       rol_id: u.rol_id,
       rol_nombre: u.rol_nombre,
+      vendedor_id: u.vendedor_id ?? null,
+      vendedor_nombre: u.vendedor_nombre || null,
       departamento: u.departamento,
       activo: u.activo,
       created_at: u.created_at,

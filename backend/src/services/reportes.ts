@@ -1,4 +1,5 @@
 import { dbAll, Parametro } from '../dbHelpers';
+import { ErrorPermiso } from '../errores';
 
 export interface FiltrosReporte {
   fecha_inicio?: string;
@@ -27,7 +28,7 @@ interface FilaConDeuda {
 
 export class ReportesService {
   private static exigirPermiso(permisos: string[], permiso: string, mensaje: string): void {
-    if (!permisos.includes(permiso)) throw new Error(mensaje);
+    if (!permisos.includes(permiso)) throw new ErrorPermiso(mensaje);
   }
 
   /**

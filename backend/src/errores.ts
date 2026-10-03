@@ -8,6 +8,10 @@ export function mensajeDe(err: unknown): string {
 // mensaje es para mostrarle al usuario tal cual.
 export class ErrorNegocio extends Error {}
 
+// La persona no tiene permiso para lo que pidió (se responde 403).
+export class ErrorPermiso extends ErrorNegocio {}
+
 export function estadoHttpDe(err: unknown): number {
+  if (err instanceof ErrorPermiso) return 403;
   return err instanceof ErrorNegocio ? 400 : 500;
 }

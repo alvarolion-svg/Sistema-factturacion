@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { authHeaders, mensajeError, scrollAlFormulario } from '../utils/api';
+import RolesPanel from './RolesPanel';
 
 interface Usuario {
   id: string;
@@ -9,7 +10,15 @@ interface Usuario {
   rol_id: string;
   rol_nombre: string | null;
   departamento: string | null;
+  vendedor_id: string | null;
+  vendedor_nombre: string | null;
   activo: boolean;
+}
+
+interface VendedorOpcion {
+  id: string;
+  nombre: string;
+  apellido: string | null;
 }
 
 interface Rol {
@@ -30,6 +39,7 @@ const USUARIO_VACIO = {
   password: '',
   rol_id: '',
   departamento: '',
+  vendedor_id: '',
 };
 
 function UsuariosView({ token, usuario }: UsuariosViewProps) {
@@ -38,6 +48,9 @@ function UsuariosView({ token, usuario }: UsuariosViewProps) {
     [usuario]
   );
   const puedeGestionar = permisos.has('usuarios_gestionar');
+  const puedeGestionarRoles = permisos.has('roles_gestionar');
+  const [pestana, setPestana] = useState<'usuarios' | 'roles'>('usuarios');
+  const [vendedores, setVendedores] = useState<VendedorOpcion[]>([]);
 
   const [usuarios, setUsuarios] = useState<Usuario[] | null>(null);
   const [roles, setRoles] = useState<Rol[]>([]);
@@ -55,7 +68,7 @@ function UsuariosView({ token, usuario }: UsuariosViewProps) {
 
   // Panel inline debajo de la fila: editar datos o definir una contraseña nueva.
   const [panel, setPanel] = useState<{ id: string; tipo: 'editar' | 'password' } | null>(null);
-  const [formEditar, setFormEditar] = useState({ nombre: '', email: '', departamento: '' });
+  const [formEditar, setFormEditar] = useState({ nombre: '', email: '', departamento: '', vendedor_id: '' });
   const [passNueva, setPassNueva] = useState('');
   const [guardandoPanel, setGuardandoPanel] = useState(false);
   const [errorPanel, setErrorPanel] = useState('');
@@ -63,7 +76,7 @@ function UsuariosView({ token, usuario }: UsuariosViewProps) {
   const [avisoAccion, setAvisoAccion] = useState('');
 
   const handleAbrirEditar = (u: Usuario) => {
-    setFormEditar({ nombre: u.nombre, email: u.email, departamento: u.departamento || '' });
+    setFormEditar({ nombre: u.nombre, email: u.email, departamento: u.departamento || '', vendedor_id: u.vendedor_id || '' });
     setErrorPanel('');
     setPanel({ id: u.id, tipo: 'editar' });
   };
@@ -121,6 +134,13 @@ function UsuariosView({ token, usuario }: UsuariosViewProps) {
       .catch((err) => {
         setError(mensajeError(err, 'No se pudieron cargar los usuarios.'));
         setUsuarios([]);
+      });
+
+    axios
+      .get('/api/topview/vendedores', authHeaders(token))
+      .then((res) => setVendedores(res.data || []))
+      .catch(() => {
+        // Sin permiso para ver vendedores: el vínculo simplemente no se ofrece.
       });
 
     axios
@@ -204,6 +224,21 @@ function UsuariosView({ token, usuario }: UsuariosViewProps) {
 
   return (
     <section className="view-card">
+      {puedeGestionarRoles && (
+        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+          <button className={pestana === 'usuarios' ? 'btn-primary' : 'btn-secondary'} onClick={() => setPestana('usuarios')}>
+            Usuarios
+          </button>
+          <button className={pestana === 'roles' ? 'btn-primary' : 'btn-secondary'} onClick={() => setPestana('roles')}>
+            Roles y permisos
+          </button>
+        </div>
+      )}
+
+      {pestana === 'roles' && puedeGestionarRoles && <RolesPanel token={token} />}
+
+      {pestana === 'usuarios' && (
+      <>
       <div className="view-header">
         <h2>Usuarios</h2>
         {puedeGestionar && (
@@ -280,6 +315,20 @@ function UsuariosView({ token, usuario }: UsuariosViewProps) {
             />
           </div>
 
+          {vendedores.length > 0 && (
+            <div className="form-group">
+              <label htmlFor="usuario_vendedor">Vendedor vinculado (opcional)</label>
+              <select id="usuario_vendedor" value={nuevoUsuario.vendedor_id} onChange={(e) => handleChange('vendedor_id', e.target.value)} disabled={guardando}>
+                <option value="">Sin vincular</option>
+                {vendedores.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {`${v.nombre} ${v.apellido || ''}`.trim()}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <div className="cliente-form-actions">
             <button type="submit" className="btn-primary" disabled={guardando}>
               {guardando ? 'Guardando...' : 'Guardar usuario'}
@@ -307,6 +356,7 @@ function UsuariosView({ token, usuario }: UsuariosViewProps) {
               <th>Email</th>
               <th>Rol</th>
               <th>Departamento</th>
+              <th>Vendedor</th>
               <th>Activo</th>
               {puedeGestionar && <th></th>}
             </tr>
@@ -319,6 +369,7 @@ function UsuariosView({ token, usuario }: UsuariosViewProps) {
                   <td>{u.email}</td>
                   <td>{u.rol_nombre || '-'}</td>
                   <td>{u.departamento || '-'}</td>
+                  <td>{u.vendedor_nombre || '-'}</td>
                   <td>{u.activo ? 'Sí' : 'No (desactivado)'}</td>
                   {puedeGestionar && (
                     <td className="acciones">
@@ -365,7 +416,7 @@ function UsuariosView({ token, usuario }: UsuariosViewProps) {
                 </tr>
                 {panel?.id === u.id && (
                   <tr>
-                    <td colSpan={6} style={{ background: '#f7f7f9' }}>
+                    <td colSpan={7} style={{ background: '#f7f7f9' }}>
                       {errorPanel && <div className="error-message">{errorPanel}</div>}
                       {panel.tipo === 'editar' ? (
                         <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
@@ -381,6 +432,19 @@ function UsuariosView({ token, usuario }: UsuariosViewProps) {
                             Departamento
                             <input value={formEditar.departamento} onChange={(e) => setFormEditar({ ...formEditar, departamento: e.target.value })} disabled={guardandoPanel} />
                           </label>
+                          {vendedores.length > 0 && (
+                            <label>
+                              Vendedor vinculado
+                              <select value={formEditar.vendedor_id} onChange={(e) => setFormEditar({ ...formEditar, vendedor_id: e.target.value })} disabled={guardandoPanel}>
+                                <option value="">Sin vincular</option>
+                                {vendedores.map((v) => (
+                                  <option key={v.id} value={v.id}>
+                                    {`${v.nombre} ${v.apellido || ''}`.trim()}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                          )}
                         </div>
                       ) : (
                         <label>
@@ -403,6 +467,8 @@ function UsuariosView({ token, usuario }: UsuariosViewProps) {
             ))}
           </tbody>
         </table>
+      )}
+      </>
       )}
     </section>
   );

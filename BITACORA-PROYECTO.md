@@ -596,6 +596,36 @@ más importantes:
     nivel) y elegir sus **permisos** con casillas; usar listas explícitas por rol (el patrón "todos menos
     estos" ya causó una fuga con `topview_netos_ver`). También pendiente: cambiar la contraseña
     `admin123` del administrador y sacarla precargada de la pantalla de login.
+43. **Roles por puesto — etapa 1: motor de roles y permisos (2026-10-02)**: el equipo real es Alvaro
+    (Superusuario, "modo Dios"), Maximo (Socio), Dardo (vendedor, ve solo lo suyo), Martin (facturador,
+    Colppy), Maiten (tráfico: sube campañas, fotos a redes y arma certificaciones) y Rafael y Santino
+    (operaciones, calle). Reglas acordadas: **Socio** ve todo menos Gastos, Facturas, Tesorería y Auditoría
+    (hasta que estén desarrollados) y no administra usuarios/roles; **Vendedor** carga órdenes y las ve solo
+    si son suyas, y las edita solo mientras estén Cargada (si se la devuelven vuelve a poder corregir);
+    **Facturador** ve todas las órdenes con montos y datos de cliente, pasa Revisada → Facturada (con N° de
+    factura/NC) o la devuelve a Cargada, da de alta clientes, NO ve comisionistas ni netos post-comisión y
+    NO puede marcar Revisada (eso es de Socios para arriba); **Tráfico** ve campañas con todos sus datos y
+    el detalle de locaciones pero sin montos, y marca "certificación enviada" (a futuro: plataforma para
+    subir y enviar certificaciones con registro — a diseñar); **Operaciones** ve una pantalla simple de
+    "novedades del día" (campañas con locaciones, sin plata, estilo Asana). **Hecho en esta etapa:** (1) el
+    nivel 1 se llama **Superusuario** (siempre tiene todos los permisos, no se edita ni elimina; no puede
+    haber otro de nivel 1); (2) la siembra de permisos por rol corre **una sola vez** (tabla
+    `roles_sembrados`): antes se re-sembraban en cada arranque y habrían deshecho lo editado; (3) 7
+    permisos nuevos por función (`topview_marcar_revisada`, `topview_facturar`, `topview_ver_montos`,
+    `topview_solo_propias`, `topview_novedades_ver`, `topview_certificacion_marcar`, `roles_gestionar`) —
+    **definidos pero todavía sin aplicar** en las pantallas/endpoints (etapas 2 y 3); (4) rol **Socio**
+    (39 permisos, lista explícita); (5) API y pantalla "Roles y permisos" (crear/editar/eliminar, copiar
+    permisos de otro rol, casillas por sección; los cambios rigen sin que nadie reingrese; 22/22 pruebas);
+    (6) el menú muestra solo las solapas que el rol permite y el servidor devuelve 403 al resto (probado
+    con un Socio); (7) usuario ↔ vendedor vinculable (`usuarios.vendedor_id`, base del "ver solo lo propio");
+    (8) pedir un reporte sin permiso ahora da 403 (antes 500). **Cuentas creadas:** Alvaro (Superusuario) y
+    Maximo (Socio), con contraseña temporal en `~/credenciales-temporales-sistema.txt` (fuera del repo,
+    permisos 600; borrar tras entregarla). **Pendiente:** etapa 2 (Facturador, Tráfico, Operaciones: ocultar
+    comisiones/montos en el servidor, cambio de estado por permiso, vista de novedades), etapa 3 (Dardo:
+    "solo lo mío" en todo el sistema), etapa 4 (certificaciones de Maiten); crear las cuentas de Dardo,
+    Martin, Maiten, Rafael y Santino recién cuando su rol esté aplicado (sino verían de más); definir qué rol
+    tiene Karina Cintioli; que cada persona cambie su contraseña (falta forzarlo al primer ingreso); y
+    desactivar `admin@system.local` y su contraseña `admin123` cuando Alvaro confirme que entra con la suya.
 
 ## Cómo trabaja este usuario (para que una sesión nueva no tenga que redescubrirlo)
 

@@ -16,6 +16,26 @@ import { authHeaders } from './utils/api';
 
 const getVistaFromHash = () => window.location.hash.replace('#', '') || 'dashboard';
 
+// Solapas del menú y qué permiso(s) las habilitan (alcanza con tener uno). Cada
+// persona ve solo las que su rol permite; el servidor igual valida cada pedido.
+const VISTAS: Array<{ key: string; label: string; permisos: string[] }> = [
+  { key: 'dashboard', label: 'Dashboard', permisos: ['dashboard_ver'] },
+  { key: 'topview', label: 'Topview', permisos: ['topview_ver'] },
+  { key: 'clientes', label: 'Clientes', permisos: ['clientes_ver'] },
+  { key: 'proveedores', label: 'Proveedores', permisos: ['proveedores_ver'] },
+  { key: 'gastos', label: 'Gastos', permisos: ['gastos_ver'] },
+  { key: 'facturas', label: 'Facturas', permisos: ['facturas_ver'] },
+  { key: 'productos', label: 'Productos', permisos: ['productos_ver'] },
+  { key: 'tesoreria', label: 'Tesorería', permisos: ['tesoreria_ver'] },
+  {
+    key: 'reportes',
+    label: 'Reportes',
+    permisos: ['reportes_ventas', 'reportes_compras', 'reportes_financieros', 'reportes_impositiva', 'clientes_ver', 'proveedores_ver', 'auditoria_ver', 'topview_ver'],
+  },
+  { key: 'usuarios', label: 'Usuarios', permisos: ['usuarios_gestionar'] },
+  { key: 'auditoria', label: 'Auditoría', permisos: ['auditoria_ver'] },
+];
+
 function App() {
   const [usuario, setUsuario] = useState<any>(null);
   const [token, setToken] = useState('');
@@ -94,6 +114,10 @@ function App() {
     );
   }
 
+  const codigosPermisos = new Set<string>((usuario?.permisos || []).map((p: any) => p.codigo));
+  const vistasPermitidas = VISTAS.filter((v) => v.permisos.some((p) => codigosPermisos.has(p)));
+  const vistaActiva = vistasPermitidas.some((v) => v.key === vista) ? vista : vistasPermitidas[0]?.key || '';
+
   if (usuario) {
     return (
       <div className="container">
@@ -141,22 +165,19 @@ function App() {
 
         <nav className="navbar">
           <ul>
-            <li><a href="#dashboard" className={vista === 'dashboard' ? 'active' : ''}>Dashboard</a></li>
-            <li><a href="#topview" className={vista === 'topview' ? 'active' : ''}>Topview</a></li>
-            <li><a href="#clientes" className={vista === 'clientes' ? 'active' : ''}>Clientes</a></li>
-            <li><a href="#proveedores" className={vista === 'proveedores' ? 'active' : ''}>Proveedores</a></li>
-            <li><a href="#gastos" className={vista === 'gastos' ? 'active' : ''}>Gastos</a></li>
-            <li><a href="#facturas" className={vista === 'facturas' ? 'active' : ''}>Facturas</a></li>
-            <li><a href="#productos" className={vista === 'productos' ? 'active' : ''}>Productos</a></li>
-            <li><a href="#tesoreria" className={vista === 'tesoreria' ? 'active' : ''}>Tesorería</a></li>
-            <li><a href="#reportes" className={vista === 'reportes' ? 'active' : ''}>Reportes</a></li>
-            <li><a href="#usuarios" className={vista === 'usuarios' ? 'active' : ''}>Usuarios</a></li>
-            <li><a href="#auditoria" className={vista === 'auditoria' ? 'active' : ''}>Auditoría</a></li>
+            {vistasPermitidas.map((v) => (
+              <li key={v.key}>
+                <a href={`#${v.key}`} className={vistaActiva === v.key ? 'active' : ''}>
+                  {v.label}
+                </a>
+              </li>
+            ))}
           </ul>
         </nav>
 
         <main className="main">
-          {vista === 'dashboard' && (
+          {vistasPermitidas.length === 0 && <p className="empty-state">Tu usuario todavía no tiene acceso a ninguna sección. Pedile a un administrador que te asigne un rol.</p>}
+          {vistaActiva === 'dashboard' && (
             <section className="hero">
               <h2>Bienvenido, {usuario.nombre || "Usuario"}</h2>
               <p>Rol: {usuario.rol?.nombre || "Sin rol asignado"}</p>
@@ -164,25 +185,25 @@ function App() {
             </section>
           )}
 
-          {vista === 'topview' && <TopviewView token={token} usuario={usuario} />}
+          {vistaActiva === 'topview' && <TopviewView token={token} usuario={usuario} />}
 
-          {vista === 'clientes' && <ClientesView token={token} usuario={usuario} />}
+          {vistaActiva === 'clientes' && <ClientesView token={token} usuario={usuario} />}
 
-          {vista === 'proveedores' && <ProveedoresView token={token} usuario={usuario} />}
+          {vistaActiva === 'proveedores' && <ProveedoresView token={token} usuario={usuario} />}
 
-          {vista === 'gastos' && <GastosView token={token} usuario={usuario} />}
+          {vistaActiva === 'gastos' && <GastosView token={token} usuario={usuario} />}
 
-          {vista === 'facturas' && <FacturasView token={token} usuario={usuario} />}
+          {vistaActiva === 'facturas' && <FacturasView token={token} usuario={usuario} />}
 
-          {vista === 'productos' && <ProductosView token={token} usuario={usuario} />}
+          {vistaActiva === 'productos' && <ProductosView token={token} usuario={usuario} />}
 
-          {vista === 'tesoreria' && <TesoreriaView token={token} usuario={usuario} />}
+          {vistaActiva === 'tesoreria' && <TesoreriaView token={token} usuario={usuario} />}
 
-          {vista === 'reportes' && <ReportesView token={token} usuario={usuario} />}
+          {vistaActiva === 'reportes' && <ReportesView token={token} usuario={usuario} />}
 
-          {vista === 'usuarios' && <UsuariosView token={token} usuario={usuario} />}
+          {vistaActiva === 'usuarios' && <UsuariosView token={token} usuario={usuario} />}
 
-          {vista === 'auditoria' && <AuditoriaView token={token} />}
+          {vistaActiva === 'auditoria' && <AuditoriaView token={token} />}
         </main>
 
         <footer className="footer">
