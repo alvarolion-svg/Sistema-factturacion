@@ -537,6 +537,11 @@ más importantes:
     (lecturas antes y después de las escrituras — período, manuales, comerciales, total final, Esteban
     Vivo, Iris, Oxant — más 30 escrituras y casos de error) y las 8 tablas de liquidaciones iguales; la
     foto de 290 endpoints de la API real también idéntica. Sin cambios de comportamiento.
+38. **Limpieza de locaciones.ts (2026-10-02)**: 15 → 0 `any` y sin promesas manuales (usa `dbGet/dbAll/dbRun`
+    directo; todos sus chequeos eran `!x || !x.id`, así que no dependían del `{}` del antiguo queryGet). Se
+    tiparon locación, soporte (capacidad) y punto. Verificado: foto de las 21 locaciones y su detalle por
+    API idéntica, y comparación vieja-vs-nueva de 20 operaciones (crear, actualizar parcial/completo,
+    soportes con y sin puntos, eliminar y casos de error) con las tablas iguales. `any` total del backend: 54.
 
 ## Cómo trabaja este usuario (para que una sesión nueva no tenga que redescubrirlo)
 

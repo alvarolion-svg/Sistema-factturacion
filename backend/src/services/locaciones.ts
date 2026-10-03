@@ -1,6 +1,36 @@
 import { v4 as uuid } from 'uuid';
-import db from '../database';
+import { dbAll, dbGet, dbRun, Parametro } from '../dbHelpers';
 import { AuditoriaService } from './auditoria';
+
+// Filas de las tablas del catálogo — solo lo que se lee por nombre; el resto de
+// las columnas viaja tal cual (índice abierto) porque se devuelve entero.
+interface FilaLocacion {
+  id: string;
+  concesionario_nombre?: string | null;
+  [columna: string]: unknown;
+}
+
+interface FilaCapacidad {
+  id: string;
+  locacion_id: string;
+  cantidad: number;
+  [columna: string]: unknown;
+}
+
+interface FilaPunto {
+  capacidad_id: string;
+  cantidad: number;
+  [columna: string]: unknown;
+}
+
+interface Soporte extends FilaCapacidad {
+  puntos: FilaPunto[];
+}
+
+interface LocacionConSoportes extends FilaLocacion {
+  soportes: Soporte[];
+  cantidad_soportes?: number;
+}
 
 interface PuntoInput {
   nombre: string;
@@ -21,49 +51,31 @@ interface AgregarSoporteInput {
 // puede elegir al armar una línea de orden como los futuros reportes de
 // liquidaciones y demanda/ocupación.
 export class LocacionesService {
-  private static queryAll(sql: string, params: any[] = []): Promise<any[]> {
-    return new Promise((resolve, reject) => {
-      db.all(sql, params, (err, filas: any[]) => (err ? reject(err) : resolve(filas || [])));
-    });
-  }
-
-  private static queryGet(sql: string, params: any[] = []): Promise<any> {
-    return new Promise((resolve, reject) => {
-      db.get(sql, params, (err, fila: any) => (err ? reject(err) : resolve(fila || {})));
-    });
-  }
-
-  private static runQuery(sql: string, params: any[] = []): Promise<void> {
-    return new Promise((resolve, reject) => {
-      db.run(sql, params, (err) => (err ? reject(err) : resolve()));
-    });
-  }
-
   // Trae todo anidado (soportes + puntos) de una sola pasada — el catálogo
   // de locaciones es chico, no hace falta pedir el detalle una por una.
-  static async listarLocaciones(): Promise<any[]> {
-    const locaciones = await this.queryAll(`
+  static async listarLocaciones(): Promise<LocacionConSoportes[]> {
+    const locaciones = await dbAll<FilaLocacion>(`
       SELECT l.*, p.razon_social as concesionario_nombre
       FROM locaciones l
       LEFT JOIN proveedores p ON p.id = l.concesionario_id
       WHERE l.habilitado != 0 OR l.habilitado IS NULL
       ORDER BY l.nombre
     `);
-    const capacidades = await this.queryAll(`
+    const capacidades = await dbAll<FilaCapacidad>(`
       SELECT c.*, pr.nombre as producto_nombre, pr.codigo as producto_codigo
       FROM locaciones_capacidad c
       JOIN productos pr ON pr.id = c.producto_id
       ORDER BY pr.nombre
     `);
-    const puntos = await this.queryAll(`SELECT * FROM locaciones_puntos ORDER BY nombre`);
+    const puntos = await dbAll<FilaPunto>(`SELECT * FROM locaciones_puntos ORDER BY nombre`);
 
-    const puntosPorCapacidad = new Map<string, any[]>();
+    const puntosPorCapacidad = new Map<string, FilaPunto[]>();
     puntos.forEach((p) => {
       if (!puntosPorCapacidad.has(p.capacidad_id)) puntosPorCapacidad.set(p.capacidad_id, []);
       puntosPorCapacidad.get(p.capacidad_id)!.push(p);
     });
 
-    const capacidadesPorLocacion = new Map<string, any[]>();
+    const capacidadesPorLocacion = new Map<string, Soporte[]>();
     capacidades.forEach((c) => {
       const susPuntos = puntosPorCapacidad.get(c.id) || [];
       const cantidad = susPuntos.length > 0 ? susPuntos.reduce((s, p) => s + p.cantidad, 0) : c.cantidad;
@@ -77,8 +89,8 @@ export class LocacionesService {
     });
   }
 
-  static async obtenerLocacion(id: string): Promise<any> {
-    const locacion = await this.queryGet(
+  static async obtenerLocacion(id: string): Promise<LocacionConSoportes> {
+    const locacion = await dbGet<FilaLocacion>(
       `
       SELECT l.*, p.razon_social as concesionario_nombre
       FROM locaciones l
@@ -89,7 +101,7 @@ export class LocacionesService {
     );
     if (!locacion || !locacion.id) throw new Error('Locación no encontrada.');
 
-    const capacidades = await this.queryAll(
+    const capacidades = await dbAll<FilaCapacidad>(
       `
       SELECT c.*, pr.nombre as producto_nombre, pr.codigo as producto_codigo
       FROM locaciones_capacidad c
@@ -99,7 +111,7 @@ export class LocacionesService {
     `,
       [id]
     );
-    const puntos = await this.queryAll(
+    const puntos = await dbAll<FilaPunto>(
       `
       SELECT lp.* FROM locaciones_puntos lp
       JOIN locaciones_capacidad c ON c.id = lp.capacidad_id
@@ -108,7 +120,7 @@ export class LocacionesService {
     `,
       [id]
     );
-    const puntosPorCapacidad = new Map<string, any[]>();
+    const puntosPorCapacidad = new Map<string, FilaPunto[]>();
     puntos.forEach((p) => {
       if (!puntosPorCapacidad.has(p.capacidad_id)) puntosPorCapacidad.set(p.capacidad_id, []);
       puntosPorCapacidad.get(p.capacidad_id)!.push(p);
@@ -123,10 +135,10 @@ export class LocacionesService {
     return { ...locacion, soportes };
   }
 
-  static async crearLocacion(datos: { nombre: string; tipo?: string; concesionario_id?: string; notas?: string }): Promise<any> {
+  static async crearLocacion(datos: { nombre: string; tipo?: string; concesionario_id?: string; notas?: string }): Promise<LocacionConSoportes> {
     if (!datos.nombre || !datos.nombre.trim()) throw new Error('El nombre de la locación es obligatorio.');
     const id = uuid();
-    await this.runQuery(
+    await dbRun(
       `INSERT INTO locaciones (id, nombre, tipo, concesionario_id, notas) VALUES (?, ?, ?, ?, ?)`,
       [id, datos.nombre.trim(), datos.tipo || null, datos.concesionario_id || null, datos.notas || null]
     );
@@ -137,14 +149,14 @@ export class LocacionesService {
   static async actualizarLocacion(
     id: string,
     datos: { nombre?: string; tipo?: string; concesionario_id?: string; notas?: string }
-  ): Promise<any> {
-    const existente = await this.queryGet('SELECT * FROM locaciones WHERE id = ?', [id]);
+  ): Promise<LocacionConSoportes> {
+    const existente = await dbGet<FilaLocacion>('SELECT * FROM locaciones WHERE id = ?', [id]);
     if (!existente || !existente.id) throw new Error('Locación no encontrada.');
 
     // Solo se actualizan los campos realmente enviados — un PUT parcial (por
     // ejemplo, para asignar nomás el concesionario) no debe borrar el resto.
     const campos: string[] = [];
-    const valores: any[] = [];
+    const valores: Parametro[] = [];
     if (datos.nombre !== undefined) {
       campos.push('nombre = ?');
       valores.push(datos.nombre);
@@ -164,26 +176,26 @@ export class LocacionesService {
     campos.push('updated_at = CURRENT_TIMESTAMP');
     valores.push(id);
 
-    await this.runQuery(`UPDATE locaciones SET ${campos.join(', ')} WHERE id = ?`, valores);
+    await dbRun(`UPDATE locaciones SET ${campos.join(', ')} WHERE id = ?`, valores);
     AuditoriaService.registrarOperacion('locaciones', 'UPDATE', id, existente, datos);
     return this.obtenerLocacion(id);
   }
 
   static async eliminarLocacion(id: string): Promise<void> {
-    await this.runQuery('UPDATE locaciones SET habilitado = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [id]);
+    await dbRun('UPDATE locaciones SET habilitado = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [id]);
     AuditoriaService.registrarOperacion('locaciones', 'DELETE', id, null, { habilitado: 0 });
   }
 
-  static async agregarSoporte(locacionId: string, datos: AgregarSoporteInput): Promise<any> {
+  static async agregarSoporte(locacionId: string, datos: AgregarSoporteInput): Promise<LocacionConSoportes> {
     if (!datos.producto_id) throw new Error('El soporte es obligatorio.');
     const capacidadId = uuid();
     const cantidadTope = datos.puntos && datos.puntos.length > 0 ? 0 : Number(datos.cantidad) || 0;
-    await this.runQuery(
+    await dbRun(
       `INSERT INTO locaciones_capacidad (id, locacion_id, producto_id, cantidad) VALUES (?, ?, ?, ?)`,
       [capacidadId, locacionId, datos.producto_id, cantidadTope]
     );
     for (const punto of datos.puntos || []) {
-      await this.runQuery(
+      await dbRun(
         `INSERT INTO locaciones_puntos (id, capacidad_id, nombre, cantidad) VALUES (?, ?, ?, ?)`,
         [uuid(), capacidadId, punto.nombre, Number(punto.cantidad) || 1]
       );
@@ -195,19 +207,19 @@ export class LocacionesService {
   // Cambia cantidad y/o puntos de un soporte ya cargado en una locación —
   // los puntos se reemplazan enteros (se borran los viejos y se insertan los
   // nuevos) porque no tiene sentido tratar de "mergear" nombres puntuales.
-  static async actualizarSoporte(capacidadId: string, datos: AgregarSoporteInput): Promise<any> {
-    const existente = await this.queryGet('SELECT * FROM locaciones_capacidad WHERE id = ?', [capacidadId]);
+  static async actualizarSoporte(capacidadId: string, datos: AgregarSoporteInput): Promise<LocacionConSoportes> {
+    const existente = await dbGet<FilaCapacidad>('SELECT * FROM locaciones_capacidad WHERE id = ?', [capacidadId]);
     if (!existente || !existente.id) throw new Error('Ese soporte no está cargado en la locación.');
     if (!datos.producto_id) throw new Error('El soporte es obligatorio.');
 
     const cantidadTope = datos.puntos && datos.puntos.length > 0 ? 0 : Number(datos.cantidad) || 0;
-    await this.runQuery(
+    await dbRun(
       `UPDATE locaciones_capacidad SET producto_id = ?, cantidad = ? WHERE id = ?`,
       [datos.producto_id, cantidadTope, capacidadId]
     );
-    await this.runQuery('DELETE FROM locaciones_puntos WHERE capacidad_id = ?', [capacidadId]);
+    await dbRun('DELETE FROM locaciones_puntos WHERE capacidad_id = ?', [capacidadId]);
     for (const punto of datos.puntos || []) {
-      await this.runQuery(
+      await dbRun(
         `INSERT INTO locaciones_puntos (id, capacidad_id, nombre, cantidad) VALUES (?, ?, ?, ?)`,
         [uuid(), capacidadId, punto.nombre, Number(punto.cantidad) || 1]
       );
@@ -217,10 +229,10 @@ export class LocacionesService {
   }
 
   static async eliminarSoporte(capacidadId: string): Promise<void> {
-    const capacidad = await this.queryGet('SELECT * FROM locaciones_capacidad WHERE id = ?', [capacidadId]);
+    const capacidad = await dbGet<FilaCapacidad>('SELECT * FROM locaciones_capacidad WHERE id = ?', [capacidadId]);
     if (!capacidad || !capacidad.id) throw new Error('Ese soporte no está cargado en la locación.');
-    await this.runQuery('DELETE FROM locaciones_puntos WHERE capacidad_id = ?', [capacidadId]);
-    await this.runQuery('DELETE FROM locaciones_capacidad WHERE id = ?', [capacidadId]);
+    await dbRun('DELETE FROM locaciones_puntos WHERE capacidad_id = ?', [capacidadId]);
+    await dbRun('DELETE FROM locaciones_capacidad WHERE id = ?', [capacidadId]);
     AuditoriaService.registrarOperacion('locaciones_capacidad', 'DELETE', capacidadId, capacidad, null);
   }
 }
