@@ -1,7 +1,80 @@
 import { v4 as uuid } from 'uuid';
-import db from '../database';
+import { dbAll, dbGet, dbRun, Parametro } from '../dbHelpers';
 import { AuditoriaService } from './auditoria';
 import { calcularLineaEstebanVivo, calcularOxantMontos, calcularCutIrisChiterer } from './calculosLiquidaciones';
+
+type FilaBD = Record<string, unknown>;
+
+interface FilaConId {
+  id: string;
+  [campo: string]: unknown;
+}
+
+interface FilaDetalleLiquidacion {
+  id: string;
+  monto?: number | null;
+  [campo: string]: unknown;
+}
+
+interface FilaPercepcion {
+  id: string;
+  concesionario_id: string;
+  nombre: string;
+  porcentaje: number;
+  tipo: string;
+  [campo: string]: unknown;
+}
+
+interface ConcesionarioListado {
+  id: string;
+  razon_social: string;
+  direccion: string | null;
+}
+
+// Una fila de la grilla "Liquidar en $": línea de orden resuelta a un
+// concesionario para el período.
+interface LineaPeriodo {
+  detalle_id: string;
+  orden_id: string;
+  numero_orden: string;
+  numero_orden_agencia: string | null;
+  anunciante: string;
+  nombre_anunciante: string;
+  periodo_desde: string;
+  periodo_hasta: string;
+  tipo_producto: string;
+  cantidad: number;
+  punto_instalacion: string | null;
+  locacion_id: string;
+  locacion_nombre: string;
+  liquidacion_id: string | null;
+  monto: number;
+  estado_especial: string | null;
+  seccion: 'stand' | 'publicidad';
+  inicio_tardio: boolean;
+  excluida: boolean;
+}
+
+interface LineaManual {
+  id: string;
+  concesionario_id: string;
+  mes: number;
+  ano: number;
+  descripcion: string;
+  monto: number;
+  tipo: string;
+  [campo: string]: unknown;
+}
+
+interface CondicionConcesionario extends FilaPorConcesionario {
+  percepciones: FilaPercepcion[];
+  [campo: string]: unknown;
+}
+
+interface FilaPorConcesionario {
+  concesionario_id: string;
+  [campo: string]: unknown;
+}
 
 // Liquidaciones a concesionarios: cuánto le paga Topview a cada concesionario
 // por cada línea de orden, mes a mes. Cantidad/locación/punto se toman de la
@@ -10,30 +83,25 @@ import { calcularLineaEstebanVivo, calcularOxantMontos, calcularCutIrisChiterer 
 // hay relación fija — se carga a mano por línea y por período (ver
 // [[project_modulo_liquidaciones_locatarios]]).
 export class LiquidacionesService {
-  private static queryAll(sql: string, params: any[] = []): Promise<any[]> {
-    return new Promise((resolve, reject) => {
-      db.all(sql, params, (err, filas: any[]) => (err ? reject(err) : resolve(filas || [])));
-    });
+  private static queryAll<T = FilaBD>(sql: string, params: Parametro[] = []): Promise<T[]> {
+    return dbAll<T>(sql, params);
   }
 
-  private static queryGet(sql: string, params: any[] = []): Promise<any> {
-    return new Promise((resolve, reject) => {
-      db.get(sql, params, (err, fila: any) => (err ? reject(err) : resolve(fila)));
-    });
+  // undefined si no hay fila (a diferencia del queryGet de topview.ts, que devuelve {}).
+  private static queryGet<T = FilaBD>(sql: string, params: Parametro[] = []): Promise<T | undefined> {
+    return dbGet<T>(sql, params);
   }
 
-  private static runQuery(sql: string, params: any[] = []): Promise<void> {
-    return new Promise((resolve, reject) => {
-      db.run(sql, params, (err) => (err ? reject(err) : resolve()));
-    });
+  private static async runQuery(sql: string, params: Parametro[] = []): Promise<void> {
+    await dbRun(sql, params);
   }
 
   // Concesionarios reales (proveedores usados en al menos una locación, sea
   // a nivel locación entera o de un punto/soporte/reparto puntual — ver
   // [[project_concesionario_por_punto_no_por_locacion]]) para el selector de
   // la pantalla — no todo el padrón de proveedores.
-  static async listarConcesionarios(): Promise<any[]> {
-    return this.queryAll(`
+  static async listarConcesionarios(): Promise<ConcesionarioListado[]> {
+    return this.queryAll<ConcesionarioListado>(`
       SELECT DISTINCT p.id, p.razon_social, p.direccion
       FROM proveedores p
       WHERE p.id IN (
@@ -60,8 +128,8 @@ export class LiquidacionesService {
   // "Canon por concesionario" — todos los concesionarios reales, con
   // defaults (Canon 100%, IVA 21%, sin percepciones) para el que todavía no
   // tiene nada cargado.
-  static async listarCondiciones(): Promise<any[]> {
-    const concesionarios = await this.queryAll(`
+  static async listarCondiciones(): Promise<CondicionConcesionario[]> {
+    const concesionarios = await this.queryAll<FilaPorConcesionario>(`
       SELECT DISTINCT p.id as concesionario_id, p.razon_social,
         COALESCE(cc.porcentaje_comision, 100) as porcentaje_comision,
         COALESCE(cc.iva_porcentaje, 21) as iva_porcentaje,
@@ -86,8 +154,8 @@ export class LiquidacionesService {
       )
       ORDER BY p.razon_social
     `);
-    const percepciones = await this.queryAll('SELECT * FROM condiciones_percepciones ORDER BY nombre');
-    const percepcionesPorConcesionario = new Map<string, any[]>();
+    const percepciones = await this.queryAll<FilaPercepcion>('SELECT * FROM condiciones_percepciones ORDER BY nombre');
+    const percepcionesPorConcesionario = new Map<string, FilaPercepcion[]>();
     percepciones.forEach((p) => {
       if (!percepcionesPorConcesionario.has(p.concesionario_id)) percepcionesPorConcesionario.set(p.concesionario_id, []);
       percepcionesPorConcesionario.get(p.concesionario_id)!.push(p);
@@ -95,28 +163,28 @@ export class LiquidacionesService {
     // Esteban Vivo: solo los concesionarios que lo tienen cargado traen esta
     // condición (hoy, Parque C. Avellaneda / Pueblo Caamaño) — null para el
     // resto, así la pantalla sabe cuándo mostrar la sección.
-    const vivoRows = await this.queryAll('SELECT * FROM condiciones_esteban_vivo');
-    const vivoPorConcesionario = new Map<string, any>();
+    const vivoRows = await this.queryAll<FilaPorConcesionario>('SELECT * FROM condiciones_esteban_vivo');
+    const vivoPorConcesionario = new Map<string, FilaPorConcesionario>();
     vivoRows.forEach((v) => vivoPorConcesionario.set(v.concesionario_id, v));
     // Oxant es una condición ÚNICA compartida por los 3 concesionarios que
     // trae (CECNOR SA, WFPP SRL, PILAR SHOPS S.A.) — no una por concesionario
     // como Esteban Vivo. Se edita desde cualquiera de esas 3 filas en "Canon
     // por concesionario" y actualiza la misma fila global de condiciones_oxant.
     const oxantConcesionarioIds = new Set(
-      (await this.queryAll('SELECT concesionario_id FROM oxant_concesionarios')).map((r) => r.concesionario_id)
+      (await this.queryAll<FilaPorConcesionario>('SELECT concesionario_id FROM oxant_concesionarios')).map((r) => r.concesionario_id)
     );
     const oxantCondicion = await this.obtenerCondicionOxant();
     // Iris Chiterer: se queda con un % flat de lo declarado por Terra Uno
     // (hoy el único concesionario que la trae) — condición 1 a 1, como
     // Esteban Vivo, pero sin cascada.
-    const irisRows = await this.queryAll('SELECT * FROM condiciones_iris_chiterer');
-    const irisPorConcesionario = new Map<string, any>();
+    const irisRows = await this.queryAll<FilaPorConcesionario>('SELECT * FROM condiciones_iris_chiterer');
+    const irisPorConcesionario = new Map<string, FilaPorConcesionario>();
     irisRows.forEach((v) => irisPorConcesionario.set(v.concesionario_id, v));
     // World Padel Pilar: se compensa por comerciales (trueque), no plata —
     // condición 1 a 1 como Esteban Vivo/Iris, pero convive con el Canon $
     // normal del mismo concesionario (no lo reemplaza).
-    const comercialesRows = await this.queryAll('SELECT * FROM condiciones_comerciales');
-    const comercialesPorConcesionario = new Map<string, any>();
+    const comercialesRows = await this.queryAll<FilaPorConcesionario>('SELECT * FROM condiciones_comerciales');
+    const comercialesPorConcesionario = new Map<string, FilaPorConcesionario>();
     comercialesRows.forEach((v) => comercialesPorConcesionario.set(v.concesionario_id, v));
     return concesionarios.map((c) => {
       const vivo = vivoPorConcesionario.get(c.concesionario_id);
@@ -150,12 +218,12 @@ export class LiquidacionesService {
 
   // Condición completa de un concesionario (Canon, IVA y percepciones) para
   // calcular el Total a Pagar de su liquidación del período.
-  static async obtenerCondicion(concesionarioId: string): Promise<{ porcentajeComision: number; ivaPorcentaje: number; percepciones: any[] }> {
-    const fila = await this.queryGet(
+  static async obtenerCondicion(concesionarioId: string): Promise<{ porcentajeComision: number; ivaPorcentaje: number; percepciones: FilaPercepcion[] }> {
+    const fila = await this.queryGet<{ porcentaje_comision?: number; iva_porcentaje?: number }>(
       'SELECT porcentaje_comision, iva_porcentaje FROM condiciones_concesionario WHERE concesionario_id = ?',
       [concesionarioId]
     );
-    const percepciones = await this.queryAll(
+    const percepciones = await this.queryAll<FilaPercepcion>(
       'SELECT * FROM condiciones_percepciones WHERE concesionario_id = ? ORDER BY nombre',
       [concesionarioId]
     );
@@ -172,7 +240,7 @@ export class LiquidacionesService {
     ivaPorcentaje: number,
     notas?: string
   ): Promise<void> {
-    const existente = await this.queryGet('SELECT * FROM condiciones_concesionario WHERE concesionario_id = ?', [concesionarioId]);
+    const existente = await this.queryGet<FilaConId>('SELECT * FROM condiciones_concesionario WHERE concesionario_id = ?', [concesionarioId]);
     if (existente && existente.id) {
       await this.runQuery(
         'UPDATE condiciones_concesionario SET porcentaje_comision = ?, iva_porcentaje = ?, notas = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
@@ -213,7 +281,7 @@ export class LiquidacionesService {
     concesionarioId: string,
     datos: { porcentajeComisionVendedor: number; porcentajeCanon: number; porcentajeGastosTop: number; porcentajeVivo: number }
   ): Promise<void> {
-    const existente = await this.queryGet('SELECT * FROM condiciones_esteban_vivo WHERE concesionario_id = ?', [concesionarioId]);
+    const existente = await this.queryGet<FilaConId>('SELECT * FROM condiciones_esteban_vivo WHERE concesionario_id = ?', [concesionarioId]);
     if (existente && existente.id) {
       await this.runQuery(
         `UPDATE condiciones_esteban_vivo
@@ -348,7 +416,7 @@ export class LiquidacionesService {
   }
 
   static async guardarCondicionIrisChiterer(concesionarioId: string, porcentaje: number): Promise<void> {
-    const existente = await this.queryGet('SELECT * FROM condiciones_iris_chiterer WHERE concesionario_id = ?', [concesionarioId]);
+    const existente = await this.queryGet<FilaConId>('SELECT * FROM condiciones_iris_chiterer WHERE concesionario_id = ?', [concesionarioId]);
     if (existente && existente.id) {
       await this.runQuery('UPDATE condiciones_iris_chiterer SET porcentaje = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [
         porcentaje,
@@ -451,7 +519,7 @@ export class LiquidacionesService {
     concesionarioId: string,
     datos: { porcentajeConcesionario: number; porcentajeTopview: number; ocultarLiquidacionDinero: boolean }
   ): Promise<void> {
-    const existente = await this.queryGet('SELECT * FROM condiciones_comerciales WHERE concesionario_id = ?', [concesionarioId]);
+    const existente = await this.queryGet<FilaConId>('SELECT * FROM condiciones_comerciales WHERE concesionario_id = ?', [concesionarioId]);
     if (existente && existente.id) {
       await this.runQuery(
         'UPDATE condiciones_comerciales SET porcentaje_concesionario = ?, porcentaje_topview = ?, ocultar_liquidacion_dinero = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
@@ -527,7 +595,7 @@ export class LiquidacionesService {
     concesionario: Array<{ anunciante: string; numero_orden: string; cantidad: number }>;
   }> {
     const periodoBuscado = `? || '-' || printf('%02d', ?)`;
-    const filas = await this.queryAll(
+    const filas = await this.queryAll<{ anunciante: string; numero_orden: string; cantidad: number; es_concesionario: number }>(
       `
       SELECT
         o.nombre_anunciante as anunciante,
@@ -694,7 +762,7 @@ export class LiquidacionesService {
   }
 
   static async guardarCondicionOxant(datos: { porcentajeComision: number; ivaPorcentaje: number }): Promise<void> {
-    const existente = await this.queryGet('SELECT * FROM condiciones_oxant LIMIT 1');
+    const existente = await this.queryGet<FilaConId>('SELECT * FROM condiciones_oxant LIMIT 1');
     if (existente && existente.id) {
       await this.runQuery(
         'UPDATE condiciones_oxant SET porcentaje_comision = ?, iva_porcentaje = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
@@ -757,7 +825,7 @@ export class LiquidacionesService {
     nombre: string,
     porcentaje: number,
     tipo?: 'suma' | 'resta'
-  ): Promise<any> {
+  ): Promise<FilaPercepcion | undefined> {
     if (!nombre || !nombre.trim()) throw new Error('El nombre de la percepción es obligatorio.');
     const id = uuid();
     await this.runQuery(
@@ -765,11 +833,11 @@ export class LiquidacionesService {
       [id, concesionarioId, nombre.trim(), porcentaje || 0, tipo === 'resta' ? 'resta' : 'suma']
     );
     AuditoriaService.registrarOperacion('condiciones_percepciones', 'INSERT', id, null, { concesionarioId, nombre, porcentaje, tipo });
-    return this.queryGet('SELECT * FROM condiciones_percepciones WHERE id = ?', [id]);
+    return this.queryGet<FilaPercepcion>('SELECT * FROM condiciones_percepciones WHERE id = ?', [id]);
   }
 
-  static async actualizarPercepcion(id: string, nombre: string, porcentaje: number, tipo?: 'suma' | 'resta'): Promise<any> {
-    const existente = await this.queryGet('SELECT * FROM condiciones_percepciones WHERE id = ?', [id]);
+  static async actualizarPercepcion(id: string, nombre: string, porcentaje: number, tipo?: 'suma' | 'resta'): Promise<FilaPercepcion | undefined> {
+    const existente = await this.queryGet<FilaConId>('SELECT * FROM condiciones_percepciones WHERE id = ?', [id]);
     if (!existente || !existente.id) throw new Error('Esa percepción no existe.');
     if (!nombre || !nombre.trim()) throw new Error('El nombre de la percepción es obligatorio.');
     await this.runQuery(
@@ -777,11 +845,11 @@ export class LiquidacionesService {
       [nombre.trim(), porcentaje || 0, tipo === 'resta' ? 'resta' : 'suma', id]
     );
     AuditoriaService.registrarOperacion('condiciones_percepciones', 'UPDATE', id, existente, { nombre, porcentaje, tipo });
-    return this.queryGet('SELECT * FROM condiciones_percepciones WHERE id = ?', [id]);
+    return this.queryGet<FilaPercepcion>('SELECT * FROM condiciones_percepciones WHERE id = ?', [id]);
   }
 
   static async eliminarPercepcion(id: string): Promise<void> {
-    const existente = await this.queryGet('SELECT * FROM condiciones_percepciones WHERE id = ?', [id]);
+    const existente = await this.queryGet<FilaConId>('SELECT * FROM condiciones_percepciones WHERE id = ?', [id]);
     if (!existente || !existente.id) throw new Error('Esa percepción no existe.');
     await this.runQuery('DELETE FROM condiciones_percepciones WHERE id = ?', [id]);
     AuditoriaService.registrarOperacion('condiciones_percepciones', 'DELETE', id, existente, null);
@@ -824,7 +892,7 @@ export class LiquidacionesService {
   // cuentan aparte, como "comerciales" (spots), en
   // contarComercialesPeriodo/detalleComercialesPeriodo más abajo. Ver
   // [[project_world_padel_cuenta_corriente_comerciales]].
-  static async listarPeriodo(concesionarioId: string, mes: number, ano: number): Promise<any[]> {
+  static async listarPeriodo(concesionarioId: string, mes: number, ano: number): Promise<LineaPeriodo[]> {
     const esInicioTardio = `
       CASE
         WHEN CAST(strftime('%Y', o.periodo_desde) AS INTEGER) = ?
@@ -834,7 +902,7 @@ export class LiquidacionesService {
       END
     `;
     const periodoBuscado = `? || '-' || printf('%02d', ?)`;
-    const filas = await this.queryAll(
+    const filas = await this.queryAll<Omit<LineaPeriodo, 'excluida' | 'inicio_tardio'> & { excluida: number; inicio_tardio: number }>(
       `
       SELECT
         d.id as detalle_id,
@@ -891,8 +959,8 @@ export class LiquidacionesService {
   // Líneas sueltas cargadas a mano para ese concesionario/período — ajustes,
   // compensaciones, lo que se facturó pero el cliente terminó no pagando,
   // etc. No vienen de ninguna orden.
-  static async listarManuales(concesionarioId: string, mes: number, ano: number): Promise<any[]> {
-    return this.queryAll(
+  static async listarManuales(concesionarioId: string, mes: number, ano: number): Promise<LineaManual[]> {
+    return this.queryAll<LineaManual>(
       'SELECT * FROM liquidaciones_manuales WHERE concesionario_id = ? AND mes = ? AND ano = ? ORDER BY created_at',
       [concesionarioId, mes, ano]
     );
@@ -902,7 +970,7 @@ export class LiquidacionesService {
     const detalle = await this.queryGet('SELECT id FROM ordenes_publicidad_detalles WHERE id = ?', [ordenDetalleId]);
     if (!detalle || !detalle.id) throw new Error('Esa línea de orden no existe.');
 
-    const existente = await this.queryGet(
+    const existente = await this.queryGet<FilaDetalleLiquidacion>(
       'SELECT * FROM liquidaciones_detalle WHERE orden_detalle_id = ? AND mes = ? AND ano = ?',
       [ordenDetalleId, mes, ano]
     );
@@ -930,7 +998,7 @@ export class LiquidacionesService {
     const detalle = await this.queryGet('SELECT id FROM ordenes_publicidad_detalles WHERE id = ?', [ordenDetalleId]);
     if (!detalle || !detalle.id) throw new Error('Esa línea de orden no existe.');
 
-    const existente = await this.queryGet(
+    const existente = await this.queryGet<FilaDetalleLiquidacion>(
       'SELECT * FROM liquidaciones_detalle WHERE orden_detalle_id = ? AND mes = ? AND ano = ?',
       [ordenDetalleId, mes, ano]
     );
@@ -964,7 +1032,7 @@ export class LiquidacionesService {
     const detalle = await this.queryGet('SELECT id FROM ordenes_publicidad_detalles WHERE id = ?', [ordenDetalleId]);
     if (!detalle || !detalle.id) throw new Error('Esa línea de orden no existe.');
 
-    const existente = await this.queryGet(
+    const existente = await this.queryGet<FilaDetalleLiquidacion>(
       'SELECT * FROM liquidaciones_detalle WHERE orden_detalle_id = ? AND mes = ? AND ano = ?',
       [ordenDetalleId, mes, ano]
     );
@@ -993,7 +1061,7 @@ export class LiquidacionesService {
     descripcion: string;
     monto: number;
     tipo?: 'suma' | 'resta';
-  }): Promise<any> {
+  }): Promise<LineaManual | undefined> {
     if (!datos.descripcion || !datos.descripcion.trim()) throw new Error('La descripción es obligatoria.');
     const id = uuid();
     await this.runQuery(
@@ -1001,14 +1069,14 @@ export class LiquidacionesService {
       [id, datos.concesionario_id, datos.mes, datos.ano, datos.descripcion.trim(), datos.monto || 0, datos.tipo === 'resta' ? 'resta' : 'suma']
     );
     AuditoriaService.registrarOperacion('liquidaciones_manuales', 'INSERT', id, null, datos);
-    return this.queryGet('SELECT * FROM liquidaciones_manuales WHERE id = ?', [id]);
+    return this.queryGet<LineaManual>('SELECT * FROM liquidaciones_manuales WHERE id = ?', [id]);
   }
 
   static async actualizarLineaManual(
     id: string,
     datos: { descripcion: string; monto: number; tipo?: 'suma' | 'resta' }
-  ): Promise<any> {
-    const existente = await this.queryGet('SELECT * FROM liquidaciones_manuales WHERE id = ?', [id]);
+  ): Promise<LineaManual | undefined> {
+    const existente = await this.queryGet<FilaConId>('SELECT * FROM liquidaciones_manuales WHERE id = ?', [id]);
     if (!existente || !existente.id) throw new Error('Esa línea manual no existe.');
     if (!datos.descripcion || !datos.descripcion.trim()) throw new Error('La descripción es obligatoria.');
     await this.runQuery(
@@ -1016,11 +1084,11 @@ export class LiquidacionesService {
       [datos.descripcion.trim(), datos.monto || 0, datos.tipo === 'resta' ? 'resta' : 'suma', id]
     );
     AuditoriaService.registrarOperacion('liquidaciones_manuales', 'UPDATE', id, existente, datos);
-    return this.queryGet('SELECT * FROM liquidaciones_manuales WHERE id = ?', [id]);
+    return this.queryGet<LineaManual>('SELECT * FROM liquidaciones_manuales WHERE id = ?', [id]);
   }
 
   static async eliminarLineaManual(id: string): Promise<void> {
-    const existente = await this.queryGet('SELECT * FROM liquidaciones_manuales WHERE id = ?', [id]);
+    const existente = await this.queryGet<FilaConId>('SELECT * FROM liquidaciones_manuales WHERE id = ?', [id]);
     if (!existente || !existente.id) throw new Error('Esa línea manual no existe.');
     await this.runQuery('DELETE FROM liquidaciones_manuales WHERE id = ?', [id]);
     AuditoriaService.registrarOperacion('liquidaciones_manuales', 'DELETE', id, existente, null);

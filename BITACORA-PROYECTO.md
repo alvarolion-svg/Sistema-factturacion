@@ -530,6 +530,13 @@ más importantes:
     **Sin tocar a propósito:** `generarFacturasReplicadas` y su cadena (arma facturas y cuentas
     corrientes, flujo de plata, igual criterio que ventas.ts) y `obtenerOrden` (devuelve un objeto
     armado de muchas tablas, sin tipo propio todavía).
+37. **Limpieza de liquidaciones.ts (2026-10-02)**: 18 → 0 `any` y sin promesas manuales (helpers sobre
+    `dbHelpers`; `queryGet` ya devolvía `undefined` sin fila, igual que `dbGet`, así que no cambió ningún
+    `if (!fila)`). Se tiparon las filas (percepciones, líneas del período, líneas manuales, condiciones).
+    Verificado con una comparación vieja-vs-nueva sobre copias de la base: 874 resultados idénticos
+    (lecturas antes y después de las escrituras — período, manuales, comerciales, total final, Esteban
+    Vivo, Iris, Oxant — más 30 escrituras y casos de error) y las 8 tablas de liquidaciones iguales; la
+    foto de 290 endpoints de la API real también idéntica. Sin cambios de comportamiento.
 
 ## Cómo trabaja este usuario (para que una sesión nueva no tenga que redescubrirlo)
 
