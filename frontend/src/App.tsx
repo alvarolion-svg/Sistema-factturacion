@@ -12,6 +12,8 @@ import ReportesView from './components/ReportesView';
 import UsuariosView from './components/UsuariosView';
 import AuditoriaView from './components/AuditoriaView';
 import TopviewView from './components/TopviewView';
+import NovedadesView from './components/NovedadesView';
+import CampanasView from './components/CampanasView';
 import { authHeaders } from './utils/api';
 
 const getVistaFromHash = () => window.location.hash.replace('#', '') || 'dashboard';
@@ -21,6 +23,8 @@ const getVistaFromHash = () => window.location.hash.replace('#', '') || 'dashboa
 const VISTAS: Array<{ key: string; label: string; permisos: string[] }> = [
   { key: 'dashboard', label: 'Dashboard', permisos: ['dashboard_ver'] },
   { key: 'topview', label: 'Topview', permisos: ['topview_ver'] },
+  { key: 'novedades', label: 'Novedades', permisos: ['topview_novedades_ver'] },
+  { key: 'campanas', label: 'Campañas', permisos: ['topview_campanas_ver'] },
   { key: 'clientes', label: 'Clientes', permisos: ['clientes_ver'] },
   { key: 'proveedores', label: 'Proveedores', permisos: ['proveedores_ver'] },
   { key: 'gastos', label: 'Gastos', permisos: ['gastos_ver'] },
@@ -186,6 +190,10 @@ function App() {
           )}
 
           {vistaActiva === 'topview' && <TopviewView token={token} usuario={usuario} />}
+
+          {vistaActiva === 'novedades' && <NovedadesView token={token} />}
+
+          {vistaActiva === 'campanas' && <CampanasView token={token} puedeMarcar={codigosPermisos.has('topview_certificacion_marcar')} />}
 
           {vistaActiva === 'clientes' && <ClientesView token={token} usuario={usuario} />}
 

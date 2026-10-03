@@ -77,6 +77,9 @@ function OrdenesTab({
   token,
   puedeCrear,
   puedeEditar,
+  puedeFacturar = puedeEditar,
+  puedeRevisar = puedeEditar,
+  veNetos = puedeEditar,
   puedeVerLiquidaciones,
   ordenIdParaAbrir,
   onOrdenAbierta,
@@ -86,6 +89,11 @@ function OrdenesTab({
   token: string;
   puedeCrear: boolean;
   puedeEditar: boolean;
+  // Quién puede qué con el estado de la orden: Facturador factura y devuelve;
+  // marcar "Revisada" es de Socios para arriba. veNetos: ver el neto post-comisión.
+  puedeFacturar?: boolean;
+  puedeRevisar?: boolean;
+  veNetos?: boolean;
   puedeVerLiquidaciones?: boolean;
   ordenIdParaAbrir?: string | null;
   onOrdenAbierta?: () => void;
@@ -912,7 +920,7 @@ function OrdenesTab({
 
   const renderCampoColppy = (o: OrdenPublicidad, campo: 'factura' | 'nc') => {
     const valor = campo === 'factura' ? o.numero_factura_colppy : o.numero_nc_colppy;
-    if (!puedeEditar) return valor || '-';
+    if (!puedeFacturar) return valor || '-';
 
     const estaEditando = editandoColppy?.id === o.id && editandoColppy.campo === campo;
     if (!valor && !estaEditando) {
@@ -1058,8 +1066,16 @@ function OrdenesTab({
   // esa opción sería engañoso y rompería el desglose registrado/no
   // registrado. Si por algún motivo ya estuviera así guardada, la dejamos
   // en la lista para no mostrar el selector vacío.
+  const puedeCambiarEstado = puedeEditar || puedeFacturar || puedeRevisar;
   const estadosDisponibles = (o: OrdenPublicidad) =>
-    esOrdenFacturado(o) || o.estado === 'Facturada' ? ESTADOS_ORDEN : ESTADOS_ORDEN.filter((e) => e !== 'Facturada');
+    (esOrdenFacturado(o) || o.estado === 'Facturada' ? ESTADOS_ORDEN : ESTADOS_ORDEN.filter((e) => e !== 'Facturada')).filter(
+      (e) => {
+        if (e === o.estado) return true;
+        if (e === 'Revisada') return puedeRevisar;
+        if (e === 'Facturada') return puedeFacturar && (puedeRevisar || o.estado !== 'Cargada');
+        return puedeRevisar || puedeFacturar;
+      }
+    );
 
   // Filtrado por mes/año/búsqueda, SIN el filtro de facturado — es la base
   // sobre la que se calcula el desglose de totales (registrado/no registrado),
@@ -1155,7 +1171,7 @@ function OrdenesTab({
         ? `${o.descuento_facturas_porcentaje}%`
         : '-',
       paraExcel ? netoBlanco : formatMoney(netoBlanco),
-      paraExcel ? o.monto_final || 0 : formatMoney(o.monto_final),
+      veNetos ? (paraExcel ? o.monto_final || 0 : formatMoney(o.monto_final)) : '',
       o.estado,
       o.numero_factura_colppy || '',
       o.numero_nc_colppy || '',
@@ -1221,7 +1237,7 @@ function OrdenesTab({
         o.descuento_porcentaje || 0,
         o.descuento_facturas_porcentaje || 0,
         netoBlanco,
-        o.monto_final || 0,
+        veNetos ? o.monto_final || 0 : '',
         o.estado,
         o.numero_factura_colppy || '',
         o.numero_nc_colppy || '',
@@ -1244,7 +1260,7 @@ function OrdenesTab({
       '',
       '',
       totalesFila.netoBlanco,
-      totalesFila.montoFinal,
+      veNetos ? totalesFila.montoFinal : '',
       '',
       '',
       '',
@@ -1325,7 +1341,7 @@ function OrdenesTab({
       '',
       '',
       formatMoney(totalesFila.netoBlanco),
-      formatMoney(totalesFila.montoFinal),
+      veNetos ? formatMoney(totalesFila.montoFinal) : '',
       '',
       '',
       '',
@@ -2209,13 +2225,17 @@ function OrdenesTab({
                     </Fragment>
                   ))}
 
-                  <dt>Neto Topview (después de NC/FC y comisiones)</dt>
-                  <dd>{formatMoney(detalle.monto_final)}</dd>
+                  {veNetos && (
+                    <>
+                      <dt>Neto Topview (después de NC/FC y comisiones)</dt>
+                      <dd>{formatMoney(detalle.monto_final)}</dd>
+                    </>
+                  )}
                 </>
               )}
             </dl>
 
-            {puedeEditar && (
+            {puedeCambiarEstado && (
               <div className="form-group" style={{ maxWidth: 240, marginBottom: '1.5rem' }}>
                 <label htmlFor="cambiar_estado">Cambiar estado</label>
                 <select
@@ -3813,10 +3833,10 @@ function OrdenesTab({
             Total Neto blanco:{' '}
             <strong>{formatMoney(totalesSeleccionRegistrado.netoBlanco + totalesSeleccionNoRegistrado.netoBlanco)}</strong>
           </div>
-          <div>
+          {veNetos && (<div>
             Neto Topview (post-comisión):{' '}
             <strong>{formatMoney(totalesSeleccionRegistrado.montoFinal + totalesSeleccionNoRegistrado.montoFinal)}</strong>
-          </div>
+          </div>)}
         </div>
       )}
 
@@ -3842,10 +3862,10 @@ function OrdenesTab({
           <div>
             Total Neto blanco: <strong>{formatMoney(totalesRegistrado.netoBlanco + totalesNoRegistrado.netoBlanco)}</strong>
           </div>
-          <div>
+          {veNetos && (<div>
             Neto Topview (post-comisión):{' '}
             <strong>{formatMoney(totalesRegistrado.montoFinal + totalesNoRegistrado.montoFinal)}</strong>
-          </div>
+          </div>)}
         </div>
       )}
 
@@ -3892,7 +3912,7 @@ function OrdenesTab({
               <th>% NC</th>
               <th>% FC</th>
               <th>$ Neto blanco</th>
-              <th>Neto Topview (post-comisión)</th>
+              {veNetos && <th>Neto Topview (post-comisión)</th>}
               <th>Estado</th>
               <th>N° Factura Colppy</th>
               <th>N° NC Colppy</th>
@@ -3963,9 +3983,9 @@ function OrdenesTab({
                 <td>{o.descuento_porcentaje ? `${o.descuento_porcentaje}%` : '-'}</td>
                 <td>{o.descuento_facturas_porcentaje ? `${o.descuento_facturas_porcentaje}%` : '-'}</td>
                 <td>{formatMoney(netoBlanco)}</td>
-                <td>{formatMoney(o.monto_final)}</td>
+                {veNetos && <td>{formatMoney(o.monto_final)}</td>}
                 <td>
-                  {puedeEditar ? (
+                  {puedeCambiarEstado ? (
                     <select
                       value={o.estado}
                       onChange={(e) => handleCambiarEstadoLista(o.id, e.target.value)}
@@ -3988,7 +4008,7 @@ function OrdenesTab({
                 <td>
                   {esOrdenFacturado(o) ? (
                     '-'
-                  ) : puedeEditar ? (
+                  ) : puedeFacturar ? (
                     <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', cursor: 'pointer', whiteSpace: 'nowrap' }}>
                       <input
                         type="checkbox"
@@ -4055,7 +4075,7 @@ function OrdenesTab({
               <td></td>
               <td></td>
               <td>{formatMoney(totalesFila.netoBlanco)}</td>
-              <td>{formatMoney(totalesFila.montoFinal)}</td>
+              {veNetos && <td>{formatMoney(totalesFila.montoFinal)}</td>}
               <td></td>
               <td></td>
               <td></td>

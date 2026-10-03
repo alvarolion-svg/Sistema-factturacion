@@ -24,6 +24,11 @@ function TopviewView({ token, usuario }: TopviewViewProps) {
     [usuario]
   );
   const puedeCrear = permisos.has('topview_crear');
+  // Quien no tiene topview_ver_modulos (ej. Facturador, Contador) ve solo la grilla de Órdenes.
+  const veTodosLosModulos = permisos.has('topview_ver_modulos');
+  const puedeFacturar = permisos.has('topview_facturar');
+  const puedeRevisar = permisos.has('topview_marcar_revisada');
+  const veNetos = ['topview_netos_ver', 'topview_comisionistas_ver', 'topview_editar'].some((p) => permisos.has(p));
   const puedeEditar = permisos.has('topview_editar');
   const puedeVerComisionistas = permisos.has('topview_comisionistas_ver');
   const puedeGestionarComisionistas = permisos.has('topview_comisionistas_crear');
@@ -65,6 +70,7 @@ function TopviewView({ token, usuario }: TopviewViewProps) {
         <img src="/img/logo-topview.png" alt="Topview" style={{ height: '2.5rem' }} />
       </div>
 
+      {veTodosLosModulos && (
       <div className="reportes-tabs">
         <button
           className={`reportes-tab ${seccion === 'ejecucion' ? 'active' : ''}`}
@@ -149,6 +155,7 @@ function TopviewView({ token, usuario }: TopviewViewProps) {
           </button>
         )}
       </div>
+      )}
 
       {seccion === 'ejecucion' && (
         <EjecucionTab
@@ -177,6 +184,9 @@ function TopviewView({ token, usuario }: TopviewViewProps) {
           token={token}
           puedeCrear={puedeCrear}
           puedeEditar={puedeEditar}
+          puedeFacturar={puedeFacturar}
+          puedeRevisar={puedeRevisar}
+          veNetos={veNetos}
           puedeVerLiquidaciones={puedeVerLiquidaciones}
           ordenIdParaAbrir={ordenIdParaAbrir}
           onOrdenAbierta={() => setOrdenIdParaAbrir(null)}
