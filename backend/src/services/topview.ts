@@ -1662,7 +1662,7 @@ export class TopviewService {
     const hoy = new Date();
     const fechaHoy = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`;
 
-    const ordenes = await this.queryAll<OrdenAviso>(
+    const candidatas = await this.queryAll<OrdenAviso>(
       `SELECT id, nombre_anunciante, tipo_anunciante, periodo_desde, periodo_hasta
        FROM ordenes_publicidad
        WHERE periodo_desde = ?
@@ -1671,16 +1671,30 @@ export class TopviewService {
          AND telegram_avisado_inicio_en IS NULL`,
       [fechaHoy]
     );
+    // Se "reserva" cada orden ANTES de mandar: el UPDATE condicionado solo le
+    // sirve a quien llega primero, así dos procesos del backend corriendo a la
+    // vez (o un reinicio en medio del envío) no mandan el mismo mensaje dos veces.
+    const ordenes: OrdenAviso[] = [];
+    for (const o of candidatas) {
+      const { changes } = await dbRun(
+        `UPDATE ordenes_publicidad SET telegram_avisado_inicio_en = datetime('now') WHERE id = ? AND telegram_avisado_inicio_en IS NULL`,
+        [o.id]
+      );
+      if (changes === 1) ordenes.push(o);
+    }
     if (ordenes.length === 0) return { avisadas: 0 };
 
     const formatFecha = (f: string) => f.split('-').reverse().join('/');
     const lineas = ordenes.map((o) => `• <b>${o.nombre_anunciante}</b> — hasta ${formatFecha(o.periodo_hasta)}`);
     const texto = `📅 <b>Campañas que arrancan hoy</b> (${ordenes.length}):\n\n${lineas.join('\n')}`;
 
-    await TelegramService.enviarAGrupo('Operaciones', texto);
-
-    for (const o of ordenes) {
-      await this.runQuery('UPDATE ordenes_publicidad SET telegram_avisado_inicio_en = datetime("now") WHERE id = ?', [o.id]);
+    try {
+      const { enviado } = await TelegramService.enviarAGrupo('Operaciones', texto);
+      if (!enviado) throw new Error('grupo sin chat_id');
+    } catch (err) {
+      // No salió: se libera la reserva para reintentar en el próximo chequeo.
+      for (const o of ordenes) await dbRun('UPDATE ordenes_publicidad SET telegram_avisado_inicio_en = NULL WHERE id = ?', [o.id]);
+      throw err;
     }
     return { avisadas: ordenes.length };
   }
