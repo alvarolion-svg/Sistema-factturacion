@@ -576,6 +576,11 @@ más importantes:
     rotación de copias viejas se hace en la carpeta local y en iCloud se usan nombres fijos por día.
     Limitación: solo corre con la Mac prendida; no protege de perder la Mac si iCloud Drive no está
     sincronizando.
+    **Recordar si se cambia de computadora o se reinstala macOS:** el agente de macOS NO está en el repo
+    (el script sí). Hay que volver a crear `~/Library/LaunchAgents/com.topview.respaldo-base.plist` (corre
+    `/bin/bash <ruta>/backend/scripts/respaldar-base.sh` con `StartCalendarInterval` a las 13:00 y 20:00),
+    cargarlo con `launchctl bootstrap gui/$(id -u) <plist>` y probarlo con `launchctl kickstart -k
+    gui/$(id -u)/com.topview.respaldo-base`. Y recordar respaldar el `.env` aparte (no está en ningún respaldo).
 
 ## Cómo trabaja este usuario (para que una sesión nueva no tenga que redescubrirlo)
 
