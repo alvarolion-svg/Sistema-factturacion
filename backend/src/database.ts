@@ -734,6 +734,22 @@ db.serialize(() => {
   // Agrega la columna a bases ya existentes (creadas antes de este cambio).
   // "duplicate column name" es esperable en cada reinicio una vez agregada: se ignora.
   db.run(`ALTER TABLE documentos_adjuntos ADD COLUMN ruta_archivo TEXT`, () => {});
+  // Certificaciones de exhibición (las sube Tráfico): mismos documentos, marcados aparte,
+  // más el registro de cada envío al cliente (a quién, por qué medio, cuándo, quién).
+  db.run(`ALTER TABLE documentos_adjuntos ADD COLUMN es_certificacion INTEGER DEFAULT 0`, () => {});
+  db.run(`ALTER TABLE documentos_adjuntos ADD COLUMN subido_por_nombre TEXT`, () => {});
+  db.run(`CREATE TABLE IF NOT EXISTS certificaciones_envios (
+    id TEXT PRIMARY KEY,
+    orden_id TEXT NOT NULL,
+    documento_id TEXT,
+    enviada_a TEXT,
+    medio TEXT,
+    nota TEXT,
+    usuario_id TEXT,
+    usuario_nombre TEXT,
+    enviada_en DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (orden_id) REFERENCES ordenes_publicidad(id)
+  )`);
 
   // Replicación de Facturación
   db.run(`

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import BloquesCampana, { BloqueCampana } from './BloquesCampana';
 import { NOMBRES_MES } from '../utils/constantesTopview';
@@ -27,6 +27,10 @@ interface CampanaDetalle extends Campana {
   contactos: Array<{ email: string; nombre_contacto: string | null; cargo: string | null }>;
   documentos: Array<{ id: string; nombre_archivo: string; descripcion: string | null }>;
   cliente: { razon_social: string; cuit: string | null } | null;
+  certificaciones: {
+    archivos: Array<{ id: string; nombre_archivo: string; descripcion: string | null; fecha_carga: string; subido_por_nombre: string | null }>;
+    envios: Array<{ id: string; documento_id: string | null; enviada_a: string | null; medio: string | null; nota: string | null; usuario_nombre: string | null; enviada_en: string }>;
+  };
 }
 
 // Para Tráfico: campañas con todos sus datos operativos y locaciones, sin plata.
@@ -39,6 +43,72 @@ function CampanasView({ token, puedeMarcar }: { token: string; puedeMarcar: bool
   const [detalle, setDetalle] = useState<CampanaDetalle | null>(null);
   const [error, setError] = useState('');
   const [guardando, setGuardando] = useState(false);
+  const inputArchivo = useRef<HTMLInputElement>(null);
+  const [envioA, setEnvioA] = useState('');
+  const [envioMedio, setEnvioMedio] = useState('Mail');
+  const [envioNota, setEnvioNota] = useState('');
+
+  const descargar = (docId: string, nombre: string) => {
+    axios
+      .get(`/api/ordenes-publicidad/documentos/${docId}/descargar`, { ...authHeaders(token), responseType: 'blob' })
+      .then((res) => {
+        const url = window.URL.createObjectURL(new Blob([res.data]));
+        const a = document.createElement('a');
+        a.href = url;
+        a.setAttribute('download', nombre);
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+      })
+      .catch(() => setError('No se pudo descargar el archivo.'));
+  };
+
+  const subirCertificacion = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const archivo = inputArchivo.current?.files?.[0];
+    if (!detalle || !archivo) {
+      setError('Elegí un archivo primero.');
+      return;
+    }
+    const formData = new FormData();
+    formData.append('archivo', archivo);
+    setGuardando(true);
+    setError('');
+    try {
+      await axios.post(`/api/ordenes-publicidad/campanas/${detalle.id}/certificaciones/subir`, formData, {
+        headers: { ...authHeaders(token).headers, 'Content-Type': 'multipart/form-data' },
+      });
+      if (inputArchivo.current) inputArchivo.current.value = '';
+      abrir(detalle.id);
+    } catch (err) {
+      setError(mensajeError(err, 'No se pudo subir la certificación.'));
+    } finally {
+      setGuardando(false);
+    }
+  };
+
+  const registrarEnvio = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!detalle) return;
+    setGuardando(true);
+    setError('');
+    try {
+      await axios.post(
+        `/api/ordenes-publicidad/campanas/${detalle.id}/certificaciones/envio`,
+        { enviada_a: envioA, medio: envioMedio, nota: envioNota, documento_id: detalle.certificaciones.archivos[0]?.id },
+        authHeaders(token)
+      );
+      setEnvioA('');
+      setEnvioNota('');
+      abrir(detalle.id);
+      cargar();
+    } catch (err) {
+      setError(mensajeError(err, 'No se pudo registrar el envío.'));
+    } finally {
+      setGuardando(false);
+    }
+  };
 
   const cargar = () => {
     setCampanas(null);
@@ -123,6 +193,74 @@ function CampanasView({ token, puedeMarcar }: { token: string; puedeMarcar: bool
         </dl>
         <h3 className="reportes-subtitulo">Dónde sale</h3>
         <BloquesCampana bloques={detalle.bloques} />
+        <h3 className="reportes-subtitulo">Certificación</h3>
+        {detalle.certificaciones.archivos.length === 0 ? (
+          <p className="empty-state">Todavía no se subió ninguna certificación.</p>
+        ) : (
+          <ul>
+            {detalle.certificaciones.archivos.map((a) => (
+              <li key={a.id}>
+                <button className="btn-link" onClick={() => descargar(a.id, a.nombre_archivo)}>
+                  {a.nombre_archivo}
+                </button>{' '}
+                <span style={{ color: '#777', fontSize: '0.85rem' }}>
+                  — subida el {formatFecha(a.fecha_carga)}
+                  {a.subido_por_nombre ? ` por ${a.subido_por_nombre}` : ''}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+        {puedeMarcar && (
+          <>
+            <form className="cliente-form" onSubmit={subirCertificacion} style={{ marginTop: '0.75rem' }}>
+              <label htmlFor="cert_archivo">Subir certificación (PDF, Word, Excel o imagen — máx. 15MB)</label>
+              <input id="cert_archivo" type="file" ref={inputArchivo} />
+              <button type="submit" className="btn" disabled={guardando}>
+                {guardando ? 'Subiendo...' : 'Subir'}
+              </button>
+            </form>
+            <form className="cliente-form" onSubmit={registrarEnvio} style={{ marginTop: '1rem' }}>
+              <label>Registrar que se la enviaste al cliente</label>
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <input placeholder="A quién (mail o nombre)" value={envioA} onChange={(e) => setEnvioA(e.target.value)} style={{ minWidth: '14rem' }} />
+                <select value={envioMedio} onChange={(e) => setEnvioMedio(e.target.value)}>
+                  <option>Mail</option>
+                  <option>WhatsApp</option>
+                  <option>Otro</option>
+                </select>
+                <input placeholder="Nota (opcional)" value={envioNota} onChange={(e) => setEnvioNota(e.target.value)} style={{ minWidth: '12rem' }} />
+                <button type="submit" className="btn btn-success" disabled={guardando}>
+                  Registrar envío
+                </button>
+              </div>
+            </form>
+          </>
+        )}
+        {detalle.certificaciones.envios.length > 0 && (
+          <table className="data-table" style={{ marginTop: '1rem' }}>
+            <thead>
+              <tr>
+                <th>Enviada el</th>
+                <th>A</th>
+                <th>Medio</th>
+                <th>Registró</th>
+                <th>Nota</th>
+              </tr>
+            </thead>
+            <tbody>
+              {detalle.certificaciones.envios.map((e) => (
+                <tr key={e.id}>
+                  <td>{formatFecha(e.enviada_en)}</td>
+                  <td>{e.enviada_a}</td>
+                  <td>{e.medio}</td>
+                  <td>{e.usuario_nombre}</td>
+                  <td>{e.nota}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
         {detalle.documentos.length > 0 && (
           <>
             <h3 className="reportes-subtitulo">Documentos adjuntos</h3>

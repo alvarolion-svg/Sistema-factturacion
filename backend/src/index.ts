@@ -10,7 +10,7 @@ import { TesoreriaService } from './services/tesoreria';
 import { AuditoriaService } from './services/auditoria';
 import { AutenticacionService } from './services/autenticacion';
 import { RolesService } from './services/roles';
-import { alcanceVendedor, filtrarPropias, requierePuedeEditarOrden, requiereOrdenPropia } from './services/alcanceOrdenes';
+import { alcanceVendedor, filtrarPropias, requierePuedeEditarOrden, requiereOrdenPropia, requireDocumentoPropio } from './services/alcanceOrdenes';
 import { VistasOperativasService } from './services/vistasOperativas';
 import { limpiarOrdenParaVista, limpiarListaParaVista } from './services/visibilidadOrdenes';
 import { ReportesService } from './services/reportes';
@@ -104,7 +104,7 @@ interface ContactoClienteEntrada {
 }
 import { AsanaService } from './services/asana';
 import { AsanaConfigService } from './services/asanaConfig';
-import { autenticacion, requierePermiso, RequestConUsuario } from './middleware';
+import { autenticacion, requierePermiso, requierePermisosCualquiera, RequestConUsuario } from './middleware';
 import { v4 as uuid } from 'uuid';
 
 dotenv.config();
@@ -996,6 +996,53 @@ app.get('/api/ordenes-publicidad/campanas/:id', autenticacion, requierePermiso('
   }
 });
 
+// Certificaciones de exhibición (Tráfico): subir el archivo, descargarlo y dejar
+// registro de cada envío al cliente. Los envíos se hacen por fuera (mail,
+// WhatsApp); acá queda la constancia.
+app.get('/api/ordenes-publicidad/campanas/:id/certificaciones', autenticacion, requierePermiso('topview_campanas_ver'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    res.json(await VistasOperativasService.certificaciones(req.params.id));
+  } catch (err) {
+    res.status(estadoHttpDe(err)).json({ error: mensajeDe(err) });
+  }
+});
+
+app.post(
+  '/api/ordenes-publicidad/campanas/:id/certificaciones/subir',
+  autenticacion,
+  requierePermiso('topview_certificacion_marcar'),
+  (req: RequestConUsuario, res: Response, next: NextFunction) => {
+    uploadDocumento.single('archivo')(req, res, (err: unknown) => {
+      if (err) return res.status(400).json({ error: mensajeDe(err) });
+      next();
+    });
+  },
+  async (req: RequestConUsuario, res: Response) => {
+    try {
+      if (!req.file) return res.status(400).json({ error: 'No se recibió ningún archivo.' });
+      const id = await VistasOperativasService.registrarArchivoCertificacion(
+        req.params.id,
+        { nombre: req.file.originalname, tipo: req.file.mimetype, ruta: path.relative(UPLOADS_DIR, req.file.path) },
+        (req.body as { descripcion?: string }).descripcion,
+        { id: req.usuario?.id, nombre: req.usuario?.nombre },
+        req.ip
+      );
+      res.json({ id });
+    } catch (err) {
+      res.status(estadoHttpDe(err)).json({ error: mensajeDe(err) });
+    }
+  }
+);
+
+app.post('/api/ordenes-publicidad/campanas/:id/certificaciones/envio', autenticacion, requierePermiso('topview_certificacion_marcar'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    await VistasOperativasService.registrarEnvio(req.params.id, req.body, { id: req.usuario?.id, nombre: req.usuario?.nombre }, req.ip);
+    res.json({ message: 'Envío registrado' });
+  } catch (err) {
+    res.status(estadoHttpDe(err)).json({ error: mensajeDe(err) });
+  }
+});
+
 app.get('/api/ordenes-publicidad/:id', autenticacion, requierePermiso('topview_ver'), requiereOrdenPropia, async (req: RequestConUsuario, res: Response) => {
   try {
     const incluirComisiones = !!req.permisos?.includes('topview_netos_ver');
@@ -1580,7 +1627,8 @@ app.post(
 app.get(
   '/api/ordenes-publicidad/documentos/:docId/descargar',
   autenticacion,
-  requierePermiso('topview_ver'),
+  requierePermisosCualquiera(['topview_ver', 'topview_campanas_ver']),
+  requireDocumentoPropio,
   (req: RequestConUsuario, res: Response) => {
     db.get('SELECT * FROM documentos_adjuntos WHERE id = ?', [req.params.docId], (err, doc: { ruta_archivo?: string | null; nombre_archivo: string } | undefined) => {
       if (err) return res.status(500).json({ error: err.message });

@@ -642,6 +642,13 @@ más importantes:
     Topview), etapa 4 (certificaciones de Maiten), crear las cuentas reales, cambio de contraseña obligatorio, desactivar
     `admin@system.local`.
 
+45. **Roles etapa 4: certificaciones de Tráfico (2026-10-03)**: en Campañas, Maiten sube el archivo de certificación
+    (marcado `documentos_adjuntos.es_certificacion`, aparte de los documentos normales), lo descarga y **registra cada envío**
+    al cliente (a quién, medio Mail/WhatsApp/Otro, nota, quién y cuándo — tabla `certificaciones_envios`); registrar un envío
+    tilda "certificación enviada". **El envío en sí sigue siendo por fuera** (mail/WhatsApp); la app solo deja la constancia.
+    Cuando haya SMTP se puede mandar desde acá. Descarga de documentos: Tráfico también (`topview_campanas_ver`) y un
+    vendedor "solo propias" solo los de sus órdenes. Probado por API (subir, envío, descarga, 403 a Operaciones).
+
 ## Cómo trabaja este usuario (para que una sesión nueva no tenga que redescubrirlo)
 
 - Prefiere construir con ejemplos concretos y reales, no specs completas de entrada — va

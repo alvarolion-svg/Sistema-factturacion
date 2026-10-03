@@ -65,3 +65,17 @@ export const requiereOrdenPropia = async (req: RequestConUsuario, res: Response,
     res.status(estadoHttpDe(err)).json({ error: mensajeDe(err) });
   }
 };
+
+/** Descarga de un documento (ruta con :docId): un vendedor "solo propias" solo baja los de sus órdenes. */
+export const requireDocumentoPropio = async (req: RequestConUsuario, res: Response, next: NextFunction) => {
+  try {
+    if (alcanceVendedor(req) !== null) {
+      const doc = await dbGet<{ orden_id: string }>('SELECT orden_id FROM documentos_adjuntos WHERE id = ?', [req.params.docId]);
+      if (!doc) throw new ErrorNegocio('Documento no encontrado');
+      await exigirOrdenPropia(req, doc.orden_id);
+    }
+    next();
+  } catch (err) {
+    res.status(estadoHttpDe(err)).json({ error: mensajeDe(err) });
+  }
+};
