@@ -1357,11 +1357,28 @@ db.serialize(() => {
       ('p47', 'topview_vendedores_editar', 'Editar/eliminar vendedores y tramos de escala', 'topview', 'editar'),
       ('p48', 'topview_netos_ver', 'Ver netos reales post-comisión en Reportes (reservado a Administrador)', 'topview', 'ver'),
       ('p49', 'liquidaciones_ver', 'Ver liquidaciones a concesionarios (reservado a Administrador)', 'topview', 'ver'),
-      ('p50', 'liquidaciones_cargar', 'Cargar/editar montos de liquidaciones a concesionarios (reservado a Administrador)', 'topview', 'crear')
+      ('p50', 'liquidaciones_cargar', 'Cargar/editar montos de liquidaciones a concesionarios (reservado a Administrador)', 'topview', 'crear'),
+
+      -- Permisos por función (roles por puesto): se asignan SOLO a mano o desde la pantalla de Roles
+      ('p51', 'topview_marcar_revisada', 'Marcar una orden como Revisada (lista para facturar)', 'topview', 'estado'),
+      ('p52', 'topview_facturar', 'Marcar como Facturada, devolver a Cargada y cargar N° de factura/NC de Colppy', 'topview', 'estado'),
+      ('p53', 'topview_ver_montos', 'Ver montos, descuentos y precios de las órdenes', 'topview', 'ver'),
+      ('p54', 'topview_solo_propias', 'Ver y editar solo las órdenes propias (usuario vinculado a un vendedor)', 'topview', 'restriccion'),
+      ('p55', 'topview_novedades_ver', 'Ver las novedades del día (campañas con locaciones, sin montos)', 'topview', 'ver'),
+      ('p56', 'topview_certificacion_marcar', 'Marcar la certificación de una campaña como enviada', 'topview', 'estado'),
+      ('p57', 'roles_gestionar', 'Crear y editar roles y sus permisos', 'usuarios', 'gestionar')
   `);
 
-  // Asignar permisos a roles
-  // Admin: Todos los permisos
+  // Asignar permisos a roles.
+  // La siembra por reglas (roles 2 a 6) corre SOLO la primera vez: de ahí en más
+  // los permisos de cada rol se editan desde la pantalla de Roles y la base es la
+  // única fuente de verdad. Antes se re-sembraban en cada arranque y habrían
+  // vuelto a poner lo que se le sacó a un rol. Si un rol ya tiene permisos
+  // guardados, se lo marca como sembrado antes de que corra cualquier regla.
+  db.run(`CREATE TABLE IF NOT EXISTS roles_sembrados (rol_id TEXT PRIMARY KEY)`);
+  db.run(`INSERT OR IGNORE INTO roles_sembrados (rol_id) SELECT DISTINCT rol_id FROM rol_permisos WHERE rol_id != '1'`);
+
+  // Admin: Todos los permisos (el Superusuario siempre tiene todo, incluidos los que se agreguen)
   db.run(`
     INSERT OR IGNORE INTO rol_permisos (id, rol_id, permiso_id)
     SELECT printf('rp_%s_%s', '1', id) as id, '1' as rol_id, id as permiso_id
@@ -1378,10 +1395,13 @@ db.serialize(() => {
     INSERT OR IGNORE INTO rol_permisos (id, rol_id, permiso_id)
     SELECT printf('rp_%s_%s', '2', id) as id, '2' as rol_id, id as permiso_id
     FROM permisos
-    WHERE codigo NOT IN (
+    WHERE NOT EXISTS (SELECT 1 FROM roles_sembrados WHERE rol_id = '2')
+    AND (
+    codigo NOT IN (
       'auditoria_ver', 'usuarios_gestionar', 'topview_netos_ver',
       'topview_comisionistas_ver', 'topview_comisionistas_crear', 'topview_comisionistas_editar',
       'liquidaciones_ver', 'liquidaciones_cargar'
+    )
     )
   `);
 
@@ -1390,8 +1410,11 @@ db.serialize(() => {
     INSERT OR IGNORE INTO rol_permisos (id, rol_id, permiso_id)
     SELECT printf('rp_%s_%s', '3', id) as id, '3' as rol_id, id as permiso_id
     FROM permisos
-    WHERE seccion IN ('tesoreria', 'reportes', 'auditoria', 'maestros')
+    WHERE NOT EXISTS (SELECT 1 FROM roles_sembrados WHERE rol_id = '3')
+    AND (
+    seccion IN ('tesoreria', 'reportes', 'auditoria', 'maestros')
     AND codigo LIKE '%ver%'
+    )
   `);
 
   // Vendedor: Ventas y clientes
@@ -1401,8 +1424,11 @@ db.serialize(() => {
     INSERT OR IGNORE INTO rol_permisos (id, rol_id, permiso_id)
     SELECT printf('rp_%s_%s', '4', id) as id, '4' as rol_id, id as permiso_id
     FROM permisos
-    WHERE seccion IN ('ventas', 'maestros')
+    WHERE NOT EXISTS (SELECT 1 FROM roles_sembrados WHERE rol_id = '4')
+    AND (
+    seccion IN ('ventas', 'maestros')
     AND codigo LIKE '%clientes%' OR codigo LIKE '%facturas%' OR codigo LIKE '%presupuestos%' OR codigo LIKE '%cobros%' OR codigo = 'tesoreria_ver'
+    )
   `);
 
   // Comprador: Compras y proveedores
@@ -1410,8 +1436,11 @@ db.serialize(() => {
     INSERT OR IGNORE INTO rol_permisos (id, rol_id, permiso_id)
     SELECT printf('rp_%s_%s', '5', id) as id, '5' as rol_id, id as permiso_id
     FROM permisos
-    WHERE seccion IN ('compras', 'maestros')
+    WHERE NOT EXISTS (SELECT 1 FROM roles_sembrados WHERE rol_id = '5')
+    AND (
+    seccion IN ('compras', 'maestros')
     AND codigo LIKE '%proveedores%' OR codigo LIKE '%compras%' OR codigo LIKE '%gastos%'
+    )
   `);
 
   // Operario: Solo consulta
@@ -1423,8 +1452,38 @@ db.serialize(() => {
     INSERT OR IGNORE INTO rol_permisos (id, rol_id, permiso_id)
     SELECT printf('rp_%s_%s', '6', id) as id, '6' as rol_id, id as permiso_id
     FROM permisos
-    WHERE codigo LIKE '%ver%' AND codigo NOT IN ('topview_comisionistas_ver', 'topview_vendedores_ver', 'topview_netos_ver', 'liquidaciones_ver')
+    WHERE NOT EXISTS (SELECT 1 FROM roles_sembrados WHERE rol_id = '6')
+    AND (
+    codigo LIKE '%ver%' AND codigo NOT IN ('topview_comisionistas_ver', 'topview_vendedores_ver', 'topview_netos_ver', 'liquidaciones_ver')
+    )
   `);
+
+  db.run(`INSERT OR IGNORE INTO roles_sembrados (rol_id) SELECT DISTINCT rol_id FROM rol_permisos WHERE rol_id != '1'`);
+
+  // El nivel 1 se llama Superusuario (acceso total, incluye usuarios y roles).
+  db.run(`UPDATE roles SET nombre = 'Superusuario', descripcion = 'Acceso total (modo Dios): incluye usuarios, roles y todo el sistema' WHERE id = '1' AND nombre = 'Administrador'`);
+
+  // Socio: ve todo menos los módulos todavía sin desarrollar (Gastos, Facturas,
+  // Tesorería, Auditoría) y no administra usuarios ni roles. Lista explícita,
+  // sembrada una sola vez.
+  db.run(`INSERT OR IGNORE INTO roles (id, nombre, descripcion, nivel) VALUES ('7', 'Socio', 'Socios: ven todo menos Gastos, Facturas, Tesorería y Auditoría (hasta que estén desarrollados)', 2)`);
+  db.run(`
+    INSERT OR IGNORE INTO rol_permisos (id, rol_id, permiso_id)
+    SELECT printf('rp_%s_%s', '7', id) as id, '7' as rol_id, id as permiso_id
+    FROM permisos
+    WHERE NOT EXISTS (SELECT 1 FROM roles_sembrados WHERE rol_id = '7')
+      AND codigo NOT IN (
+        'gastos_crear', 'gastos_ver', 'gastos_editar',
+        'facturas_crear', 'facturas_editar', 'facturas_eliminar', 'facturas_ver',
+        'presupuestos_crear', 'presupuestos_ver', 'cobros_registrar', 'notas_credito_crear',
+        'tesoreria_ver', 'cuentas_crear', 'cuentas_editar',
+        'auditoria_ver', 'usuarios_gestionar', 'roles_gestionar', 'topview_solo_propias'
+      )
+  `);
+  db.run(`INSERT OR IGNORE INTO roles_sembrados (rol_id) SELECT DISTINCT rol_id FROM rol_permisos WHERE rol_id != '1'`);
+
+  // Vendedor vinculado a un usuario (para "ver solo lo propio").
+  db.run(`ALTER TABLE usuarios ADD COLUMN vendedor_id TEXT`, () => {});
 
   // Insertar usuario administrador por defecto (password: admin123)
   db.run(`

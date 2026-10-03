@@ -9,6 +9,7 @@ import { VentasService } from './services/ventas';
 import { TesoreriaService } from './services/tesoreria';
 import { AuditoriaService } from './services/auditoria';
 import { AutenticacionService } from './services/autenticacion';
+import { RolesService } from './services/roles';
 import { ReportesService } from './services/reportes';
 import { TopviewService } from './services/topview';
 import { TelegramService } from './services/telegram';
@@ -206,11 +207,62 @@ app.get('/api/auth/me', autenticacion, async (req: RequestConUsuario, res: Respo
 
 // ==================== RUTAS DE USUARIOS ====================
 
-app.get('/api/roles', autenticacion, requierePermiso('usuarios_gestionar'), (req: RequestConUsuario, res: Response) => {
-  db.all('SELECT * FROM roles WHERE habilitado = 1 ORDER BY nivel', (err, rows) => {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json(rows);
-  });
+// El selector de rol del alta de usuarios necesita ver los roles; la gestión
+// (crear/editar/eliminar roles y permisos) es solo del Superusuario.
+app.get('/api/roles', autenticacion, requierePermiso('usuarios_gestionar'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    res.json(await RolesService.listar());
+  } catch (err) {
+    res.status(estadoHttpDe(err)).json({ error: mensajeDe(err) });
+  }
+});
+
+app.get('/api/permisos', autenticacion, requierePermiso('roles_gestionar'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    res.json(await RolesService.listarPermisos());
+  } catch (err) {
+    res.status(estadoHttpDe(err)).json({ error: mensajeDe(err) });
+  }
+});
+
+app.get('/api/roles/:id', autenticacion, requierePermiso('roles_gestionar'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    res.json(await RolesService.obtener(req.params.id));
+  } catch (err) {
+    res.status(estadoHttpDe(err)).json({ error: mensajeDe(err) });
+  }
+});
+
+app.post('/api/roles', autenticacion, requierePermiso('roles_gestionar'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const id = await RolesService.crear(req.body);
+    AuditoriaService.registrarOperacion('roles', 'INSERT', id, null, req.body, req.usuario?.id, req.ip);
+    res.json(await RolesService.obtener(id));
+  } catch (err) {
+    res.status(estadoHttpDe(err)).json({ error: mensajeDe(err) });
+  }
+});
+
+app.put('/api/roles/:id', autenticacion, requierePermiso('roles_gestionar'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const antes = await RolesService.obtener(req.params.id).catch(() => null);
+    await RolesService.actualizar(req.params.id, req.body);
+    AuditoriaService.registrarOperacion('roles', 'UPDATE', req.params.id, antes, req.body, req.usuario?.id, req.ip);
+    res.json(await RolesService.obtener(req.params.id));
+  } catch (err) {
+    res.status(estadoHttpDe(err)).json({ error: mensajeDe(err) });
+  }
+});
+
+app.delete('/api/roles/:id', autenticacion, requierePermiso('roles_gestionar'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const antes = await RolesService.obtener(req.params.id).catch(() => null);
+    await RolesService.eliminar(req.params.id);
+    AuditoriaService.registrarOperacion('roles', 'DELETE', req.params.id, antes, null, req.usuario?.id, req.ip);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(estadoHttpDe(err)).json({ error: mensajeDe(err) });
+  }
 });
 
 app.get('/api/usuarios', autenticacion, requierePermiso('usuarios_gestionar'), async (req, res) => {
