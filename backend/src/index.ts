@@ -16,7 +16,78 @@ import { ProduccionTopviewService } from './services/produccionTopview';
 import { LocacionesService } from './services/locaciones';
 import { LiquidacionesService } from './services/liquidaciones';
 import { mensajeDe } from './errores';
-import { Parametro } from './dbHelpers';
+import { Parametro, dbAll, dbGet } from './dbHelpers';
+
+// Filas que las rutas de este archivo leen con db.get/db.all directo — solo las
+// columnas que se usan por nombre; el resto viaja tal cual (índice abierto).
+interface FilaClienteConAgencia {
+  agencia_id: string | null;
+  [columna: string]: unknown;
+}
+
+interface FilaCliente {
+  razon_social: string;
+  cuit?: string | null;
+  email?: string | null;
+  telefono?: string | null;
+  direccion?: string | null;
+  ciudad?: string | null;
+  condicion_iva?: string | null;
+  [columna: string]: unknown;
+}
+
+interface FilaGasto {
+  fecha: string;
+  estado: string;
+  descripcion?: string | null;
+  [columna: string]: unknown;
+}
+
+interface FilaOrdenVendedor {
+  id: string;
+  vendedor_id: string;
+  monto_final: number;
+  arreglos_monto: number;
+}
+
+interface FilaVendedor {
+  id: string;
+  nombre: string;
+  [columna: string]: unknown;
+}
+
+interface TramoEscala {
+  vendedor_id: string | null;
+  desde: number;
+  hasta: number | null;
+  porcentaje: number;
+  [columna: string]: unknown;
+}
+
+interface FilaReporteIntermediario {
+  intermediario_id: string;
+  intermediario_nombre: string;
+  intermediario_tipo: string;
+  orden_id: string | null;
+  monto_comision: number | null;
+  factura_formal: number | null;
+  numero_orden: string | null;
+  numero_orden_agencia: string | null;
+  nombre_anunciante: string | null;
+  mes_ingreso: number | null;
+  ano_ingreso: number | null;
+}
+
+interface OrdenDeIntermediario {
+  orden_id: string;
+  numero_orden: string;
+  numero_orden_agencia: string | null;
+  nombre_anunciante: string | null;
+  monto_comision: number | null;
+  factura_formal: boolean;
+  mes_ingreso: number | null;
+  ano_ingreso: number | null;
+}
 
 interface ContactoClienteEntrada {
   nombre?: string;
@@ -126,7 +197,7 @@ app.post('/api/auth/logout', autenticacion, async (req: RequestConUsuario, res: 
 
 app.get('/api/auth/me', autenticacion, async (req: RequestConUsuario, res: Response) => {
   try {
-    const usuario = await AutenticacionService.obtenerUsuarioCompleto(req.usuario.id);
+    const usuario = await AutenticacionService.obtenerUsuarioCompleto(req.usuario!.id);
     res.json(usuario);
   } catch (err) {
     res.status(401).json({ error: mensajeDe(err) });
@@ -176,7 +247,7 @@ app.put('/api/usuarios/:id/rol', autenticacion, requierePermiso('usuarios_gestio
 
 app.get('/api/reportes/ventas', autenticacion, async (req: RequestConUsuario, res: Response) => {
   try {
-    const reporte = await ReportesService.reporteVentas(req.usuario.id, req.permisos || [], req.query);
+    const reporte = await ReportesService.reporteVentas(req.usuario!.id, req.permisos || [], req.query);
     res.json(reporte);
   } catch (err) {
     res.status(500).json({ error: mensajeDe(err) });
@@ -185,7 +256,7 @@ app.get('/api/reportes/ventas', autenticacion, async (req: RequestConUsuario, re
 
 app.get('/api/reportes/compras', autenticacion, async (req: RequestConUsuario, res: Response) => {
   try {
-    const reporte = await ReportesService.reporteCompras(req.usuario.id, req.permisos || [], req.query);
+    const reporte = await ReportesService.reporteCompras(req.usuario!.id, req.permisos || [], req.query);
     res.json(reporte);
   } catch (err) {
     res.status(500).json({ error: mensajeDe(err) });
@@ -194,7 +265,7 @@ app.get('/api/reportes/compras', autenticacion, async (req: RequestConUsuario, r
 
 app.get('/api/reportes/financieros', autenticacion, async (req: RequestConUsuario, res: Response) => {
   try {
-    const reporte = await ReportesService.reporteFinanciero(req.usuario.id, req.permisos || [], req.query);
+    const reporte = await ReportesService.reporteFinanciero(req.usuario!.id, req.permisos || [], req.query);
     res.json(reporte);
   } catch (err) {
     res.status(500).json({ error: mensajeDe(err) });
@@ -203,7 +274,7 @@ app.get('/api/reportes/financieros', autenticacion, async (req: RequestConUsuari
 
 app.get('/api/reportes/impositiva', autenticacion, async (req: RequestConUsuario, res: Response) => {
   try {
-    const reporte = await ReportesService.reporteImpositiva(req.usuario.id, req.permisos || [], req.query);
+    const reporte = await ReportesService.reporteImpositiva(req.usuario!.id, req.permisos || [], req.query);
     res.json(reporte);
   } catch (err) {
     res.status(500).json({ error: mensajeDe(err) });
@@ -212,7 +283,7 @@ app.get('/api/reportes/impositiva', autenticacion, async (req: RequestConUsuario
 
 app.get('/api/reportes/clientes', autenticacion, async (req: RequestConUsuario, res: Response) => {
   try {
-    const reporte = await ReportesService.reporteClientes(req.usuario.id, req.permisos || []);
+    const reporte = await ReportesService.reporteClientes(req.usuario!.id, req.permisos || []);
     res.json(reporte);
   } catch (err) {
     res.status(500).json({ error: mensajeDe(err) });
@@ -221,7 +292,7 @@ app.get('/api/reportes/clientes', autenticacion, async (req: RequestConUsuario, 
 
 app.get('/api/reportes/proveedores', autenticacion, async (req: RequestConUsuario, res: Response) => {
   try {
-    const reporte = await ReportesService.reporteProveedores(req.usuario.id, req.permisos || []);
+    const reporte = await ReportesService.reporteProveedores(req.usuario!.id, req.permisos || []);
     res.json(reporte);
   } catch (err) {
     res.status(500).json({ error: mensajeDe(err) });
@@ -230,7 +301,7 @@ app.get('/api/reportes/proveedores', autenticacion, async (req: RequestConUsuari
 
 app.get('/api/reportes/auditoria', autenticacion, async (req: RequestConUsuario, res: Response) => {
   try {
-    const reporte = await ReportesService.reporteAuditoria(req.usuario.id, req.permisos || [], req.query);
+    const reporte = await ReportesService.reporteAuditoria(req.usuario!.id, req.permisos || [], req.query);
     res.json(reporte);
   } catch (err) {
     res.status(500).json({ error: mensajeDe(err) });
@@ -342,7 +413,7 @@ app.get('/api/clientes', autenticacion, requierePermiso('clientes_ver'), (req: R
      FROM clientes c
      LEFT JOIN agencias a ON a.cliente_id = c.id
      WHERE c.habilitado = 1`,
-    (err, rows: any[]) => {
+    (err, rows: FilaClienteConAgencia[]) => {
       if (err) return res.status(500).json({ error: err.message });
       res.json(rows.map((r) => ({ ...r, es_agencia: !!r.agencia_id })));
     }
@@ -350,14 +421,14 @@ app.get('/api/clientes', autenticacion, requierePermiso('clientes_ver'), (req: R
 });
 
 app.get('/api/clientes/:id', autenticacion, requierePermiso('clientes_ver'), (req: RequestConUsuario, res: Response) => {
-  db.get('SELECT * FROM clientes WHERE id = ?', [req.params.id], (err, cliente: any) => {
+  db.get('SELECT * FROM clientes WHERE id = ?', [req.params.id], (err, cliente: FilaCliente | undefined) => {
     if (err) return res.status(500).json({ error: err.message });
     if (!cliente) return res.status(404).json({ error: 'Cliente no encontrado' });
 
     db.all('SELECT * FROM contactos_cliente WHERE cliente_id = ?', [req.params.id], (err, contactos) => {
       if (err) return res.status(500).json({ error: err.message });
 
-      db.get('SELECT id, nombre FROM agencias WHERE cliente_id = ?', [req.params.id], (err, agencia: any) => {
+      db.get('SELECT id, nombre FROM agencias WHERE cliente_id = ?', [req.params.id], (err, agencia: { id: string; nombre: string } | undefined) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json({ ...cliente, contactos: contactos || [], es_agencia: !!agencia, agencia_nombre: agencia?.nombre });
       });
@@ -504,13 +575,13 @@ app.post('/api/proveedores/desde-cliente', autenticacion, requierePermiso('prove
   const { cliente_id } = req.body;
   if (!cliente_id) return res.status(400).json({ error: 'Falta el cliente.' });
 
-  db.get('SELECT * FROM clientes WHERE id = ?', [cliente_id], (err, cliente: any) => {
+  db.get('SELECT * FROM clientes WHERE id = ?', [cliente_id], (err, cliente: FilaCliente | undefined) => {
     if (err) return res.status(500).json({ error: err.message });
     if (!cliente) return res.status(404).json({ error: 'Cliente no encontrado' });
 
-    const buscarExistente = (cb: (existente: any) => void) => {
+    const buscarExistente = (cb: (existente: Record<string, unknown> | null | undefined) => void) => {
       if (!cliente.cuit) return cb(null);
-      db.get('SELECT * FROM proveedores WHERE cuit = ?', [cliente.cuit], (err, existente) => {
+      db.get('SELECT * FROM proveedores WHERE cuit = ?', [cliente.cuit], (err, existente: Record<string, unknown> | undefined) => {
         if (err) return res.status(500).json({ error: err.message });
         cb(existente);
       });
@@ -606,7 +677,7 @@ app.post('/api/facturas', autenticacion, requierePermiso('facturas_crear'), asyn
 });
 
 app.get('/api/facturas/:id', autenticacion, requierePermiso('facturas_ver'), (req: RequestConUsuario, res: Response) => {
-  db.get('SELECT * FROM facturas WHERE id = ?', [req.params.id], (err, factura: any) => {
+  db.get('SELECT * FROM facturas WHERE id = ?', [req.params.id], (err, factura: Record<string, unknown> | undefined) => {
     if (err) return res.status(500).json({ error: err.message });
 
     db.all(
@@ -1099,9 +1170,7 @@ app.get('/api/ordenes-publicidad', autenticacion, requierePermiso('topview_ver')
 
 app.delete('/api/ordenes-publicidad/:id', autenticacion, requierePermiso('topview_editar'), async (req: RequestConUsuario, res: Response) => {
   try {
-    const conTarea: any = await new Promise((resolve) =>
-      db.get('SELECT asana_task_gid FROM ordenes_publicidad WHERE id = ?', [req.params.id], (_e, row) => resolve(row))
-    );
+    const conTarea = await dbGet<{ asana_task_gid: string | null }>('SELECT asana_task_gid FROM ordenes_publicidad WHERE id = ?', [req.params.id]).catch(() => undefined);
     await TopviewService.eliminarOrden(req.params.id);
     // Si la orden tenía tarea en Asana, se borra también — si no, quedaba
     // huérfana en el proyecto. Si Asana falla, la baja igual queda hecha y se
@@ -1365,7 +1434,7 @@ app.get(
   autenticacion,
   requierePermiso('topview_ver'),
   (req: RequestConUsuario, res: Response) => {
-    db.get('SELECT * FROM documentos_adjuntos WHERE id = ?', [req.params.docId], (err, doc: any) => {
+    db.get('SELECT * FROM documentos_adjuntos WHERE id = ?', [req.params.docId], (err, doc: { ruta_archivo?: string | null; nombre_archivo: string } | undefined) => {
       if (err) return res.status(500).json({ error: err.message });
       if (!doc) return res.status(404).json({ error: 'Documento no encontrado' });
       if (!doc.ruta_archivo) return res.status(404).json({ error: 'Este documento no tiene un archivo cargado.' });
@@ -1429,9 +1498,8 @@ app.get('/api/topview/intermediarios/reporte', autenticacion, requierePermiso('t
     // frontend pueda filtrar por mes/año/tipo y mostrar qué clientes
     // conforman cada comisión — un comisionista sin ninguna orden en el
     // período elegido igual aparece, con `ordenes: []`.
-    const filas: any[] = await new Promise((resolve, reject) => {
-      db.all(
-        `
+    const filas = await dbAll<FilaReporteIntermediario>(
+      `
         SELECT
           i.id as intermediario_id, i.nombre as intermediario_nombre, i.tipo as intermediario_tipo,
           oi.orden_id, oi.monto_comision, oi.factura_formal,
@@ -1441,23 +1509,21 @@ app.get('/api/topview/intermediarios/reporte', autenticacion, requierePermiso('t
         LEFT JOIN ordenes_publicidad o ON o.id = oi.orden_id AND (o.habilitado != 0 OR o.habilitado IS NULL)
         WHERE i.habilitado = 1
         ORDER BY i.nombre
-      `,
-        (err, rows) => (err ? reject(err) : resolve(rows))
-      );
-    });
+    `
+    );
 
-    const porIntermediario = new Map<string, any>();
+    const porIntermediario = new Map<string, { id: string; nombre: string; tipo: string; ordenes: OrdenDeIntermediario[] }>();
     for (const f of filas) {
       if (!porIntermediario.has(f.intermediario_id)) {
         porIntermediario.set(f.intermediario_id, {
           id: f.intermediario_id,
           nombre: f.intermediario_nombre,
           tipo: f.intermediario_tipo,
-          ordenes: [] as any[],
+          ordenes: [],
         });
       }
       if (f.orden_id && f.numero_orden) {
-        porIntermediario.get(f.intermediario_id).ordenes.push({
+        porIntermediario.get(f.intermediario_id)!.ordenes.push({
           orden_id: f.orden_id,
           numero_orden: f.numero_orden,
           numero_orden_agencia: f.numero_orden_agencia,
@@ -2138,26 +2204,17 @@ app.get('/api/topview/vendedores/reporte', autenticacion, requierePermiso('topvi
   if (!mes || !ano) return res.status(400).json({ error: 'Indicá mes y año.' });
 
   try {
-    const ordenes: any[] = await new Promise((resolve, reject) => {
-      db.all(
-        `SELECT o.id, o.vendedor_id, o.monto_final,
-                COALESCE((SELECT SUM(a.monto) FROM arreglos_no_registrables a WHERE a.orden_id = o.id), 0) as arreglos_monto
-         FROM ordenes_publicidad o
-         WHERE o.mes_ingreso = ? AND o.ano_ingreso = ? AND o.vendedor_id IS NOT NULL`,
-        [mes, ano],
-        (err, rows) => (err ? reject(err) : resolve(rows as any[]))
-      );
-    });
+    const ordenes = await dbAll<FilaOrdenVendedor>(
+      `SELECT o.id, o.vendedor_id, o.monto_final,
+              COALESCE((SELECT SUM(a.monto) FROM arreglos_no_registrables a WHERE a.orden_id = o.id), 0) as arreglos_monto
+       FROM ordenes_publicidad o
+       WHERE o.mes_ingreso = ? AND o.ano_ingreso = ? AND o.vendedor_id IS NOT NULL`,
+      [mes, ano]
+    );
 
-    const vendedores: any[] = await new Promise((resolve, reject) => {
-      db.all('SELECT * FROM vendedores WHERE habilitado = 1 ORDER BY nombre', (err, rows) => (err ? reject(err) : resolve(rows as any[])));
-    });
+    const vendedores = await dbAll<FilaVendedor>('SELECT * FROM vendedores WHERE habilitado = 1 ORDER BY nombre');
 
-    const escala: any[] = await new Promise((resolve, reject) => {
-      db.all('SELECT * FROM escala_comisiones_vendedor WHERE habilitado = 1 ORDER BY desde ASC', (err, rows) =>
-        err ? reject(err) : resolve(rows as any[])
-      );
-    });
+    const escala = await dbAll<TramoEscala>('SELECT * FROM escala_comisiones_vendedor WHERE habilitado = 1 ORDER BY desde ASC');
     const escalaGeneral = escala.filter((t) => !t.vendedor_id);
 
     const tramoPara = (base: number, vendedorId: string) => {
@@ -2200,7 +2257,7 @@ app.get('/api/gastos', autenticacion, requierePermiso('gastos_ver'), (req: Reque
      FROM gastos g
      LEFT JOIN proveedores p ON p.id = g.proveedor_id
      ORDER BY g.fecha ASC`,
-    (err, rows: any[]) => {
+    (err, rows: FilaGasto[]) => {
       if (err) return res.status(500).json({ error: err.message });
 
       // g.fecha es "YYYY-MM-DD": se parsean los componentes a mano en vez de
@@ -2230,7 +2287,7 @@ app.get('/api/gastos/:id', autenticacion, requierePermiso('gastos_ver'), (req: R
      LEFT JOIN proveedores p ON p.id = g.proveedor_id
      WHERE g.id = ?`,
     [req.params.id],
-    (err, gasto: any) => {
+    (err, gasto: Record<string, unknown> | undefined) => {
       if (err) return res.status(500).json({ error: err.message });
       if (!gasto) return res.status(404).json({ error: 'Gasto no encontrado' });
       res.json(gasto);
@@ -2242,7 +2299,7 @@ app.put('/api/gastos/:id', autenticacion, requierePermiso('gastos_editar'), (req
   const { id } = req.params;
   const { estado, descripcion } = req.body;
 
-  db.get('SELECT * FROM gastos WHERE id = ?', [id], (err, anterior: any) => {
+  db.get('SELECT * FROM gastos WHERE id = ?', [id], (err, anterior: FilaGasto | undefined) => {
     if (err) return res.status(500).json({ error: err.message });
     if (!anterior) return res.status(404).json({ error: 'Gasto no encontrado' });
 

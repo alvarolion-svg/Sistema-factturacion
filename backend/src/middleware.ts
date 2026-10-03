@@ -1,9 +1,10 @@
 import { Request, Response, NextFunction } from 'express';
-import { AutenticacionService } from './services/autenticacion';
-import db from './database';
+import { AutenticacionService, UsuarioAutenticado } from './services/autenticacion';
+import { dbGet } from './dbHelpers';
+import { mensajeDe } from './errores';
 
 export interface RequestConUsuario extends Request {
-  usuario?: any;
+  usuario?: UsuarioAutenticado;
   permisos?: string[];
 }
 
@@ -23,8 +24,8 @@ export const autenticacion = async (req: RequestConUsuario, res: Response, next:
     req.permisos = usuario.permisos;
 
     next();
-  } catch (error: any) {
-    res.status(401).json({ error: error.message });
+  } catch (error) {
+    res.status(401).json({ error: mensajeDe(error) });
   }
 };
 
@@ -66,36 +67,15 @@ export const requiereRol = (nivelMinimo: number) => {
       return res.status(403).json({ error: 'Rol insuficiente para esta acción' });
     }
 
-    db.get('SELECT nivel FROM roles WHERE id = ?', [req.usuario.rol_id], (err, rol: any) => {
-      if (err) return res.status(500).json({ error: err.message });
+    dbGet<{ nivel: number }>('SELECT nivel FROM roles WHERE id = ?', [req.usuario.rol_id])
+      .then((rol) => {
+        const rolNivel = rol?.nivel ?? 999;
+        if (rolNivel > nivelMinimo) {
+          return res.status(403).json({ error: 'Rol insuficiente para esta acción' });
+        }
 
-      const rolNivel = rol?.nivel ?? 999;
-      if (rolNivel > nivelMinimo) {
-        return res.status(403).json({ error: 'Rol insuficiente para esta acción' });
-      }
-
-      next();
-    });
-  };
-};
-
-/**
- * Middleware para registrar auditoría
- */
-export const registrarAuditoria = (tabla: string, tipoOperacion: 'INSERT' | 'UPDATE' | 'DELETE') => {
-  return async (req: RequestConUsuario, res: Response, next: NextFunction) => {
-    // Interceptar la respuesta
-    const originalSend = res.send;
-
-    res.send = function (data: any) {
-      // Registrar si fue exitoso
-      if (res.statusCode >= 200 && res.statusCode < 300) {
-        const datosNuevos = typeof data === 'string' ? JSON.parse(data) : data;
-        // Aquí se registraría en la tabla de auditoría
-      }
-      return originalSend.call(this, data);
-    };
-
-    next();
+        next();
+      })
+      .catch((err) => res.status(500).json({ error: mensajeDe(err) }));
   };
 };

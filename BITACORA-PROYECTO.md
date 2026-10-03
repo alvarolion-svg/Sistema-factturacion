@@ -549,6 +549,18 @@ más importantes:
     los casos de error): idéntico en las 5 tablas involucradas (órdenes, detalles, facturas, detalle de
     facturas y cuenta corriente; solo difiere el número de factura, que lleva la hora). `any` total del
     backend: 43.
+40. **Limpieza de index.ts y middleware.ts (2026-10-02)**: 20 + 4 → 0 `any`. `req.usuario` ahora tiene
+    tipo (`UsuarioAutenticado`, exportado de autenticacion.ts; las rutas usan `req.usuario!.id` porque
+    siempre corren detrás de `autenticacion`). `requiereRol` usa `dbGet`; se **borró** `registrarAuditoria`
+    (middleware sin uso que no hacía nada y habría roto con cualquier respuesta que no fuera JSON). En
+    index.ts: filas tipadas en las rutas de clientes, proveedores desde cliente, facturas, gastos,
+    documentos, reporte de intermediarios y de vendedores (los 3 `new Promise` pasaron a
+    `dbGet/dbAll`). **Verificación nueva:** se levantaron dos servidores en paralelo (index.ts viejo y nuevo,
+    cada uno con su copia de la base y datos de muestra de gastos/facturas/clientes) y se mandaron las mismas
+    38 requests: idénticas (incluye descarga de documentos byte a byte, crear cliente con contactos,
+    proveedor desde cliente con/sin CUIT, PUT de gastos, eliminar orden, y los 401); además las tres fotos
+    de la API real idénticas. `any` total del backend: 19 (quedan: `topview.ts` 11 en
+    generarFacturasReplicadas/obtenerOrden, `ventas.ts` 4 y `tesoreria.ts` 3 — flujos de plata a propósito).
 
 ## Cómo trabaja este usuario (para que una sesión nueva no tenga que redescubrirlo)
 

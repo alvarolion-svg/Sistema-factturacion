@@ -6,6 +6,9 @@ import { Usuario, Sesion, LoginResponse, Permiso, Rol } from '../types';
 
 const BCRYPT_SALT_ROUNDS = 10;
 
+// Lo que verificarToken pone en req.usuario: el usuario con sus permisos como lista de códigos.
+export type UsuarioAutenticado = Omit<Usuario, 'permisos'> & { permisos: string[] };
+
 // Fila de la tabla usuarios tal como la devuelve sqlite (`activo` llega como
 // 1/0 aunque el tipo Usuario lo declare boolean — se devuelve tal cual, igual
 // que antes, para no cambiar lo que ve el frontend).
@@ -141,7 +144,7 @@ export class AutenticacionService {
   /**
    * Verificar token y obtener usuario
    */
-  static async verificarToken(token: string): Promise<Omit<Usuario, 'permisos'> & { permisos: string[] }> {
+  static async verificarToken(token: string): Promise<UsuarioAutenticado> {
     const sesion = await dbGet<UsuarioFila & { usuario_id: string }>(
       `
         SELECT s.*, u.*, r.nombre as rol_nombre
