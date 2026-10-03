@@ -2548,11 +2548,12 @@ AutenticacionService.migrarPasswordsViejas()
     // mientras este proceso esté levantado (ver PENDIENTE-PRODUCCION.md,
     // todavía sin desplegar en un host siempre encendido; decisión
     // consciente del usuario, 2026-09-30). Revisa cada hora a partir de las
-    // 8am; TopviewService.avisarCampanasQueArrancanHoy es idempotente
+    // 9am (solo lunes a viernes); TopviewService.avisarCampanasQueArrancanHoy es idempotente
     // (marca cada orden avisada), así que reiniciar el backend varias veces
     // el mismo día no duplica el aviso.
     const revisarAlertaDiariaTelegram = () => {
-      if (new Date().getHours() < 8) return;
+      // Lunes a viernes desde las 9; fines de semana no se comunica nada.
+      if (new Date().getHours() < 9) return;
       TopviewService.avisarCampanasQueArrancanHoy()
         .then(({ avisadas }) => {
           if (avisadas > 0) console.log(`✓ Telegram: avisadas ${avisadas} campaña(s) que arrancan hoy`);

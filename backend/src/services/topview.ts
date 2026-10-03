@@ -1660,16 +1660,24 @@ export class TopviewService {
    */
   static async avisarCampanasQueArrancanHoy(): Promise<{ avisadas: number }> {
     const hoy = new Date();
-    const fechaHoy = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`;
+    // Sábado y domingo no se comunica nada: el lunes se avisan también las
+    // campañas que arrancaron en el fin de semana.
+    if (hoy.getDay() === 0 || hoy.getDay() === 6) return { avisadas: 0 };
+    const aFecha = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const fechaHoy = aFecha(hoy);
+    const desde = new Date(hoy);
+    if (hoy.getDay() === 1) desde.setDate(desde.getDate() - 2);
+    const fechaDesde = aFecha(desde);
 
     const candidatas = await this.queryAll<OrdenAviso>(
       `SELECT id, nombre_anunciante, tipo_anunciante, periodo_desde, periodo_hasta
        FROM ordenes_publicidad
-       WHERE periodo_desde = ?
+       WHERE periodo_desde >= ? AND periodo_desde <= ?
          AND (habilitado != 0 OR habilitado IS NULL)
          AND (avisar_telegram != 0 OR avisar_telegram IS NULL)
-         AND telegram_avisado_inicio_en IS NULL`,
-      [fechaHoy]
+         AND telegram_avisado_inicio_en IS NULL
+       ORDER BY periodo_desde, nombre_anunciante`,
+      [fechaDesde, fechaHoy]
     );
     // Se "reserva" cada orden ANTES de mandar: el UPDATE condicionado solo le
     // sirve a quien llega primero, así dos procesos del backend corriendo a la
@@ -1685,8 +1693,16 @@ export class TopviewService {
     if (ordenes.length === 0) return { avisadas: 0 };
 
     const formatFecha = (f: string) => f.split('-').reverse().join('/');
-    const lineas = ordenes.map((o) => `• <b>${o.nombre_anunciante}</b> — hasta ${formatFecha(o.periodo_hasta)}`);
-    const texto = `📅 <b>Campañas que arrancan hoy</b> (${ordenes.length}):\n\n${lineas.join('\n')}`;
+    // Cada campaña lleva su detalle: qué soporte, en qué locación y en qué
+    // punto exacto (mismo bloque que los otros avisos).
+    const lineas: string[] = [];
+    for (const o of ordenes) {
+      const bloque = await this.construirBloqueUbicacion(o.id);
+      const arranque = o.periodo_desde === fechaHoy ? '' : `arrancó el ${formatFecha(o.periodo_desde)}, `;
+      lineas.push(`• <b>${o.nombre_anunciante}</b> — ${arranque}hasta ${formatFecha(o.periodo_hasta)}` + (bloque ? `\n${bloque}` : ''));
+    }
+    const titulo = fechaDesde === fechaHoy ? 'Campañas que arrancan hoy' : 'Campañas que arrancaron el fin de semana y hoy';
+    const texto = `📅 <b>${titulo}</b> (${ordenes.length}):\n\n${lineas.join('\n\n')}`;
 
     try {
       const { enviado } = await TelegramService.enviarAGrupo('Operaciones', texto);
@@ -1720,6 +1736,7 @@ export class TopviewService {
    */
   static async avisarPautasPorTerminar(diasAnticipacion = 10): Promise<{ avisadas: number }> {
     const hoy = new Date();
+    if (hoy.getDay() === 0 || hoy.getDay() === 6) return { avisadas: 0 };
     const limite = new Date(hoy);
     limite.setDate(limite.getDate() + diasAnticipacion);
     const aFecha = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
