@@ -1366,7 +1366,9 @@ db.serialize(() => {
       ('p54', 'topview_solo_propias', 'Ver y editar solo las órdenes propias (usuario vinculado a un vendedor)', 'topview', 'restriccion'),
       ('p55', 'topview_novedades_ver', 'Ver las novedades del día (campañas con locaciones, sin montos)', 'topview', 'ver'),
       ('p56', 'topview_certificacion_marcar', 'Marcar la certificación de una campaña como enviada', 'topview', 'estado'),
-      ('p57', 'roles_gestionar', 'Crear y editar roles y sus permisos', 'usuarios', 'gestionar')
+      ('p57', 'roles_gestionar', 'Crear y editar roles y sus permisos', 'usuarios', 'gestionar'),
+      ('p58', 'topview_ver_modulos', 'Ver todas las solapas de Topview (Ejecución, Timeline, Producción, Agencias, Locaciones, Condiciones); sin este permiso solo se ve la grilla de Órdenes', 'topview', 'ver'),
+      ('p59', 'topview_campanas_ver', 'Ver el listado simple de campañas para Tráfico (con locaciones, sin montos)', 'topview', 'ver')
   `);
 
   // Asignar permisos a roles.
@@ -1481,6 +1483,54 @@ db.serialize(() => {
       )
   `);
   db.run(`INSERT OR IGNORE INTO roles_sembrados (rol_id) SELECT DISTINCT rol_id FROM rol_permisos WHERE rol_id != '1'`);
+
+  // Etapa 2 de roles por puesto — una sola vez (tabla migraciones_aplicadas):
+  // los roles que ya existían conservan EXACTAMENTE lo que veían/hacían antes
+  // (los permisos por función son nuevos, así que se los damos a quien ya tenía
+  // topview_ver / topview_editar), y se crean Facturador, Tráfico y Operaciones
+  // con listas explícitas.
+  db.run(`CREATE TABLE IF NOT EXISTS migraciones_aplicadas (clave TEXT PRIMARY KEY, aplicada_en DATETIME DEFAULT CURRENT_TIMESTAMP)`);
+  db.run(`
+    INSERT OR IGNORE INTO rol_permisos (id, rol_id, permiso_id)
+    SELECT printf('rp_%s_%s', rp.rol_id, p.id), rp.rol_id, p.id
+    FROM rol_permisos rp
+    JOIN permisos pv ON pv.id = rp.permiso_id AND pv.codigo = 'topview_ver'
+    JOIN permisos p ON p.codigo IN ('topview_ver_modulos', 'topview_ver_montos')
+    WHERE NOT EXISTS (SELECT 1 FROM migraciones_aplicadas WHERE clave = 'roles_etapa2_v1')
+  `);
+  db.run(`
+    INSERT OR IGNORE INTO rol_permisos (id, rol_id, permiso_id)
+    SELECT printf('rp_%s_%s', rp.rol_id, p.id), rp.rol_id, p.id
+    FROM rol_permisos rp
+    JOIN permisos pe ON pe.id = rp.permiso_id AND pe.codigo = 'topview_editar'
+    JOIN permisos p ON p.codigo IN ('topview_marcar_revisada', 'topview_facturar', 'topview_novedades_ver', 'topview_certificacion_marcar')
+    WHERE NOT EXISTS (SELECT 1 FROM migraciones_aplicadas WHERE clave = 'roles_etapa2_v1')
+  `);
+  db.run(`INSERT OR IGNORE INTO roles (id, nombre, descripcion, nivel) VALUES
+    ('8', 'Facturador', 'Factura en Colppy: ve todas las órdenes con montos y datos de cliente, cambia el estado (Revisada → Facturada, o la devuelve a Cargada) y da de alta clientes. No ve comisionistas ni netos.', 4),
+    ('9', 'Tráfico', 'Sube campañas a las pantallas, fotos a redes y arma certificaciones: ve las campañas con todos sus datos y locaciones, sin montos.', 5),
+    ('10', 'Operaciones', 'Calle (fotos y videos): ve solo las novedades del día, con campañas y locaciones, sin montos.', 6)
+  `);
+  db.run(`
+    INSERT OR IGNORE INTO rol_permisos (id, rol_id, permiso_id)
+    SELECT printf('rp_%s_%s', '8', id), '8', id FROM permisos
+    WHERE NOT EXISTS (SELECT 1 FROM roles_sembrados WHERE rol_id = '8')
+      AND codigo IN ('dashboard_ver', 'topview_ver', 'topview_ver_montos', 'topview_facturar', 'clientes_ver', 'clientes_crear', 'clientes_editar')
+  `);
+  db.run(`
+    INSERT OR IGNORE INTO rol_permisos (id, rol_id, permiso_id)
+    SELECT printf('rp_%s_%s', '9', id), '9', id FROM permisos
+    WHERE NOT EXISTS (SELECT 1 FROM roles_sembrados WHERE rol_id = '9')
+      AND codigo IN ('dashboard_ver', 'topview_campanas_ver', 'topview_certificacion_marcar')
+  `);
+  db.run(`
+    INSERT OR IGNORE INTO rol_permisos (id, rol_id, permiso_id)
+    SELECT printf('rp_%s_%s', '10', id), '10', id FROM permisos
+    WHERE NOT EXISTS (SELECT 1 FROM roles_sembrados WHERE rol_id = '10')
+      AND codigo IN ('dashboard_ver', 'topview_novedades_ver')
+  `);
+  db.run(`INSERT OR IGNORE INTO roles_sembrados (rol_id) SELECT DISTINCT rol_id FROM rol_permisos WHERE rol_id != '1'`);
+  db.run(`INSERT OR IGNORE INTO migraciones_aplicadas (clave) VALUES ('roles_etapa2_v1')`);
 
   // Vendedor vinculado a un usuario (para "ver solo lo propio").
   db.run(`ALTER TABLE usuarios ADD COLUMN vendedor_id TEXT`, () => {});

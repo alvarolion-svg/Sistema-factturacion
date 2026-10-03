@@ -624,7 +624,7 @@ más importantes:
     comisiones/montos en el servidor, cambio de estado por permiso, vista de novedades), etapa 3 (Dardo:
     "solo lo mío" en todo el sistema), etapa 4 (certificaciones de Maiten); crear las cuentas de Dardo,
     Martin, Maiten, Rafael y Santino recién cuando su rol esté aplicado (sino verían de más); Karina Cintioli
-    (k_cintioli@yahoo.com) es Facturadora igual que Martin; que cada persona cambie su contraseña (falta forzarlo al primer ingreso); y
+    (k_cintioli@yahoo.com) es **Contadora**: rol Contador en solo lectura, ve lo que se factura (órdenes con montos y N° de factura, sin comisionistas ni netos) hasta que exista el módulo de facturación real; que cada persona cambie su contraseña (falta forzarlo al primer ingreso); y
     desactivar `admin@system.local` y su contraseña `admin123` cuando Alvaro confirme que entra con la suya.
 
 ## Cómo trabaja este usuario (para que una sesión nueva no tenga que redescubrirlo)
