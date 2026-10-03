@@ -80,6 +80,7 @@ function OrdenesTab({
   puedeFacturar = puedeEditar,
   puedeRevisar = puedeEditar,
   veNetos = puedeEditar,
+  puedeEditarPropias = false,
   puedeVerLiquidaciones,
   ordenIdParaAbrir,
   onOrdenAbierta,
@@ -94,6 +95,8 @@ function OrdenesTab({
   puedeFacturar?: boolean;
   puedeRevisar?: boolean;
   veNetos?: boolean;
+  // Vendedor "solo lo mío": modifica su orden únicamente mientras está Cargada.
+  puedeEditarPropias?: boolean;
   puedeVerLiquidaciones?: boolean;
   ordenIdParaAbrir?: string | null;
   onOrdenAbierta?: () => void;
@@ -1067,6 +1070,7 @@ function OrdenesTab({
   // registrado. Si por algún motivo ya estuviera así guardada, la dejamos
   // en la lista para no mostrar el selector vacío.
   const puedeCambiarEstado = puedeEditar || puedeFacturar || puedeRevisar;
+  const puedeModificar = (estado: string) => puedeEditar || (puedeEditarPropias && estado === 'Cargada');
   const estadosDisponibles = (o: OrdenPublicidad) =>
     (esOrdenFacturado(o) || o.estado === 'Facturada' ? ESTADOS_ORDEN : ESTADOS_ORDEN.filter((e) => e !== 'Facturada')).filter(
       (e) => {
@@ -1961,7 +1965,7 @@ function OrdenesTab({
           >
             ‹ Volver a la lista
           </button>
-          {puedeEditar && detalle && (
+          {detalle && puedeModificar(detalle.estado) && (
             <button className="btn btn-editar-orden" onClick={handleEditarOrden}>
               Editar orden
             </button>
@@ -2390,7 +2394,7 @@ function OrdenesTab({
               </table>
             )}
 
-            {puedeEditar && (
+            {puedeModificar(detalle.estado) && (
               <form className="cliente-form" onSubmit={handleSubirDocumento} style={{ marginTop: '1rem' }}>
                 <div className="form-group">
                   <label htmlFor="doc_archivo">Subir un archivo (PDF, Word, Excel o imagen — máx. 15MB)</label>
@@ -4026,7 +4030,7 @@ function OrdenesTab({
                 </td>
                 {(puedeCrear || puedeEditar) && (
                   <td>
-                    {puedeEditar && (
+                    {puedeModificar(o.estado) && (
                       <>
                         <button
                           className="btn-link"

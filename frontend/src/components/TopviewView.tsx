@@ -28,6 +28,7 @@ function TopviewView({ token, usuario }: TopviewViewProps) {
   const veTodosLosModulos = permisos.has('topview_ver_modulos');
   const puedeFacturar = permisos.has('topview_facturar');
   const puedeRevisar = permisos.has('topview_marcar_revisada');
+  const puedeEditarPropias = permisos.has('topview_solo_propias') && puedeCrear;
   const veNetos = ['topview_netos_ver', 'topview_comisionistas_ver', 'topview_editar'].some((p) => permisos.has(p));
   const puedeEditar = permisos.has('topview_editar');
   const puedeVerComisionistas = permisos.has('topview_comisionistas_ver');
@@ -187,6 +188,7 @@ function TopviewView({ token, usuario }: TopviewViewProps) {
           puedeFacturar={puedeFacturar}
           puedeRevisar={puedeRevisar}
           veNetos={veNetos}
+          puedeEditarPropias={puedeEditarPropias}
           puedeVerLiquidaciones={puedeVerLiquidaciones}
           ordenIdParaAbrir={ordenIdParaAbrir}
           onOrdenAbierta={() => setOrdenIdParaAbrir(null)}

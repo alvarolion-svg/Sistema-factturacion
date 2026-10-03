@@ -627,6 +627,21 @@ más importantes:
     (k_cintioli@yahoo.com) es **Contadora**: rol Contador en solo lectura, ve lo que se factura (órdenes con montos y N° de factura, sin comisionistas ni netos) hasta que exista el módulo de facturación real; que cada persona cambie su contraseña (falta forzarlo al primer ingreso); y
     desactivar `admin@system.local` y su contraseña `admin123` cuando Alvaro confirme que entra con la suya.
 
+44. **Roles etapas 2 y 3 (2026-10-03)**: ETAPA 2 (hecha): el servidor oculta `monto_final`/comisionistas a quien
+    no tiene netos/comisionistas/editar (`visibilidadOrdenes.ts`); cambio de estado por permiso (Revisada =
+    `topview_marcar_revisada`, Facturada = `topview_facturar` y solo desde Revisada, devolver a Cargada = cualquiera de
+    los dos); Colppy/cobro = facturar; certificación = `topview_certificacion_marcar`; endpoints sin plata
+    `/api/ordenes-publicidad/novedades` y `/campanas` (`vistasOperativas.ts`, listas explícitas de campos); pantallas
+    Novedades (Operaciones) y Campañas (Tráfico); quien no tiene `topview_ver_modulos` ve solo la grilla de Órdenes.
+    ETAPA 3 (hecha): rol Vendedor (id 4) = Dardo: `topview_solo_propias` + crear + montos + `productos_ver`, sin crear
+    clientes ni facturas/tesorería (migración única `roles_etapa3_v1/v2`). `alcanceOrdenes.ts`: filtra lista y
+    ejecución, 403 en detalle/asana-preview/clonar/documentos de órdenes ajenas, fuerza `vendedor_id` = el suyo al
+    crear/editar, edita su orden solo si está Cargada, reporte general Topview = 403, cuenta sin vendedor vinculado no
+    ve nada. **Ojo:** `topview_solo_propias` es una RESTRICCIÓN: el Superusuario NO la tiene (si no, no vería nada).
+    Probado por API con usuarios temporales (borrados). **Falta:** estadísticas propias de Dardo (hoy no ve Reportes
+    Topview), etapa 4 (certificaciones de Maiten), crear las cuentas reales, cambio de contraseña obligatorio, desactivar
+    `admin@system.local`.
+
 ## Cómo trabaja este usuario (para que una sesión nueva no tenga que redescubrirlo)
 
 - Prefiere construir con ejemplos concretos y reales, no specs completas de entrada — va

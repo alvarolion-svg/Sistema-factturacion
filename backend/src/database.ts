@@ -1385,7 +1385,11 @@ db.serialize(() => {
     INSERT OR IGNORE INTO rol_permisos (id, rol_id, permiso_id)
     SELECT printf('rp_%s_%s', '1', id) as id, '1' as rol_id, id as permiso_id
     FROM permisos
+    WHERE codigo != 'topview_solo_propias'
   `);
+  // topview_solo_propias es una RESTRICCIÓN ("solo ve lo suyo"), no una
+  // capacidad: el Superusuario nunca la tiene (si no, no vería nada).
+  db.run(`DELETE FROM rol_permisos WHERE rol_id = '1' AND permiso_id IN (SELECT id FROM permisos WHERE codigo = 'topview_solo_propias')`);
 
   // Gerente: Casi todos excepto auditoría, usuarios, netos post-comisión,
   // comisionistas y liquidaciones a concesionarios (topview_netos_ver,
@@ -1531,6 +1535,35 @@ db.serialize(() => {
   `);
   db.run(`INSERT OR IGNORE INTO roles_sembrados (rol_id) SELECT DISTINCT rol_id FROM rol_permisos WHERE rol_id != '1'`);
   db.run(`INSERT OR IGNORE INTO migraciones_aplicadas (clave) VALUES ('roles_etapa2_v1')`);
+
+  // Etapa 3 de roles por puesto — el rol Vendedor pasa a ser el de Dardo: carga
+  // órdenes Topview y ve SOLO las suyas (topview_solo_propias), con montos de lo
+  // suyo; ve la lista de clientes pero no los da de alta (eso lo hace el
+  // Facturador o un Socio). Se aplica una sola vez; después se ajusta desde la
+  // pantalla de Roles y permisos.
+  db.run(`
+    DELETE FROM rol_permisos WHERE rol_id = '4'
+      AND NOT EXISTS (SELECT 1 FROM migraciones_aplicadas WHERE clave = 'roles_etapa3_v1')
+      AND permiso_id IN (SELECT id FROM permisos WHERE codigo IN
+        ('clientes_crear', 'clientes_editar', 'clientes_eliminar', 'facturas_crear', 'facturas_editar', 'facturas_eliminar', 'facturas_ver', 'tesoreria_ver', 'cobros_registrar'))
+  `);
+  db.run(`
+    INSERT OR IGNORE INTO rol_permisos (id, rol_id, permiso_id)
+    SELECT printf('rp_%s_%s', '4', id), '4', id FROM permisos
+    WHERE NOT EXISTS (SELECT 1 FROM migraciones_aplicadas WHERE clave = 'roles_etapa3_v1')
+      AND codigo IN ('dashboard_ver', 'topview_ver', 'topview_crear', 'topview_ver_montos', 'topview_solo_propias')
+  `);
+  db.run(`UPDATE roles SET descripcion = 'Carga órdenes Topview y ve solo las suyas (con sus montos). Puede modificar su orden mientras esté Cargada. Ve la lista de clientes pero no los da de alta.'
+    WHERE id = '4' AND NOT EXISTS (SELECT 1 FROM migraciones_aplicadas WHERE clave = 'roles_etapa3_v1')`);
+  db.run(`INSERT OR IGNORE INTO migraciones_aplicadas (clave) VALUES ('roles_etapa3_v1')`);
+  // v2: para cargar una orden necesita ver el catálogo de productos/soportes.
+  db.run(`
+    INSERT OR IGNORE INTO rol_permisos (id, rol_id, permiso_id)
+    SELECT printf('rp_%s_%s', '4', id), '4', id FROM permisos
+    WHERE NOT EXISTS (SELECT 1 FROM migraciones_aplicadas WHERE clave = 'roles_etapa3_v2')
+      AND codigo = 'productos_ver'
+  `);
+  db.run(`INSERT OR IGNORE INTO migraciones_aplicadas (clave) VALUES ('roles_etapa3_v2')`);
 
   // Vendedor vinculado a un usuario (para "ver solo lo propio").
   db.run(`ALTER TABLE usuarios ADD COLUMN vendedor_id TEXT`, () => {});

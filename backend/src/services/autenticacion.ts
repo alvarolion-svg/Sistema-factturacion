@@ -8,7 +8,7 @@ import { ErrorNegocio } from '../errores';
 const BCRYPT_SALT_ROUNDS = 10;
 
 // Lo que verificarToken pone en req.usuario: el usuario con sus permisos como lista de códigos.
-export type UsuarioAutenticado = Omit<Usuario, 'permisos'> & { permisos: string[] };
+export type UsuarioAutenticado = Omit<Usuario, 'permisos'> & { permisos: string[]; vendedor_id?: string | null };
 
 // Fila de la tabla usuarios tal como la devuelve sqlite (`activo` llega como
 // 1/0 aunque el tipo Usuario lo declare boolean — se devuelve tal cual, igual
@@ -178,6 +178,7 @@ export class AutenticacionService {
       activo: sesion.activo,
       created_at: sesion.created_at,
       updated_at: sesion.updated_at,
+      vendedor_id: sesion.vendedor_id ?? null,
       permisos: permisos.map((p) => p.codigo),
     };
   }

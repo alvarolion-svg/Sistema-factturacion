@@ -10,6 +10,7 @@ import { TesoreriaService } from './services/tesoreria';
 import { AuditoriaService } from './services/auditoria';
 import { AutenticacionService } from './services/autenticacion';
 import { RolesService } from './services/roles';
+import { alcanceVendedor, filtrarPropias, requierePuedeEditarOrden, requiereOrdenPropia } from './services/alcanceOrdenes';
 import { VistasOperativasService } from './services/vistasOperativas';
 import { limpiarOrdenParaVista, limpiarListaParaVista } from './services/visibilidadOrdenes';
 import { ReportesService } from './services/reportes';
@@ -872,6 +873,9 @@ app.get('/api/auditoria/:tabla/:id', autenticacion, requierePermiso('auditoria_v
 
 app.post('/api/ordenes-publicidad', autenticacion, requierePermiso('topview_crear'), async (req: RequestConUsuario, res: Response) => {
   try {
+    // Un vendedor "solo propias" carga siempre a su nombre, diga lo que diga el pedido.
+    const alcance = alcanceVendedor(req);
+    if (alcance !== null) req.body.vendedor_id = alcance;
     const { orden, clonado } = await TopviewService.crearOrden(req.body);
     AuditoriaService.registrarOperacion('ordenes_publicidad', 'INSERT', orden.id, null, orden, req.usuario?.id, req.ip);
 
@@ -906,6 +910,8 @@ app.post('/api/ordenes-publicidad', autenticacion, requierePermiso('topview_crea
 // en TopviewService.crearOrdenesPorMes).
 app.post('/api/ordenes-publicidad/por-mes', autenticacion, requierePermiso('topview_crear'), async (req: RequestConUsuario, res: Response) => {
   try {
+    const alcance = alcanceVendedor(req);
+    if (alcance !== null) req.body.vendedor_id = alcance;
     const { ordenes } = await TopviewService.crearOrdenesPorMes(req.body);
     ordenes.forEach((orden) =>
       AuditoriaService.registrarOperacion('ordenes_publicidad', 'INSERT', orden.id, null, orden, req.usuario?.id, req.ip)
@@ -939,12 +945,14 @@ app.post('/api/ordenes-publicidad/por-mes', autenticacion, requierePermiso('topv
   }
 });
 
-app.put('/api/ordenes-publicidad/:id', autenticacion, requierePermiso('topview_editar'), async (req: RequestConUsuario, res: Response) => {
+app.put('/api/ordenes-publicidad/:id', autenticacion, requierePuedeEditarOrden, async (req: RequestConUsuario, res: Response) => {
   try {
+    const alcance = alcanceVendedor(req);
+    if (alcance !== null) req.body.vendedor_id = alcance;
     const { orden, clonado } = await TopviewService.actualizarOrden(req.params.id, req.body);
     res.json({ ...orden, _clonado: clonado });
   } catch (err) {
-    res.status(500).json({ error: mensajeDe(err) });
+    res.status(estadoHttpDe(err)).json({ error: mensajeDe(err) });
   }
 });
 
@@ -954,7 +962,7 @@ app.get('/api/ordenes-publicidad/ejecucion', autenticacion, requierePermiso('top
     const mes = req.query.mes ? Number(req.query.mes) : undefined;
     const ano = req.query.ano ? Number(req.query.ano) : undefined;
     const tipo_anunciante = (req.query.tipo_anunciante as string) || undefined;
-    const ordenes = await TopviewService.listarEjecucion({ mes, ano, tipo_anunciante });
+    const ordenes = filtrarPropias(req, await TopviewService.listarEjecucion({ mes, ano, tipo_anunciante }));
     res.json(limpiarListaParaVista(ordenes as unknown as Record<string, unknown>[], req.permisos || []));
   } catch (err) {
     res.status(500).json({ error: mensajeDe(err) });
@@ -988,7 +996,7 @@ app.get('/api/ordenes-publicidad/campanas/:id', autenticacion, requierePermiso('
   }
 });
 
-app.get('/api/ordenes-publicidad/:id', autenticacion, requierePermiso('topview_ver'), async (req: RequestConUsuario, res: Response) => {
+app.get('/api/ordenes-publicidad/:id', autenticacion, requierePermiso('topview_ver'), requiereOrdenPropia, async (req: RequestConUsuario, res: Response) => {
   try {
     const incluirComisiones = !!req.permisos?.includes('topview_netos_ver');
     const orden = await TopviewService.obtenerOrden(req.params.id, incluirComisiones);
@@ -1002,6 +1010,7 @@ app.post(
   '/api/ordenes-publicidad/:id/clonar-a-mes',
   autenticacion,
   requierePermiso('topview_crear'),
+  requiereOrdenPropia,
   async (req: RequestConUsuario, res: Response) => {
     try {
       const mes = Number(req.body.mes);
@@ -1021,7 +1030,7 @@ app.post(
 // Vista previa: arma el nombre/cuerpo de la tarea de Asana sin llamar a la
 // API de Asana — no necesita ASANA_ACCESS_TOKEN, sirve para ver qué datos se
 // extraen antes de mandar nada de verdad.
-app.get('/api/ordenes-publicidad/:id/asana-preview', autenticacion, requierePermiso('topview_ver'), async (req: RequestConUsuario, res: Response) => {
+app.get('/api/ordenes-publicidad/:id/asana-preview', autenticacion, requierePermiso('topview_ver'), requiereOrdenPropia, async (req: RequestConUsuario, res: Response) => {
   try {
     const tarea = await AsanaService.construirTarea(req.params.id);
     res.json(tarea);
@@ -1286,7 +1295,7 @@ app.get('/api/ordenes-publicidad', autenticacion, requierePermiso('topview_ver')
       fecha_desde: req.query.fecha_desde as string,
       fecha_hasta: req.query.fecha_hasta as string,
     };
-    const ordenes = await TopviewService.listarOrdenes(filtros);
+    const ordenes = filtrarPropias(req, await TopviewService.listarOrdenes(filtros));
     res.json(limpiarListaParaVista(ordenes as unknown as Record<string, unknown>[], req.permisos || []));
   } catch (err) {
     res.status(500).json({ error: mensajeDe(err) });
@@ -1519,7 +1528,7 @@ app.post('/api/ordenes-publicidad/:id/avisar-telegram', autenticacion, requiereP
   }
 });
 
-app.post('/api/ordenes-publicidad/:id/documentos', autenticacion, requierePermiso('topview_editar'), async (req: RequestConUsuario, res: Response) => {
+app.post('/api/ordenes-publicidad/:id/documentos', autenticacion, requierePuedeEditarOrden, async (req: RequestConUsuario, res: Response) => {
   try {
     const { nombreArchivo, tipoArchivo, urlDrive, descripcion } = req.body;
     const documento = await TopviewService.adjuntarDocumento(
@@ -1539,7 +1548,7 @@ app.post('/api/ordenes-publicidad/:id/documentos', autenticacion, requierePermis
 app.post(
   '/api/ordenes-publicidad/:id/documentos/subir',
   autenticacion,
-  requierePermiso('topview_editar'),
+  requierePuedeEditarOrden,
   (req: RequestConUsuario, res: Response, next: NextFunction) => {
     uploadDocumento.single('archivo')(req, res, (err: unknown) => {
       if (err) return res.status(400).json({ error: mensajeDe(err) });
@@ -2506,6 +2515,8 @@ app.post('/api/comisiones-efectivo/pagar', autenticacion, requierePermiso('topvi
 
 app.get('/api/reportes/topview', autenticacion, requierePermiso('topview_ver'), async (req: RequestConUsuario, res: Response) => {
   try {
+    // El reporte es de toda la empresa: un vendedor "solo propias" no lo ve.
+    if (alcanceVendedor(req) !== null) return res.status(403).json({ error: 'No tiene permiso para ver el reporte general.' });
     const incluirNetos = !!req.permisos?.includes('topview_netos_ver');
     const reporte = await TopviewService.reporteOrdenes(incluirNetos);
     res.json(reporte);
