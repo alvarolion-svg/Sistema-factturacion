@@ -561,6 +561,21 @@ más importantes:
     proveedor desde cliente con/sin CUIT, PUT de gastos, eliminar orden, y los 401); además las tres fotos
     de la API real idénticas. `any` total del backend: 19 (quedan: `topview.ts` 11 en
     generarFacturasReplicadas/obtenerOrden, `ventas.ts` 4 y `tesoreria.ts` 3 — flujos de plata a propósito).
+41. **Respaldo automático de la base (2026-10-02)**: `backend/scripts/respaldar-base.sh` (en el repo) +
+    un agente de macOS (`~/Library/LaunchAgents/com.topview.respaldo-base.plist`, fuera del repo) que lo
+    corre **todos los días a las 13:00 y a las 20:00** (si la Mac está dormida a esa hora, macOS lo corre al
+    despertar). Usa `sqlite3 .backup` (copia consistente con el backend andando), verifica la integridad y
+    comprime: **la base pesa 6,1 MB y cada copia ~650 KB**. Dónde guarda: (1) local, `~/Backups/Sistema
+    Facturacion/facturacion-AAAA-MM-DD_HHMM.db.gz`, las últimas 60 (~40 MB); (2) iCloud Drive, carpeta
+    `Backups Sistema Facturacion/`, un archivo por día del mes (`facturacion-dia-02.db.gz`…, ~1 mes de
+    historia, ~20 MB). El registro está en `~/Backups/Sistema Facturacion/respaldo.log`. **NO incluye el
+    `.env`** (tokens secretos): respaldarlo aparte a mano. **Restaurar:** `gunzip -c <copia>.db.gz >
+    facturacion.db` con el backend apagado (y guardar antes la base actual). Verificado: la copia
+    restaurada pasa el chequeo de integridad y tiene los mismos registros que la real. **Trampa
+    encontrada:** bajo `launchd` macOS deja escribir en iCloud pero no listar su carpeta, por eso la
+    rotación de copias viejas se hace en la carpeta local y en iCloud se usan nombres fijos por día.
+    Limitación: solo corre con la Mac prendida; no protege de perder la Mac si iCloud Drive no está
+    sincronizando.
 
 ## Cómo trabaja este usuario (para que una sesión nueva no tenga que redescubrirlo)
 
