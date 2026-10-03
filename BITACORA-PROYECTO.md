@@ -581,6 +581,21 @@ más importantes:
     `/bin/bash <ruta>/backend/scripts/respaldar-base.sh` con `StartCalendarInterval` a las 13:00 y 20:00),
     cargarlo con `launchctl bootstrap gui/$(id -u) <plist>` y probarlo con `launchctl kickstart -k
     gui/$(id -u)/com.topview.respaldo-base`. Y recordar respaldar el `.env` aparte (no está en ningún respaldo).
+42. **Gestión de usuarios: desactivar, contraseñas y editar (2026-10-02, fase 1)**: antes la solapa
+    "Usuarios" solo permitía crear y cambiar el rol. Ahora: **editar** nombre/email/departamento,
+    **definir contraseña nueva** a otro usuario (olvido), **desactivar/reactivar**, y cada usuario puede
+    **cambiar la suya** desde el botón "Mi contraseña" del encabezado (pide la actual). Reglas (en
+    `autenticacion.ts`, 33/33 pruebas contra el backend): contraseña de 8 a 72 caracteres; no se puede
+    desactivar a uno mismo; siempre tiene que quedar al menos un Administrador activo (también al
+    cambiarle el rol); al desactivar o cambiar la contraseña se **cierran las sesiones abiertas** del
+    usuario (la propia, al cambiar la suya, sigue); un usuario desactivado ya no entra ni con un token
+    viejo (`verificarToken` ahora exige `activo = 1`, antes un token de alguien dado de baja seguía
+    sirviendo hasta que vencía). Los errores de validación responden 400 (clase `ErrorNegocio`), no 500.
+    Nada guarda contraseñas en la auditoría. Rutas nuevas: `PUT /api/usuarios/:id`, `/:id/activo`,
+    `/:id/password` y `PUT /api/auth/password`. **Fase 2 pendiente:** crear y editar **roles** (nombre,
+    nivel) y elegir sus **permisos** con casillas; usar listas explícitas por rol (el patrón "todos menos
+    estos" ya causó una fuga con `topview_netos_ver`). También pendiente: cambiar la contraseña
+    `admin123` del administrador y sacarla precargada de la pantalla de login.
 
 ## Cómo trabaja este usuario (para que una sesión nueva no tenga que redescubrirlo)
 

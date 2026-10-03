@@ -3,6 +3,7 @@ import { v4 as uuid } from 'uuid';
 import db from '../database';
 import { dbAll, dbGet, dbRun } from '../dbHelpers';
 import { Usuario, Sesion, LoginResponse, Permiso, Rol } from '../types';
+import { ErrorNegocio } from '../errores';
 
 const BCRYPT_SALT_ROUNDS = 10;
 
@@ -151,7 +152,7 @@ export class AutenticacionService {
         FROM sesiones s
         JOIN usuarios u ON s.usuario_id = u.id
         LEFT JOIN roles r ON u.rol_id = r.id
-        WHERE s.token = ? AND s.activa = 1 AND s.fecha_expiracion > datetime('now')
+        WHERE s.token = ? AND s.activa = 1 AND u.activo = 1 AND s.fecha_expiracion > datetime('now')
       `,
       [token]
     );
@@ -190,6 +191,7 @@ export class AutenticacionService {
     rol_id: string;
     departamento?: string;
   }): Promise<Usuario> {
+    this.validarPassword(datos.password);
     const passwordHash = await bcrypt.hash(datos.password, BCRYPT_SALT_ROUNDS);
     const id = uuid();
 
@@ -223,6 +225,7 @@ export class AutenticacionService {
    * Cambiar rol de usuario
    */
   static async cambiarRol(usuarioId: string, nuevoRolId: string): Promise<Usuario> {
+    await this.exigirQueQuedeUnAdministrador(usuarioId, nuevoRolId);
     await dbRun('UPDATE usuarios SET rol_id = ? WHERE id = ?', [nuevoRolId, usuarioId]);
 
     const usuario = await dbGet<UsuarioFila>('SELECT * FROM usuarios WHERE id = ?', [usuarioId]);
@@ -242,6 +245,124 @@ export class AutenticacionService {
       rol,
       permisos,
     };
+  }
+
+  // ---- Gestión de usuarios: contraseñas, activación y datos ----
+
+  private static validarPassword(password: unknown): string {
+    if (typeof password !== 'string' || password.length < 8) {
+      throw new ErrorNegocio('La contraseña tiene que tener al menos 8 caracteres.');
+    }
+    if (password.length > 72) throw new ErrorNegocio('La contraseña no puede tener más de 72 caracteres.');
+    return password;
+  }
+
+  // Cierra las sesiones abiertas del usuario (opcionalmente dejando una), así
+  // un cambio de contraseña o una baja tiene efecto en el momento y no recién
+  // cuando vence el token.
+  private static async cerrarSesiones(usuarioId: string, exceptoToken?: string): Promise<void> {
+    if (exceptoToken) {
+      await dbRun('UPDATE sesiones SET activa = 0 WHERE usuario_id = ? AND token != ?', [usuarioId, exceptoToken]);
+    } else {
+      await dbRun('UPDATE sesiones SET activa = 0 WHERE usuario_id = ?', [usuarioId]);
+    }
+  }
+
+  private static async administradoresActivos(): Promise<number> {
+    const fila = await dbGet<{ c: number }>(
+      'SELECT COUNT(*) AS c FROM usuarios u JOIN roles r ON r.id = u.rol_id WHERE u.activo = 1 AND r.nivel = 1'
+    );
+    return fila?.c ?? 0;
+  }
+
+  // Nunca puede quedar el sistema sin ningún Administrador activo (nivel 1):
+  // se chequea al desactivar a uno o al cambiarle el rol a otro nivel.
+  private static async exigirQueQuedeUnAdministrador(usuarioId: string, nuevoRolId?: string): Promise<void> {
+    const actual = await dbGet<{ activo: number; nivel: number | null }>(
+      'SELECT u.activo AS activo, r.nivel AS nivel FROM usuarios u LEFT JOIN roles r ON r.id = u.rol_id WHERE u.id = ?',
+      [usuarioId]
+    );
+    if (!actual || !actual.activo || actual.nivel !== 1) return;
+    if (nuevoRolId !== undefined) {
+      const nuevo = await dbGet<{ nivel: number }>('SELECT nivel FROM roles WHERE id = ?', [nuevoRolId]);
+      if (nuevo?.nivel === 1) return;
+    }
+    if ((await this.administradoresActivos()) <= 1) {
+      throw new ErrorNegocio('Tiene que quedar al menos un Administrador activo.');
+    }
+  }
+
+  /**
+   * Un administrador define una contraseña nueva para otro usuario (olvido).
+   * Se cierran las sesiones abiertas de ese usuario.
+   */
+  static async restablecerPassword(usuarioId: string, passwordNueva: string): Promise<void> {
+    this.validarPassword(passwordNueva);
+    const usuario = await dbGet<{ id: string }>('SELECT id FROM usuarios WHERE id = ?', [usuarioId]);
+    if (!usuario) throw new ErrorNegocio('Usuario no encontrado.');
+    const hash = await bcrypt.hash(passwordNueva, BCRYPT_SALT_ROUNDS);
+    await dbRun('UPDATE usuarios SET password = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [hash, usuarioId]);
+    await this.cerrarSesiones(usuarioId);
+  }
+
+  /**
+   * Cada usuario cambia su propia contraseña (pide la actual). Las demás
+   * sesiones abiertas se cierran; la de ahora sigue.
+   */
+  static async cambiarPasswordPropia(
+    usuarioId: string,
+    tokenActual: string,
+    passwordActual: string,
+    passwordNueva: string
+  ): Promise<void> {
+    const usuario = await dbGet<{ password: string }>('SELECT password FROM usuarios WHERE id = ? AND activo = 1', [usuarioId]);
+    if (!usuario) throw new ErrorNegocio('Usuario no encontrado.');
+    if (typeof passwordActual !== 'string' || !(await bcrypt.compare(passwordActual, usuario.password))) {
+      throw new ErrorNegocio('La contraseña actual no es correcta.');
+    }
+    this.validarPassword(passwordNueva);
+    if (passwordNueva === passwordActual) throw new ErrorNegocio('La contraseña nueva tiene que ser distinta de la actual.');
+    const hash = await bcrypt.hash(passwordNueva, BCRYPT_SALT_ROUNDS);
+    await dbRun('UPDATE usuarios SET password = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [hash, usuarioId]);
+    await this.cerrarSesiones(usuarioId, tokenActual);
+  }
+
+  /**
+   * Desactivar (o reactivar) un usuario. Al desactivarlo se cierran sus
+   * sesiones. No se puede desactivar a uno mismo ni al último Administrador.
+   */
+  static async cambiarActivo(usuarioId: string, activo: boolean, actorId: string): Promise<void> {
+    const usuario = await dbGet<{ id: string }>('SELECT id FROM usuarios WHERE id = ?', [usuarioId]);
+    if (!usuario) throw new ErrorNegocio('Usuario no encontrado.');
+    if (!activo) {
+      if (usuarioId === actorId) throw new ErrorNegocio('No podés desactivar tu propio usuario.');
+      await this.exigirQueQuedeUnAdministrador(usuarioId);
+    }
+    await dbRun('UPDATE usuarios SET activo = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [activo ? 1 : 0, usuarioId]);
+    if (!activo) await this.cerrarSesiones(usuarioId);
+  }
+
+  /**
+   * Corrige nombre, email y departamento de un usuario.
+   */
+  static async actualizarDatos(
+    usuarioId: string,
+    datos: { nombre?: string; email?: string; departamento?: string }
+  ): Promise<void> {
+    const usuario = await dbGet<{ id: string }>('SELECT id FROM usuarios WHERE id = ?', [usuarioId]);
+    if (!usuario) throw new ErrorNegocio('Usuario no encontrado.');
+    const nombre = (datos.nombre || '').trim();
+    const email = (datos.email || '').trim().toLowerCase();
+    if (!nombre) throw new ErrorNegocio('El nombre es obligatorio.');
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new ErrorNegocio('El email no es válido.');
+    const repetido = await dbGet<{ id: string }>('SELECT id FROM usuarios WHERE lower(email) = ? AND id != ?', [email, usuarioId]);
+    if (repetido) throw new ErrorNegocio('Ya hay otro usuario con ese email.');
+    await dbRun('UPDATE usuarios SET nombre = ?, email = ?, departamento = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [
+      nombre,
+      email,
+      (datos.departamento || '').trim() || null,
+      usuarioId,
+    ]);
   }
 
   /**

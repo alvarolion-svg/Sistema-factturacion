@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { authHeaders, mensajeError, scrollAlFormulario } from '../utils/api';
 
@@ -52,6 +52,65 @@ function UsuariosView({ token, usuario }: UsuariosViewProps) {
   const [rolSeleccionado, setRolSeleccionado] = useState('');
   const [guardandoRol, setGuardandoRol] = useState(false);
   const [errorRol, setErrorRol] = useState('');
+
+  // Panel inline debajo de la fila: editar datos o definir una contraseña nueva.
+  const [panel, setPanel] = useState<{ id: string; tipo: 'editar' | 'password' } | null>(null);
+  const [formEditar, setFormEditar] = useState({ nombre: '', email: '', departamento: '' });
+  const [passNueva, setPassNueva] = useState('');
+  const [guardandoPanel, setGuardandoPanel] = useState(false);
+  const [errorPanel, setErrorPanel] = useState('');
+  const [errorAccion, setErrorAccion] = useState('');
+  const [avisoAccion, setAvisoAccion] = useState('');
+
+  const handleAbrirEditar = (u: Usuario) => {
+    setFormEditar({ nombre: u.nombre, email: u.email, departamento: u.departamento || '' });
+    setErrorPanel('');
+    setPanel({ id: u.id, tipo: 'editar' });
+  };
+
+  const handleAbrirPassword = (u: Usuario) => {
+    setPassNueva('');
+    setErrorPanel('');
+    setPanel({ id: u.id, tipo: 'password' });
+  };
+
+  const handleGuardarPanel = async () => {
+    if (!panel) return;
+    setGuardandoPanel(true);
+    setErrorPanel('');
+    try {
+      if (panel.tipo === 'editar') {
+        await axios.put(`/api/usuarios/${panel.id}`, formEditar, authHeaders(token));
+      } else {
+        await axios.put(`/api/usuarios/${panel.id}/password`, { password_nueva: passNueva }, authHeaders(token));
+        setAvisoAccion('Contraseña cambiada. Si ese usuario estaba conectado, se le cerró la sesión.');
+      }
+      setPanel(null);
+      cargarDatos();
+    } catch (err) {
+      setErrorPanel(mensajeError(err, 'No se pudo guardar.'));
+    } finally {
+      setGuardandoPanel(false);
+    }
+  };
+
+  const handleCambiarActivo = async (u: Usuario) => {
+    const desactivar = u.activo;
+    if (
+      desactivar &&
+      !window.confirm(`¿Desactivar a ${u.nombre}? No va a poder ingresar al sistema y se le cierra la sesión si estaba conectado.`)
+    ) {
+      return;
+    }
+    setErrorAccion('');
+    setAvisoAccion('');
+    try {
+      await axios.put(`/api/usuarios/${u.id}/activo`, { activo: !desactivar }, authHeaders(token));
+      cargarDatos();
+    } catch (err) {
+      setErrorAccion(mensajeError(err, 'No se pudo cambiar el estado del usuario.'));
+    }
+  };
 
   const cargarDatos = () => {
     setError('');
@@ -229,6 +288,9 @@ function UsuariosView({ token, usuario }: UsuariosViewProps) {
         </form>
       )}
 
+      {errorAccion && <div className="error-message">{errorAccion}</div>}
+      {avisoAccion && <div className="success-message" style={{ marginBottom: '0.75rem' }}>{avisoAccion}</div>}
+
       {usuarios === null && !error && <p className="empty-state">Cargando usuarios...</p>}
 
       {error && usuarios && usuarios.length === 0 && <div className="error-message">{error}</div>}
@@ -251,47 +313,93 @@ function UsuariosView({ token, usuario }: UsuariosViewProps) {
           </thead>
           <tbody>
             {usuarios.map((u) => (
-              <tr key={u.id}>
-                <td>{u.nombre}</td>
-                <td>{u.email}</td>
-                <td>{u.rol_nombre || '-'}</td>
-                <td>{u.departamento || '-'}</td>
-                <td>{u.activo ? 'Sí' : 'No'}</td>
-                {puedeGestionar && (
-                  <td className="acciones">
-                    {editandoRolId === u.id ? (
-                      <span className="confirmar-baja-inline">
-                        {errorRol && <span className="ayuda-error">{errorRol} </span>}
-                        <select
-                          value={rolSeleccionado}
-                          onChange={(e) => setRolSeleccionado(e.target.value)}
-                          disabled={guardandoRol}
-                        >
-                          {roles.map((r) => (
-                            <option key={r.id} value={r.id}>
-                              {r.nombre}
-                            </option>
-                          ))}
-                        </select>{' '}
-                        <button
-                          className="btn-link"
-                          onClick={() => handleGuardarRol(u.id)}
-                          disabled={guardandoRol}
-                        >
-                          {guardandoRol ? 'Guardando...' : 'Guardar'}
+              <Fragment key={u.id}>
+                <tr style={u.activo ? undefined : { opacity: 0.55 }}>
+                  <td>{u.nombre}</td>
+                  <td>{u.email}</td>
+                  <td>{u.rol_nombre || '-'}</td>
+                  <td>{u.departamento || '-'}</td>
+                  <td>{u.activo ? 'Sí' : 'No (desactivado)'}</td>
+                  {puedeGestionar && (
+                    <td className="acciones">
+                      {editandoRolId === u.id ? (
+                        <span className="confirmar-baja-inline">
+                          {errorRol && <span className="ayuda-error">{errorRol} </span>}
+                          <select value={rolSeleccionado} onChange={(e) => setRolSeleccionado(e.target.value)} disabled={guardandoRol}>
+                            {roles.map((r) => (
+                              <option key={r.id} value={r.id}>
+                                {r.nombre}
+                              </option>
+                            ))}
+                          </select>{' '}
+                          <button className="btn-link" onClick={() => handleGuardarRol(u.id)} disabled={guardandoRol}>
+                            {guardandoRol ? 'Guardando...' : 'Guardar'}
+                          </button>{' '}
+                          <button className="btn-link" onClick={() => setEditandoRolId(null)}>
+                            Cancelar
+                          </button>
+                        </span>
+                      ) : (
+                        <>
+                          <button className="btn-link" onClick={() => handleAbrirEditar(u)}>
+                            Editar
+                          </button>{' '}
+                          <button className="btn-link" onClick={() => handleAbrirCambioRol(u)}>
+                            Cambiar rol
+                          </button>{' '}
+                          <button className="btn-link" onClick={() => handleAbrirPassword(u)}>
+                            Contraseña
+                          </button>
+                          {u.id !== usuario?.id && (
+                            <>
+                              {' '}
+                              <button className="btn-link" onClick={() => handleCambiarActivo(u)}>
+                                {u.activo ? 'Desactivar' : 'Reactivar'}
+                              </button>
+                            </>
+                          )}
+                        </>
+                      )}
+                    </td>
+                  )}
+                </tr>
+                {panel?.id === u.id && (
+                  <tr>
+                    <td colSpan={6} style={{ background: '#f7f7f9' }}>
+                      {errorPanel && <div className="error-message">{errorPanel}</div>}
+                      {panel.tipo === 'editar' ? (
+                        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                          <label>
+                            Nombre
+                            <input value={formEditar.nombre} onChange={(e) => setFormEditar({ ...formEditar, nombre: e.target.value })} disabled={guardandoPanel} />
+                          </label>
+                          <label>
+                            Email
+                            <input type="email" value={formEditar.email} onChange={(e) => setFormEditar({ ...formEditar, email: e.target.value })} disabled={guardandoPanel} />
+                          </label>
+                          <label>
+                            Departamento
+                            <input value={formEditar.departamento} onChange={(e) => setFormEditar({ ...formEditar, departamento: e.target.value })} disabled={guardandoPanel} />
+                          </label>
+                        </div>
+                      ) : (
+                        <label>
+                          Contraseña nueva para {u.nombre} (mínimo 8 caracteres)
+                          <input type="password" value={passNueva} onChange={(e) => setPassNueva(e.target.value)} disabled={guardandoPanel} autoFocus />
+                        </label>
+                      )}
+                      <div style={{ marginTop: '0.6rem' }}>
+                        <button className="btn-primary" onClick={handleGuardarPanel} disabled={guardandoPanel}>
+                          {guardandoPanel ? 'Guardando...' : 'Guardar'}
                         </button>{' '}
-                        <button className="btn-link" onClick={() => setEditandoRolId(null)}>
+                        <button className="btn-link" onClick={() => setPanel(null)} disabled={guardandoPanel}>
                           Cancelar
                         </button>
-                      </span>
-                    ) : (
-                      <button className="btn-link" onClick={() => handleAbrirCambioRol(u)}>
-                        Cambiar rol
-                      </button>
-                    )}
-                  </td>
+                      </div>
+                    </td>
+                  </tr>
                 )}
-              </tr>
+              </Fragment>
             ))}
           </tbody>
         </table>

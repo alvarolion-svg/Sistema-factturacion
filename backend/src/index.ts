@@ -15,7 +15,7 @@ import { TelegramService } from './services/telegram';
 import { ProduccionTopviewService } from './services/produccionTopview';
 import { LocacionesService } from './services/locaciones';
 import { LiquidacionesService } from './services/liquidaciones';
-import { mensajeDe } from './errores';
+import { mensajeDe, estadoHttpDe } from './errores';
 import { Parametro, dbAll, dbGet } from './dbHelpers';
 
 // Filas que las rutas de este archivo leen con db.get/db.all directo — solo las
@@ -228,7 +228,7 @@ app.post('/api/usuarios', autenticacion, requierePermiso('usuarios_gestionar'), 
     AuditoriaService.registrarOperacion('usuarios', 'INSERT', usuario.id, null, usuario, req.usuario?.id, req.ip);
     res.json(usuario);
   } catch (err) {
-    res.status(500).json({ error: mensajeDe(err) });
+    res.status(estadoHttpDe(err)).json({ error: mensajeDe(err) });
   }
 });
 
@@ -239,7 +239,51 @@ app.put('/api/usuarios/:id/rol', autenticacion, requierePermiso('usuarios_gestio
     AuditoriaService.registrarOperacion('usuarios', 'UPDATE', req.params.id, null, { rol_id: nuevo_rol_id }, req.usuario?.id, req.ip);
     res.json(usuario);
   } catch (err) {
-    res.status(500).json({ error: mensajeDe(err) });
+    res.status(estadoHttpDe(err)).json({ error: mensajeDe(err) });
+  }
+});
+
+app.put('/api/usuarios/:id', autenticacion, requierePermiso('usuarios_gestionar'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    await AutenticacionService.actualizarDatos(req.params.id, req.body);
+    AuditoriaService.registrarOperacion('usuarios', 'UPDATE', req.params.id, null, { nombre: req.body.nombre, email: req.body.email, departamento: req.body.departamento }, req.usuario?.id, req.ip);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(estadoHttpDe(err)).json({ error: mensajeDe(err) });
+  }
+});
+
+app.put('/api/usuarios/:id/activo', autenticacion, requierePermiso('usuarios_gestionar'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    const activo = req.body.activo === true || req.body.activo === 1;
+    await AutenticacionService.cambiarActivo(req.params.id, activo, req.usuario!.id);
+    AuditoriaService.registrarOperacion('usuarios', 'UPDATE', req.params.id, null, { activo }, req.usuario?.id, req.ip);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(estadoHttpDe(err)).json({ error: mensajeDe(err) });
+  }
+});
+
+// Un administrador define una contraseña nueva para otro usuario.
+app.put('/api/usuarios/:id/password', autenticacion, requierePermiso('usuarios_gestionar'), async (req: RequestConUsuario, res: Response) => {
+  try {
+    await AutenticacionService.restablecerPassword(req.params.id, req.body.password_nueva);
+    AuditoriaService.registrarOperacion('usuarios', 'UPDATE', req.params.id, null, { password_restablecida: true }, req.usuario?.id, req.ip);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(estadoHttpDe(err)).json({ error: mensajeDe(err) });
+  }
+});
+
+// Cada usuario cambia la suya (no requiere permiso especial, pide la actual).
+app.put('/api/auth/password', autenticacion, async (req: RequestConUsuario, res: Response) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1] || '';
+    await AutenticacionService.cambiarPasswordPropia(req.usuario!.id, token, req.body.password_actual, req.body.password_nueva);
+    AuditoriaService.registrarOperacion('usuarios', 'UPDATE', req.usuario!.id, null, { password_cambiada: true }, req.usuario?.id, req.ip);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(estadoHttpDe(err)).json({ error: mensajeDe(err) });
   }
 });
 

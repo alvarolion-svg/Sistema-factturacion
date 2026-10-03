@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import CambiarPasswordModal from './components/CambiarPasswordModal';
 import axios from 'axios';
 import './App.css';
 import ClientesView from './components/ClientesView';
@@ -69,6 +70,8 @@ function App() {
     }
   };
 
+  const [mostrarCambioPassword, setMostrarCambioPassword] = useState(false);
+
   const handleLogout = () => {
     setUsuario(null);
     setToken('');
@@ -99,6 +102,23 @@ function App() {
           <h1>Gestion de Ordenes</h1>
           <p>Gestión de ordenes, clientes y reportes</p>
           <button
+            onClick={() => setMostrarCambioPassword(true)}
+            style={{
+              position: 'absolute',
+              right: '7rem',
+              top: '50%',
+              transform: 'translateY(-50%)',
+              background: 'rgba(255,255,255,0.2)',
+              color: 'white',
+              border: 'none',
+              padding: '0.5rem 1rem',
+              borderRadius: '4px',
+              cursor: 'pointer'
+            }}
+          >
+            Mi contraseña
+          </button>
+          <button
             onClick={handleLogout}
             style={{
               position: 'absolute',
@@ -116,6 +136,8 @@ function App() {
             Logout
           </button>
         </header>
+
+        {mostrarCambioPassword && <CambiarPasswordModal token={token} onCerrar={() => setMostrarCambioPassword(false)} />}
 
         <nav className="navbar">
           <ul>
