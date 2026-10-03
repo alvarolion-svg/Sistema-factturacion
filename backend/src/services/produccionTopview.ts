@@ -1,5 +1,5 @@
 import { v4 as uuid } from 'uuid';
-import db from '../database';
+import { dbAll, dbGet, dbRun } from '../dbHelpers';
 import { AuditoriaService } from './auditoria';
 import { TesoreriaService } from './tesoreria';
 
@@ -12,6 +12,33 @@ interface LineaProduccion {
   medida?: string;
   tarifa: number;
   descuento_porcentaje?: number;
+}
+
+// Filas de ordenes_produccion / su detalle: solo lo que se lee por nombre; el
+// resto de las columnas viaja tal cual (índice abierto) porque se devuelve entera.
+interface FilaOrdenProduccion {
+  id: string;
+  numero_orden: string;
+  cliente_id: string | null;
+  fecha: string;
+  subtotal: number;
+  iva: number;
+  total: number;
+  factura_id?: string | null;
+  [columna: string]: unknown;
+}
+
+interface FilaLineaProduccion {
+  producto_id: string | null;
+  caras_elementos: number;
+  tarifa: number;
+  importe_neto: number;
+  descripcion_ubicacion: string;
+  [columna: string]: unknown;
+}
+
+interface OrdenProduccionCompleta extends FilaOrdenProduccion {
+  lineas: FilaLineaProduccion[];
 }
 
 interface DatosOrdenProduccion {
@@ -38,24 +65,6 @@ interface DatosOrdenProduccion {
 // tiene su propio precio (cantidad x tarifa - descuento), a diferencia de las
 // órdenes de exhibición donde el monto es uno solo para toda la orden.
 export class ProduccionTopviewService {
-  private static queryAll(sql: string, params: any[] = []): Promise<any[]> {
-    return new Promise((resolve, reject) => {
-      db.all(sql, params, (err, filas: any[]) => (err ? reject(err) : resolve(filas || [])));
-    });
-  }
-
-  private static queryGet(sql: string, params: any[] = []): Promise<any> {
-    return new Promise((resolve, reject) => {
-      db.get(sql, params, (err, fila: any) => (err ? reject(err) : resolve(fila || {})));
-    });
-  }
-
-  private static runQuery(sql: string, params: any[] = []): Promise<void> {
-    return new Promise((resolve, reject) => {
-      db.run(sql, params, (err) => (err ? reject(err) : resolve()));
-    });
-  }
-
   private static calcularLineas(lineas: LineaProduccion[]) {
     const lineasCalculadas = lineas.map((l) => {
       const caras = Number(l.caras_elementos) || 0;
@@ -70,7 +79,7 @@ export class ProduccionTopviewService {
     return { lineasCalculadas, subtotal, iva, total };
   }
 
-  static async crearOrdenProduccion(datos: DatosOrdenProduccion): Promise<any> {
+  static async crearOrdenProduccion(datos: DatosOrdenProduccion): Promise<OrdenProduccionCompleta> {
     if (!datos.cliente_id) throw new Error('El cliente es obligatorio.');
     if (!datos.lineas || datos.lineas.length === 0) throw new Error('Agregá al menos una línea de producción.');
 
@@ -79,7 +88,7 @@ export class ProduccionTopviewService {
     const id = uuid();
     const numeroOrden = `OPR-${Date.now()}`;
 
-    await this.runQuery(
+    await dbRun(
       `
       INSERT INTO ordenes_produccion (
         id, numero_orden, numero_orden_cliente, agencia_id, cliente_id, proveedor_id, medio, marca, campana,
@@ -113,7 +122,7 @@ export class ProduccionTopviewService {
     );
 
     for (const l of lineasCalculadas) {
-      await this.runQuery(
+      await dbRun(
         `
         INSERT INTO ordenes_produccion_detalles (
           id, orden_produccion_id, descripcion_ubicacion, producto_id, caras_elementos, medida,
@@ -138,8 +147,8 @@ export class ProduccionTopviewService {
     return this.obtenerOrdenProduccion(id);
   }
 
-  static async actualizarOrdenProduccion(id: string, datos: DatosOrdenProduccion): Promise<any> {
-    const existente = await this.queryGet('SELECT * FROM ordenes_produccion WHERE id = ?', [id]);
+  static async actualizarOrdenProduccion(id: string, datos: DatosOrdenProduccion): Promise<OrdenProduccionCompleta> {
+    const existente = await dbGet<FilaOrdenProduccion>('SELECT * FROM ordenes_produccion WHERE id = ?', [id]);
     if (!existente || !existente.id) throw new Error('Orden de producción no encontrada.');
     if (existente.factura_id) throw new Error('Esta orden ya fue facturada — no se puede editar. Podés clonarla para crear una nueva.');
     if (!datos.cliente_id) throw new Error('El cliente es obligatorio.');
@@ -147,7 +156,7 @@ export class ProduccionTopviewService {
 
     const { lineasCalculadas, subtotal, iva, total } = this.calcularLineas(datos.lineas);
 
-    await this.runQuery(
+    await dbRun(
       `
       UPDATE ordenes_produccion SET
         numero_orden_cliente = ?, agencia_id = ?, cliente_id = ?, proveedor_id = ?, medio = ?, marca = ?, campana = ?,
@@ -179,9 +188,9 @@ export class ProduccionTopviewService {
       ]
     );
 
-    await this.runQuery('DELETE FROM ordenes_produccion_detalles WHERE orden_produccion_id = ?', [id]);
+    await dbRun('DELETE FROM ordenes_produccion_detalles WHERE orden_produccion_id = ?', [id]);
     for (const l of lineasCalculadas) {
-      await this.runQuery(
+      await dbRun(
         `
         INSERT INTO ordenes_produccion_detalles (
           id, orden_produccion_id, descripcion_ubicacion, producto_id, caras_elementos, medida,
@@ -206,8 +215,8 @@ export class ProduccionTopviewService {
     return this.obtenerOrdenProduccion(id);
   }
 
-  static async obtenerOrdenProduccion(id: string): Promise<any> {
-    const orden = await this.queryGet(
+  static async obtenerOrdenProduccion(id: string): Promise<OrdenProduccionCompleta> {
+    const orden = await dbGet<FilaOrdenProduccion>(
       `
       SELECT op.*, c.razon_social as cliente_razon_social, a.nombre as agencia_nombre, p.razon_social as proveedor_razon_social,
              f.numero as factura_numero
@@ -221,15 +230,15 @@ export class ProduccionTopviewService {
       [id]
     );
     if (!orden || !orden.id) throw new Error('Orden de producción no encontrada.');
-    const lineas = await this.queryAll(
+    const lineas = await dbAll<FilaLineaProduccion>(
       'SELECT * FROM ordenes_produccion_detalles WHERE orden_produccion_id = ? ORDER BY created_at',
       [id]
     );
     return { ...orden, lineas };
   }
 
-  static async listarOrdenesProduccion(): Promise<any[]> {
-    return this.queryAll(`
+  static async listarOrdenesProduccion(): Promise<FilaOrdenProduccion[]> {
+    return dbAll<FilaOrdenProduccion>(`
       SELECT op.*, c.razon_social as cliente_razon_social, a.nombre as agencia_nombre, p.razon_social as proveedor_razon_social
       FROM ordenes_produccion op
       LEFT JOIN clientes c ON c.id = op.cliente_id
@@ -245,7 +254,7 @@ export class ProduccionTopviewService {
   // actualizarOrdenProduccion). Se puede cambiar en cualquier momento desde
   // la lista, igual que en ordenes_publicidad.
   static async actualizarEstado(id: string, nuevoEstado: string): Promise<void> {
-    await this.runQuery('UPDATE ordenes_produccion SET estado = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [
+    await dbRun('UPDATE ordenes_produccion SET estado = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [
       nuevoEstado,
       id,
     ]);
@@ -259,7 +268,7 @@ export class ProduccionTopviewService {
     id: string,
     datos: { numero_factura_colppy?: string; numero_nc_colppy?: string }
   ): Promise<void> {
-    await this.runQuery(
+    await dbRun(
       `UPDATE ordenes_produccion SET
         numero_factura_colppy = COALESCE(?, numero_factura_colppy),
         numero_nc_colppy = COALESCE(?, numero_nc_colppy),
@@ -271,7 +280,7 @@ export class ProduccionTopviewService {
   }
 
   static async eliminarOrdenProduccion(id: string): Promise<void> {
-    await this.runQuery('UPDATE ordenes_produccion SET habilitado = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [id]);
+    await dbRun('UPDATE ordenes_produccion SET habilitado = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [id]);
     AuditoriaService.registrarOperacion('ordenes_produccion', 'DELETE', id, null, { habilitado: 0 });
   }
 
@@ -287,7 +296,7 @@ export class ProduccionTopviewService {
     const facturaId = uuid();
     const numeroFactura = `FAC-${orden.numero_orden}`;
 
-    await this.runQuery(
+    await dbRun(
       `
       INSERT INTO facturas (
         id, numero, cliente_id, fecha, tipo_comprobante, estado, subtotal, iva, total, saldo
@@ -297,7 +306,7 @@ export class ProduccionTopviewService {
     );
 
     for (const l of orden.lineas) {
-      await this.runQuery(
+      await dbRun(
         `
         INSERT INTO facturas_detalles (
           id, factura_id, producto_id, cantidad, precio_unitario, subtotal, descripcion
@@ -315,7 +324,7 @@ export class ProduccionTopviewService {
       );
     }
 
-    await this.runQuery(
+    await dbRun(
       'UPDATE ordenes_produccion SET factura_id = ?, estado = "Facturada", updated_at = CURRENT_TIMESTAMP WHERE id = ?',
       [facturaId, id]
     );

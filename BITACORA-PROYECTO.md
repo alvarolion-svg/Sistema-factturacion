@@ -542,6 +542,13 @@ más importantes:
     tiparon locación, soporte (capacidad) y punto. Verificado: foto de las 21 locaciones y su detalle por
     API idéntica, y comparación vieja-vs-nueva de 20 operaciones (crear, actualizar parcial/completo,
     soportes con y sin puntos, eliminar y casos de error) con las tablas iguales. `any` total del backend: 54.
+39. **Limpieza de produccionTopview.ts (2026-10-02)**: 9 → 0 `any` y sin promesas manuales (ya estaba en
+    async/await; solo se cambiaron los helpers por `dbHelpers` y se tiparon las filas de orden de
+    producción y sus líneas). Verificado con comparación vieja-vs-nueva de 21 operaciones (listar y leer
+    las órdenes reales, crear, actualizar, estado, Colppy, `generarFactura` con su cuenta corriente y
+    los casos de error): idéntico en las 5 tablas involucradas (órdenes, detalles, facturas, detalle de
+    facturas y cuenta corriente; solo difiere el número de factura, que lleva la hora). `any` total del
+    backend: 43.
 
 ## Cómo trabaja este usuario (para que una sesión nueva no tenga que redescubrirlo)
 
